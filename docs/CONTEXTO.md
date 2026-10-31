@@ -34,6 +34,17 @@ Resumo da conversa de 30/10/2026 no app do Claude, salvo aqui para não se perde
 - Risco: conexão por QR vai contra os termos do WhatsApp (mesmo risco da DevZapp hoje).
 - Rodar em paralelo com a DevZapp.
 
+## Melhorias escolhidas (pesquisa em sistemas de fora)
+- Etapa 1: inventário com leitor QR (conferir caixa), sugestão de baixar preço de peças paradas.
+- Etapa 2: anunciar em vários canais (ML, OLX, Facebook – a confirmar), publicação em lote, pedidos em espera/alertas, revisão de compatibilidades.
+- Depois: leitura de chassi por foto, vitrine própria para WhatsApp/grupos.
+
+## Fora do escopo (decisão do usuário)
+- Lucro por sucata
+- Ordem de desmontagem
+- Nota fiscal
+- Registro no Detran
+
 ## Pendências
 - [ ] Conta no GitHub (✅ existe – este repositório)
 - [ ] Conta na Cloudflare
