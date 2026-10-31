@@ -52,3 +52,7 @@ Resumo da conversa de 30/10/2026 no app do Claude, salvo aqui para não se perde
 - [ ] Verificar se o iBR exporta peças em Excel/CSV
 - [ ] Prints de 5–10 peças do iBR (part number, título, descrição, compatibilidades)
 - [ ] Conta na Oracle Cloud (onde a conversa parou)
+
+## Padrão de título (src/titulo.js)
+Ordem fixa: **Nome da peça · Part number · Carro · Motor · Ano · Modelo · Combustível** (máx. 60 caracteres).
+Se passar de 60, encurta nesta ordem: ano 2008/11 → combustível abreviado → ano 08/11 → tira combustível → tira modelo → tira motor → tira ano → corta o nome por palavra. Nome, part number e carro são sempre mantidos.
