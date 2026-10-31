@@ -45,6 +45,9 @@ Resumo da conversa de 30/10/2026 no app do Claude, salvo aqui para não se perde
 - Nota fiscal
 - Registro no Detran
 
+## Pesquisa de funcionalidades
+Ver `docs/PESQUISA-FUNCIONALIDADES.md`. Atenção: desde 15/07/2026 a API do ML só permite ler um resumo e aceitar/recusar 100% das compatibilidades sugeridas pelo catálogo → plano da Etapa 2 ajustado para usar base própria de compatibilidades (alimentada pelo histórico e pela exportação do iBR).
+
 ## Pendências
 - [ ] Conta no GitHub (✅ existe – este repositório)
 - [ ] Conta na Cloudflare
