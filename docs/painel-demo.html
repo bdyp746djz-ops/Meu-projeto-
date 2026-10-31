@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rafa Busca Peças — Painel</title>
+<style>
+:root{
+  --red:#c62828; --red2:#e53935; --ink:#1d1f23; --mut:#6b7280; --line:#e8eaed;
+  --bg:#f4f5f7; --card:#fff; --ok:#1f9d55; --amber:#e6a800; --olx:#6e0ad6; --blue:#1565c0;
+  --rad:14px; --sh:0 1px 3px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.04);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+a{color:inherit}
+.app{display:flex;min-height:100vh}
+/* sidebar */
+.side{width:230px;background:#fff;border-right:1px solid var(--line);padding:16px 12px;position:sticky;top:0;height:100vh;flex-shrink:0}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:16px;padding:6px 8px 16px}
+.brand .logo{width:34px;height:34px;border-radius:9px;background:var(--red);color:#fff;display:grid;place-items:center;font-size:18px}
+.nav a{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:10px;color:#3a3f46;text-decoration:none;font-weight:600;margin:2px 0}
+.nav a .i{width:18px;text-align:center;opacity:.9}
+.nav a.on{background:#fdecea;color:var(--red)}
+.nav a:not(.on):hover{background:#f3f4f6}
+.nav .sep{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#9aa1ab;padding:14px 12px 4px;font-weight:700}
+/* main */
+.main{flex:1;min-width:0;padding:22px 26px 40px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.top h1{font-size:22px;margin:0}
+.top .sub{color:var(--mut);font-size:13px;margin-top:2px}
+.top .tools{display:flex;gap:10px;align-items:center}
+.pill{background:#fff;border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-weight:600;box-shadow:var(--sh);display:flex;gap:8px;align-items:center}
+.bell{position:relative}
+.bell .dot{position:absolute;top:-4px;right:-4px;background:var(--red);color:#fff;border-radius:999px;font-size:10px;font-weight:700;min-width:17px;height:17px;display:grid;place-items:center;padding:0 4px}
+/* kpi */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--rad);padding:15px 16px;box-shadow:var(--sh)}
+.kpi .l{color:var(--mut);font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:7px}
+.kpi .v{font-size:26px;font-weight:800;margin-top:7px;letter-spacing:-.01em}
+.kpi .d{font-size:12px;margin-top:3px}
+.up{color:var(--ok);font-weight:700}.down{color:var(--red);font-weight:700}
+.kpi.flag{border-color:#f4c7c3;background:#fff7f6}
+.ic{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;font-size:15px}
+/* grid areas */
+.cols{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;margin-bottom:20px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:var(--rad);box-shadow:var(--sh);padding:16px 18px}
+.panel h2{font-size:15px;margin:0 0 14px;display:flex;align-items:center;justify-content:space-between}
+.panel h2 .link{font-size:12.5px;color:var(--red);font-weight:700;text-decoration:none}
+/* bars */
+.bar-row{display:grid;grid-template-columns:120px 1fr 86px;align-items:center;gap:10px;margin:11px 0}
+.bar-row .nm{font-weight:600;font-size:13px;display:flex;align-items:center;gap:7px}
+.track{background:#f0f1f3;border-radius:7px;height:12px;overflow:hidden}
+.fill{height:100%;border-radius:7px}
+.bar-row .val{text-align:right;font-weight:700;font-size:13px}
+.swatch{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+/* list */
+.row{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:13px}
+.row:first-of-type{border-top:0}
+.row .g{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tagx{font-size:11px;font-weight:700;border-radius:6px;padding:2px 8px;white-space:nowrap}
+.t-ml{background:#fff6d6;color:#8a6d00}.t-olx{background:#efe3ff;color:#54279e}.t-bal{background:#fdecea;color:var(--red)}.t-wa{background:#e3f6ec;color:#146c3a}
+.muted{color:var(--mut)}
+.alert{display:flex;gap:11px;align-items:flex-start;padding:10px;border-radius:10px;background:#faf7ef;border:1px solid #f0e6c8;margin-bottom:9px}
+.alert.warn{background:#fff7f6;border-color:#f4c7c3}
+.alert .n{font-weight:800;font-size:16px;min-width:26px;text-align:center}
+.alert .tx{font-size:13px}.alert .tx b{display:block}
+/* estoque cards */
+.estoque-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+.pcard{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;box-shadow:var(--sh)}
+.ph{position:relative;aspect-ratio:4/3;background:linear-gradient(135deg,#eef1f4,#e3e7ec);display:grid;place-items:center}
+.ph svg{width:54px;height:54px;opacity:.5}
+.ph .loc{position:absolute;left:8px;bottom:8px;right:8px;background:rgba(21,101,192,.94);color:#fff;font-size:11px;font-weight:700;border-radius:8px;padding:5px 8px;display:flex;align-items:center;gap:5px;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+.ph .loc.none{background:rgba(198,40,40,.94)}
+.ph .price{position:absolute;right:8px;top:8px;background:#fff;color:var(--ok);font-weight:800;font-size:13px;border-radius:8px;padding:3px 9px;box-shadow:var(--sh)}
+.pb{padding:10px 11px}
+.pb .nm{font-weight:700;font-size:13.5px;line-height:1.25;margin-bottom:3px}
+.pb .meta{color:var(--mut);font-size:12px;margin-bottom:8px}
+.pb .foot{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.code{font-size:11px;color:#9aa1ab;font-weight:700;margin-left:auto}
+/* tree */
+.tree{font-size:13.5px}
+.tnode{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:8px}
+.tnode:hover{background:#f6f7f9}
+.tnode .nm{font-weight:700}
+.tnode .ct{color:var(--mut);font-size:12px}
+.tnode .occ{margin-left:auto;display:flex;align-items:center;gap:8px;min-width:150px}
+.tnode .occ .track{flex:1}
+.tchild{padding-left:20px;border-left:2px dashed #e3e7ec;margin-left:12px}
+.lvl2{padding-left:0}
+/* soon */
+.soon{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+.chip{background:#fff;border:1px dashed #cdd2d8;border-radius:999px;padding:7px 13px;font-size:12.5px;font-weight:600;color:#5b6168}
+.chip b{color:var(--ink)}
+.note{font-size:12px;color:var(--mut);margin-top:18px;border-top:1px solid var(--line);padding-top:12px}
+@media(max-width:1024px){.cols{grid-template-columns:1fr}}
+@media(max-width:720px){.side{display:none}.main{padding:16px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- SIDEBAR -->
+  <aside class="side">
+    <div class="brand"><span class="logo">🔧</span> Rafa Busca Peças</div>
+    <nav class="nav">
+      <a class="on" href="#"><span class="i">📊</span> Painel</a>
+      <a href="#"><span class="i">📦</span> Estoque</a>
+      <a href="#"><span class="i">🗄️</span> Localizações</a>
+      <a href="#"><span class="i">🏷️</span> Etiquetas</a>
+      <div class="sep">Vender</div>
+      <a href="#"><span class="i">📣</span> Anúncios</a>
+      <a href="#"><span class="i">💰</span> Vendas</a>
+      <a href="#"><span class="i">🔎</span> Preços &amp; concorrência</a>
+      <div class="sep">Mais</div>
+      <a href="#"><span class="i">👥</span> Clientes</a>
+      <a href="#"><span class="i">📈</span> Relatórios</a>
+      <a href="#"><span class="i">⚙️</span> Configurações</a>
+    </nav>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+    <div class="top">
+      <div>
+        <h1>Painel</h1>
+        <div class="sub">Visão geral de hoje · outubro/2026</div>
+      </div>
+      <div class="tools">
+        <span class="pill">📅 Este mês ▾</span>
+        <span class="pill bell">🔔 Pendências <span class="dot">14</span></span>
+        <span class="pill">＋ Nova peça</span>
+      </div>
+    </div>
+
+    <!-- KPIs -->
+    <section class="kpis">
+      <div class="kpi"><div class="l"><span class="ic" style="background:#e8f0fe;color:#1565c0">📦</span> Peças em estoque</div><div class="v">342</div><div class="d muted">em 318 cadastros</div></div>
+      <div class="kpi"><div class="l"><span class="ic" style="background:#e7f6ee;color:#1f9d55">🏦</span> Valor do estoque</div><div class="v">R$ 68.450</div><div class="d muted">preço de venda</div></div>
+      <div class="kpi"><div class="l"><span class="ic" style="background:#fdecea;color:#c62828">💰</span> Vendas no mês</div><div class="v">R$ 44.562</div><div class="d"><span class="up">▲ 11%</span> <span class="muted">· 58 vendas</span></div></div>
+      <div class="kpi"><div class="l"><span class="ic" style="background:#fff6d6;color:#8a6d00">📣</span> Anúncios ativos</div><div class="v">276</div><div class="d muted">ML 251 · OLX 25</div></div>
+      <div class="kpi flag"><div class="l"><span class="ic" style="background:#fdecea;color:#c62828">🚩</span> Sem anúncio</div><div class="v">42</div><div class="d down">peças paradas no estoque</div></div>
+      <div class="kpi"><div class="l"><span class="ic" style="background:#f0eef9;color:#6e0ad6">⏳</span> Paradas +90 dias</div><div class="v">31</div><div class="d muted">sugerir baixar preço</div></div>
+      <div class="kpi flag"><div class="l"><span class="ic" style="background:#fdecea;color:#c62828">📍</span> Sem localização</div><div class="v">7</div><div class="d down">risco de sumir</div></div>
+    </section>
+
+    <!-- VENDAS + PENDÊNCIAS -->
+    <section class="cols">
+      <div class="panel">
+        <h2>Vendas do mês por canal <a class="link" href="#">ver vendas →</a></h2>
+        <div class="bar-row"><div class="nm"><span class="swatch" style="background:#e6a800"></span>Mercado Livre</div><div class="track"><div class="fill" style="width:100%;background:#e6a800"></div></div><div class="val">R$ 22.100</div></div>
+        <div class="bar-row"><div class="nm"><span class="swatch" style="background:#c62828"></span>Balcão</div><div class="track"><div class="fill" style="width:82%;background:#c62828"></div></div><div class="val">R$ 18.200</div></div>
+        <div class="bar-row"><div class="nm"><span class="swatch" style="background:#6e0ad6"></span>OLX</div><div class="track"><div class="fill" style="width:13%;background:#6e0ad6"></div></div><div class="val">R$ 2.980</div></div>
+        <div class="bar-row"><div class="nm"><span class="swatch" style="background:#1f9d55"></span>WhatsApp</div><div class="track"><div class="fill" style="width:6%;background:#1f9d55"></div></div><div class="val">R$ 1.282</div></div>
+        <h2 style="margin-top:20px">Últimas vendas</h2>
+        <div class="row"><span class="g">#000686 Acabamento do Painel BMW</span><span class="tagx t-ml">ML</span><b>R$ 80</b><span class="muted">hoje</span></div>
+        <div class="row"><span class="g">#000654 Farol Esquerdo VW Gol G5</span><span class="tagx t-bal">Balcão</span><b>R$ 220</b><span class="muted">hoje</span></div>
+        <div class="row"><span class="g">#000702 Bomba de Água Fiat</span><span class="tagx t-ml">ML</span><b>R$ 140</b><span class="muted">ontem</span></div>
+        <div class="row"><span class="g">#000533 Sensor ABS Hyundai HB20</span><span class="tagx t-wa">WhatsApp</span><b>R$ 95</b><span class="muted">ontem</span></div>
+      </div>
+
+      <div class="panel">
+        <h2>Precisa de você <a class="link" href="#">resolver →</a></h2>
+        <div class="alert warn"><div class="n">3</div><div class="tx"><b>Perguntas no Mercado Livre</b><span class="muted">clientes aguardando resposta</span></div></div>
+        <div class="alert warn"><div class="n">2</div><div class="tx"><b>Anúncios pausados pelo ML</b><span class="muted">compatibilidade obrigatória faltando</span></div></div>
+        <div class="alert"><div class="n">5</div><div class="tx"><b>Compatibilidades a confirmar</b><span class="muted">sugestões do ML aguardando o seu ok</span></div></div>
+        <div class="alert"><div class="n">42</div><div class="tx"><b>Peças sem anúncio</b><span class="muted">prontas para publicar no ML/OLX</span></div></div>
+        <div class="alert"><div class="n">7</div><div class="tx"><b>Peças sem localização</b><span class="muted">definir a caixa antes que se percam</span></div></div>
+      </div>
+    </section>
+
+    <!-- ESTOQUE COM FOTO + LOCAL -->
+    <section class="panel" style="margin-bottom:20px">
+      <h2>Estoque — cada peça com foto e onde está <a class="link" href="#">ver tudo →</a></h2>
+      <div class="estoque-grid">
+        <!-- card template -->
+        <div class="pcard">
+          <div class="ph"><svg viewBox="0 0 24 24" fill="none" stroke="#8a93a0" stroke-width="1.5"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 7V5h8v2M3 12h18"/></svg>
+            <span class="price">R$ 200</span><span class="loc">📍 RAFA › PRT-1 › NÍVEL-A › CAIXA-2</span></div>
+          <div class="pb"><div class="nm">Caixa de Fusível</div><div class="meta">Citroën Aircross 2012/15 · PN 9674982680</div>
+            <div class="foot"><span class="tagx t-ml">ML</span><span class="muted">1 un</span><span class="code">#000691</span></div></div>
+        </div>
+        <div class="pcard">
+          <div class="ph"><svg viewBox="0 0 24 24" fill="none" stroke="#8a93a0" stroke-width="1.5"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 7V5h8v2M3 12h18"/></svg>
+            <span class="price">R$ 80</span><span class="loc">📍 RAFA › PRT-1 › NÍVEL-B › CAIXA-21</span></div>
+          <div class="pb"><div class="nm">Acabamento do Painel</div><div class="meta">BMW 118i 120i 130i 2008/14 · PN 7071272</div>
+            <div class="foot"><span class="tagx t-ml">ML</span><span class="tagx t-olx">OLX</span><span class="muted">1 un</span><span class="code">#000686</span></div></div>
+        </div>
+        <div class="pcard">
+          <div class="ph"><svg viewBox="0 0 24 24" fill="none" stroke="#8a93a0" stroke-width="1.5"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 7V5h8v2M3 12h18"/></svg>
+            <span class="price">R$ 300</span><span class="loc">📍 RAFA › PRT-1 › NÍVEL-A › CAIXA-1</span></div>
+          <div class="pb"><div class="nm">Caixa do Filtro de Ar</div><div class="meta">BMW 118i 120i 2008/11 · PN 7560918</div>
+            <div class="foot"><span class="tagx" style="background:#fdecea;color:#c62828">sem anúncio</span><span class="muted">1 un</span><span class="code">#000679</span></div></div>
+        </div>
+        <div class="pcard">
+          <div class="ph"><svg viewBox="0 0 24 24" fill="none" stroke="#8a93a0" stroke-width="1.5"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 7V5h8v2M3 12h18"/></svg>
+            <span class="price">R$ 450</span><span class="loc">📍 RAFA › PRT-1 › NÍVEL-B</span></div>
+          <div class="pb"><div class="nm">Módulo de Injeção</div><div class="meta">Ford Ka 1.0 2008/13 · PN 8S51-12A650</div>
+            <div class="foot"><span class="tagx t-ml">ML</span><span class="muted">1 un</span><span class="code">#000671</span></div></div>
+        </div>
+        <div class="pcard">
+          <div class="ph"><svg viewBox="0 0 24 24" fill="none" stroke="#8a93a0" stroke-width="1.5"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 7V5h8v2M3 12h18"/></svg>
+            <span class="price">R$ 220</span><span class="loc">📍 RAFA › PRT-2 › NÍVEL-A</span></div>
+          <div class="pb"><div class="nm">Farol Esquerdo</div><div class="meta">VW Gol G5 2009/12 · PN 5U0941005</div>
+            <div class="foot"><span class="tagx t-ml">ML</span><span class="muted">2 un</span><span class="code">#000663</span></div></div>
+        </div>
+        <div class="pcard">
+          <div class="ph"><svg viewBox="0 0 24 24" fill="none" stroke="#8a93a0" stroke-width="1.5"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 7V5h8v2M3 12h18"/></svg>
+            <span class="price">R$ 90</span><span class="loc none">📍 sem localização</span></div>
+          <div class="pb"><div class="nm">Acabamento Inferior do Painel</div><div class="meta">BMW 118i 2007/11 · PN 7074173</div>
+            <div class="foot"><span class="tagx" style="background:#fdecea;color:#c62828">sem anúncio</span><span class="muted">1 un</span><span class="code">#000648</span></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- LOCALIZAÇÃO -->
+    <section class="panel" style="margin-bottom:20px">
+      <h2>Localizações — ocupação das caixas <a class="link" href="#">gerenciar →</a></h2>
+      <div class="tree">
+        <div class="tnode"><span>▾</span><span class="nm">RAFA</span><span class="ct">342 peças</span></div>
+        <div class="tchild">
+          <div class="tnode"><span>▾</span><span class="nm">PRT-1</span><span class="ct">· 218 peças</span></div>
+          <div class="tchild">
+            <div class="tnode"><span class="nm">NÍVEL-A › CAIXA-1</span><span class="ct">· Caixa do Filtro de Ar BMW…</span><span class="occ"><div class="track"><div class="fill" style="width:50%;background:#1565c0"></div></div><span class="ct">5/10</span></span></div>
+            <div class="tnode"><span class="nm">NÍVEL-A › CAIXA-2</span><span class="occ"><div class="track"><div class="fill" style="width:30%;background:#1565c0"></div></div><span class="ct">3/10</span></span></div>
+            <div class="tnode"><span class="nm">NÍVEL-B › CAIXA-21</span><span class="occ"><div class="track"><div class="fill" style="width:80%;background:#e6a800"></div></div><span class="ct">8/10</span></span></div>
+          </div>
+          <div class="tnode"><span>▾</span><span class="nm">PRT-2</span><span class="ct">· 124 peças</span></div>
+          <div class="tchild">
+            <div class="tnode"><span class="nm">NÍVEL-A</span><span class="occ"><div class="track"><div class="fill" style="width:95%;background:#c62828"></div></div><span class="ct">19/20 cheio</span></span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- O QUE MAIS VAI EXISTIR -->
+    <section class="panel">
+      <h2>O que mais o sistema vai ter</h2>
+      <div class="soon">
+        <span class="chip">📣 <b>Publicar no ML/OLX</b> em lote</span>
+        <span class="chip">🤖 <b>Foto + número → anúncio</b> automático</span>
+        <span class="chip">🎬 <b>Vídeo do anúncio</b> gerado</span>
+        <span class="chip">🔎 <b>Preço</b> vs. concorrência (sem peça quebrada)</span>
+        <span class="chip">💬 <b>Perguntas do ML</b> com resposta pronta</span>
+        <span class="chip">📦 <b>Lista de separação</b> das vendas</span>
+        <span class="chip">🏷️ <b>Etiquetas</b> numeradas + QR</span>
+        <span class="chip">📊 <b>Relatórios</b> por modelo e por funcionário</span>
+        <span class="chip">👥 <b>Clientes</b> e orçamentos no WhatsApp</span>
+        <span class="chip">💾 <b>Backup</b> automático</span>
+      </div>
+      <p class="note">Protótipo de layout · dados e fotos são de exemplo. A localização é interna (achar a peça e imprimir na etiqueta) e não aparece no anúncio do Mercado Livre.</p>
+    </section>
+  </main>
+</div>
+</body>
+</html>
