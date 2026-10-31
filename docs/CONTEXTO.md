@@ -59,3 +59,6 @@ Ver `docs/PESQUISA-FUNCIONALIDADES.md`. Atenção: desde 15/07/2026 a API do ML 
 ## Padrão de título (src/titulo.js)
 Ordem fixa: **Nome da peça · Part number · Carro · Motor · Ano · Modelo · Combustível** (máx. 60 caracteres).
 Se passar de 60, encurta nesta ordem: ano 2008/11 → combustível abreviado → ano 08/11 → tira combustível → tira modelo → tira motor → tira ano → corta o nome por palavra. Nome, part number e carro são sempre mantidos.
+
+## Regra de preço (src/preco.js)
+Ao sugerir preço, comparar só peças equivalentes e inteiras: mesma condição (usado×usado), part number conferido, descartando anúncios com termos de avaria ("no estado", "retirada de peças", "quebrado"…) e preços fora da curva (abaixo de 0,5× a mediana). Mostra min/mediana/máx e a lista do que foi descartado, para o usuário conferir. Limite: não detecta dano escondido em foto.
