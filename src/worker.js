@@ -12,6 +12,9 @@ const json = (data, status = 200, headers = {}) =>
 const bad = (msg, status = 400) => json({ erro: msg }, status);
 const uid = () => crypto.randomUUID();
 const now = () => Date.now();
+// texto para busca sem acento/maiúscula (ex.: "Fusível" -> "fusivel")
+const norm = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const buscaDe = p => norm([p.nome, p.marca, p.modelo, p.ano, p.pn, p.veiculo, p.codigo, p.obs].filter(Boolean).join(' '));
 
 function cookies(req) {
   const h = req.headers.get('cookie') || '';
@@ -191,11 +194,8 @@ async function listaPecas(url, env) {
   const local = url.searchParams.get('local') || '';
   const status = url.searchParams.get('status') || '';
   const cond = [], binds = [];
-  if (q) {
-    const t = '%' + q + '%';
-    cond.push('(nome LIKE ? OR pn LIKE ? OR marca LIKE ? OR modelo LIKE ? OR veiculo LIKE ? OR CAST(codigo AS TEXT) LIKE ?)');
-    binds.push(t, t, t, t, t, t);
-  }
+  // cada palavra da busca precisa aparecer (ex.: "caixa fusivel" acha "Caixa de Fusível")
+  for (const w of norm(q).split(/\s+/).filter(Boolean)) { cond.push('busca LIKE ?'); binds.push('%' + w + '%'); }
   if (local) {
     const sub = await env.DB.prepare(
       'WITH RECURSIVE sub(id) AS (SELECT ? UNION ALL SELECT l.id FROM locais l JOIN sub ON l.pai=sub.id) SELECT id FROM sub'
@@ -226,11 +226,11 @@ async function criaPeca(request, env) {
   const id = uid();
   const codigo = b.codigo ? parseInt(b.codigo) : await proxCodigo(env); // permite manter código do iBR na importação
   await env.DB.prepare(
-    `INSERT INTO pecas (id,codigo,nome,marca,modelo,ano,pn,cond,veiculo,preco,qtd,local_id,obs,fotos,ml,ml_link,olx,olx_link,criado_em)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    `INSERT INTO pecas (id,codigo,nome,marca,modelo,ano,pn,cond,veiculo,preco,qtd,local_id,obs,busca,fotos,ml,ml_link,olx,olx_link,criado_em)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(id, codigo, b.nome, b.marca || null, b.modelo || null, b.ano || null, b.pn || null, b.cond || null,
     b.veiculo || null, Number(b.preco) || 0, parseInt(b.qtd) || 0, b.local_id || null, b.obs || null,
-    JSON.stringify(b.fotos || []), b.ml ? 1 : 0, b.ml_link || null, b.olx ? 1 : 0, b.olx_link || null, now()).run();
+    buscaDe({ ...b, codigo }), JSON.stringify(b.fotos || []), b.ml ? 1 : 0, b.ml_link || null, b.olx ? 1 : 0, b.olx_link || null, now()).run();
   return getPeca(id, env);
 }
 async function atualizaPeca(id, request, env) {
@@ -252,6 +252,9 @@ async function atualizaPeca(id, request, env) {
   sets.push('atualizado_em=?'); binds.push(now());
   binds.push(id);
   await env.DB.prepare(`UPDATE pecas SET ${sets.join(',')} WHERE id=?`).bind(...binds).run();
+  // recalcula o texto de busca a partir do registro já atualizado
+  const row = await env.DB.prepare('SELECT nome,marca,modelo,ano,pn,veiculo,codigo,obs FROM pecas WHERE id=?').bind(id).first();
+  await env.DB.prepare('UPDATE pecas SET busca=? WHERE id=?').bind(buscaDe(row), id).run();
   return getPeca(id, env);
 }
 async function excluiPeca(id, env) {

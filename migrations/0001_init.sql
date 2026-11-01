@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS pecas (
   qtd           INTEGER NOT NULL DEFAULT 0,
   local_id      TEXT,
   obs           TEXT,
+  busca         TEXT,                             -- texto normalizado (minúsculo, sem acento) p/ busca
   fotos         TEXT,                             -- JSON: array de chaves no R2
   ml            INTEGER NOT NULL DEFAULT 0,        -- anunciada no Mercado Livre? 0/1
   ml_id         TEXT,                             -- id do anúncio no ML (Etapa 2)
