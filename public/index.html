@@ -134,8 +134,18 @@ const VIEWS = [['painel','📊','Painel'],['estoque','📦','Estoque'],['nova','
 
 // ---------- boot / auth ----------
 async function boot(){
+  if(location.pathname==='/api/ml/callback'){ return mlFinaliza(); }
   try{ const { user } = await api('/me'); S.user=user; shell(); }
   catch{ login(false); }
+}
+async function mlFinaliza(){
+  $('#root').innerHTML='<div class="center"><div class="authcard"><div class="brand"><span class="logo">🔧</span> Rafa Busca Peças</div><p class="mut">Finalizando conexão com o Mercado Livre…</p></div></div>';
+  const p=new URLSearchParams(location.search);
+  try{
+    const err=p.get('error'); if(err) throw new Error('Mercado Livre recusou: '+err);
+    await api('/ml/exchange',{method:'POST',body:{code:p.get('code'),state:p.get('state')}});
+  }catch(e){ /* o motivo fica salvo e aparece na tela de Integrações */ }
+  location.replace('/#integracoes');
 }
 function login(primeiro){
   $('#root').innerHTML = `<div class="center"><form class="authcard" id="f">

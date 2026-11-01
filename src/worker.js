@@ -141,6 +141,7 @@ async function api(request, env, url) {
   if (p === '/api/config' && m === 'GET') return getConfig(env, url);
   if (p === '/api/ml/credenciais' && m === 'POST') return mlSalvaCred(request, env, user);
   if (p === '/api/ml/connect' && m === 'GET') return mlConnect(env, url, user);
+  if (p === '/api/ml/exchange' && m === 'POST') return mlExchange(request, env, url, user);
   if (p === '/api/ml/desconectar' && m === 'POST') return mlDesconecta(env, user);
 
   return bad('rota não encontrada', 404);
@@ -203,41 +204,53 @@ async function mlGuardaToken(env, d) {
   if (d.refresh_token) await setCfg(env, 'ml_refresh_token', d.refresh_token);
   await setCfg(env, 'ml_token_exp', String(now() + (Number(d.expires_in || 21600) * 1000)));
 }
-async function mlCallback(env, url) {
-  const code = url.searchParams.get('code');
-  const state = url.searchParams.get('state');
-  const erroMl = url.searchParams.get('error');
-  const volta = async (ok, msg) => {
-    await setCfg(env, 'ml_ultimo_erro', ok ? '' : (msg || 'erro desconhecido'));
-    return new Response(null, { status: 302, headers: { Location: url.origin + '/#integracoes?ml=' + (ok ? 'ok' : 'erro') } });
-  };
-  if (erroMl) return volta(false, 'Mercado Livre recusou: ' + erroMl);
-  if (!code) return volta(false, 'não veio o código de autorização');
-  if (!state || state !== (await getCfg(env, 'ml_oauth_state'))) return volta(false, 'verificação de segurança (state) não bateu — conecte de novo sem clicar várias vezes');
+// troca o "code" pelo token de acesso; usada pelo callback e pelo app (XHR)
+async function mlTrocaCodigo(env, origin, code, state) {
+  if (!code) return { ok: false, erro: 'não veio o código de autorização' };
+  if (!state || state !== (await getCfg(env, 'ml_oauth_state'))) return { ok: false, erro: 'verificação de segurança (state) não bateu — conecte de novo sem clicar várias vezes' };
   const appId = await getCfg(env, 'ml_app_id');
   const secret = await getCfg(env, 'ml_secret');
   const verifier = await getCfg(env, 'ml_pkce_verifier');
-  const redirect = url.origin + '/api/ml/callback';
+  const redirect = origin + '/api/ml/callback';
   const body = new URLSearchParams({ grant_type: 'authorization_code', client_id: appId, client_secret: secret, code, redirect_uri: redirect, code_verifier: verifier });
   let r, d;
   try {
     r = await fetch(ML_API + '/oauth/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body });
     d = await r.json().catch(() => ({}));
-  } catch (e) { return volta(false, 'falha de rede ao falar com o Mercado Livre: ' + (e && e.message || e)); }
+  } catch (e) { return { ok: false, erro: 'falha de rede ao falar com o Mercado Livre: ' + (e && e.message || e) }; }
   if (!r.ok || !d.access_token) {
     const det = d.error ? (d.error + (d.error_description ? ' — ' + d.error_description : '')) : (d.message || ('HTTP ' + (r ? r.status : '?')));
-    return volta(false, 'troca do código falhou: ' + det);
+    return { ok: false, erro: 'troca do código falhou: ' + det };
   }
   await mlGuardaToken(env, d);
+  let nickname = null;
   try {
     const me = await fetch(ML_API + '/users/me', { headers: { Authorization: 'Bearer ' + d.access_token } });
     const mu = await me.json();
-    if (mu && mu.nickname) await setCfg(env, 'ml_nickname', mu.nickname);
+    if (mu && mu.nickname) { nickname = mu.nickname; await setCfg(env, 'ml_nickname', mu.nickname); }
     if (mu && mu.id) await setCfg(env, 'ml_user_id', String(mu.id));
   } catch { /* nickname é opcional */ }
   await setCfg(env, 'ml_oauth_state', '');
   await setCfg(env, 'ml_pkce_verifier', '');
-  return volta(true);
+  return { ok: true, nickname };
+}
+// fallback: se o worker receber o callback direto (navegação)
+async function mlCallback(env, url) {
+  const erroMl = url.searchParams.get('error');
+  let erro = '';
+  if (erroMl) erro = 'Mercado Livre recusou: ' + erroMl;
+  else { const r = await mlTrocaCodigo(env, url.origin, url.searchParams.get('code'), url.searchParams.get('state')); if (!r.ok) erro = r.erro; }
+  await setCfg(env, 'ml_ultimo_erro', erro);
+  return new Response(null, { status: 302, headers: { Location: url.origin + '/#integracoes?ml=' + (erro ? 'erro' : 'ok') } });
+}
+// caminho principal: o app manda o code por XHR (a Cloudflare entrega o SPA no callback)
+async function mlExchange(request, env, url, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  const { code, state } = await request.json().catch(() => ({}));
+  const r = await mlTrocaCodigo(env, url.origin, code, state);
+  await setCfg(env, 'ml_ultimo_erro', r.ok ? '' : r.erro);
+  if (!r.ok) return bad(r.erro);
+  return json({ ok: true, nickname: r.nickname || null });
 }
 async function mlDesconecta(env, user) {
   if (user.papel !== 'admin') return bad('somente o administrador', 403);
