@@ -5,6 +5,9 @@ name: Checar conexão ML
 # Rodar manualmente (workflow_dispatch).
 
 on:
+  push:
+    paths:
+      - '.github/workflows/check-ml.yml'
   workflow_dispatch: {}
 
 jobs:
