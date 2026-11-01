@@ -96,7 +96,7 @@ async function api(request, env, url) {
   if (p === '/api/locais' && m === 'GET') return listaLocais(env);
   if (p === '/api/locais' && m === 'POST') return criaLocais(request, env);
   let mt = p.match(/^\/api\/locais\/([\w-]+)$/);
-  if (mt && m === 'PATCH') return renomeiaLocal(mt[1], request, env);
+  if (mt && m === 'PATCH') return atualizaLocal(mt[1], request, env);
   if (mt && m === 'DELETE') return excluiLocal(mt[1], env);
 
   // peças
@@ -147,13 +147,20 @@ async function login(request, env, secret) {
 
 // ---------- localizações ----------
 async function listaLocais(env) {
-  const r = await env.DB.prepare('SELECT id,nome,pai FROM locais').all();
+  // inclui a capacidade e a ocupação (nº de peças com estoque guardadas direto no local)
+  const r = await env.DB.prepare(
+    `SELECT l.id, l.nome, l.pai, l.capacidade,
+       (SELECT COUNT(*) FROM pecas p WHERE p.local_id = l.id AND p.qtd > 0) AS ocupacao
+     FROM locais l`
+  ).all();
   return json({ locais: r.results });
 }
+const capVal = v => (v === '' || v == null) ? null : (parseInt(v) || null);
 async function criaLocais(request, env) {
-  const { nome, pai, quantidade } = await request.json();
+  const { nome, pai, quantidade, capacidade } = await request.json();
   if (!nome) return bad('nome é obrigatório');
   const q = Math.min(50, Math.max(1, parseInt(quantidade) || 1));
+  const cap = capVal(capacidade);
   const base = String(nome).match(/^(.*?)(\d+|[A-Za-z])$/);
   const criados = [];
   for (let i = 0; i < q; i++) {
@@ -161,15 +168,19 @@ async function criaLocais(request, env) {
     if (i > 0 && base) nm = /\d/.test(base[2]) ? base[1] + (parseInt(base[2]) + i) : base[1] + String.fromCharCode(base[2].charCodeAt(0) + i);
     else if (i > 0) nm = `${nome}-${i + 1}`;
     const id = uid();
-    await env.DB.prepare('INSERT INTO locais (id,nome,pai,criado_em) VALUES (?,?,?,?)').bind(id, nm, pai || null, now()).run();
-    criados.push({ id, nome: nm, pai: pai || null });
+    await env.DB.prepare('INSERT INTO locais (id,nome,pai,capacidade,criado_em) VALUES (?,?,?,?,?)').bind(id, nm, pai || null, cap, now()).run();
+    criados.push({ id, nome: nm, pai: pai || null, capacidade: cap });
   }
   return json({ criados });
 }
-async function renomeiaLocal(id, request, env) {
-  const { nome } = await request.json();
-  if (!nome) return bad('nome é obrigatório');
-  await env.DB.prepare('UPDATE locais SET nome=? WHERE id=?').bind(nome, id).run();
+async function atualizaLocal(id, request, env) {
+  const b = await request.json();
+  const sets = [], binds = [];
+  if (b.nome != null && b.nome !== '') { sets.push('nome=?'); binds.push(b.nome); }
+  if ('capacidade' in b) { sets.push('capacidade=?'); binds.push(capVal(b.capacidade)); }
+  if (!sets.length) return json({ ok: true });
+  binds.push(id);
+  await env.DB.prepare(`UPDATE locais SET ${sets.join(',')} WHERE id=?`).bind(...binds).run();
   return json({ ok: true });
 }
 async function excluiLocal(id, env) {

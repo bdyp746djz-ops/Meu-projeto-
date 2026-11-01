@@ -12,10 +12,11 @@ CREATE TABLE IF NOT EXISTS usuarios (
 );
 
 CREATE TABLE IF NOT EXISTS locais (
-  id        TEXT PRIMARY KEY,
-  nome      TEXT NOT NULL,
-  pai       TEXT,                                  -- id do local pai; NULL = raiz
-  criado_em INTEGER NOT NULL
+  id         TEXT PRIMARY KEY,
+  nome       TEXT NOT NULL,
+  pai        TEXT,                                 -- id do local pai; NULL = raiz
+  capacidade INTEGER,                              -- quantas peças cabem (NULL = sem limite)
+  criado_em  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_locais_pai ON locais(pai);
 
