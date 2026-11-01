@@ -4,96 +4,418 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rafa Busca Peças</title>
+<script src="/qrcode.min.js"></script>
 <style>
-:root{--red:#c62828;--ink:#1d1f23;--mut:#6b7280;--line:#e8eaed;--bg:#f4f5f7;--card:#fff;--ok:#1f9d55;--rad:14px;--sh:0 1px 3px rgba(16,24,40,.07)}
+:root{--red:#c62828;--red2:#e53935;--ink:#1d1f23;--mut:#6b7280;--line:#e8eaed;--bg:#f4f5f7;--card:#fff;--ok:#1f9d55;--amber:#e6a800;--olx:#6e0ad6;--blue:#1565c0;--rad:13px;--sh:0 1px 3px rgba(16,24,40,.07)}
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+button,input,select,textarea{font:inherit}
+/* login */
 .center{min-height:100vh;display:grid;place-items:center;padding:20px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:var(--rad);box-shadow:var(--sh);padding:22px;width:100%;max-width:380px}
-.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;margin-bottom:6px}
-.brand .logo{width:36px;height:36px;border-radius:9px;background:var(--red);color:#fff;display:grid;place-items:center;font-size:19px}
-h1{font-size:18px;margin:14px 0 4px}.sub{color:var(--mut);font-size:13px;margin-bottom:16px}
-label{display:block;font-size:12.5px;color:var(--mut);font-weight:600;margin:10px 0 5px}
-input{width:100%;border:1px solid #d7dbe0;border-radius:9px;padding:11px 12px;font:inherit}
-.btn{width:100%;margin-top:16px;background:var(--red);color:#fff;border:0;border-radius:10px;padding:12px;font-weight:700;font-size:15px;cursor:pointer}
-.btn:disabled{opacity:.6}
-.msg{margin-top:12px;font-size:13px;min-height:18px}.msg.err{color:var(--red)}.msg.ok{color:var(--ok)}
-.link{background:none;border:0;color:var(--red);font-weight:600;cursor:pointer;font-size:13px;padding:0;margin-top:14px}
-/* painel */
-.wrap{max-width:900px;margin:0 auto;padding:20px}
-.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
-.kpi{background:#fff;border:1px solid var(--line);border-radius:var(--rad);padding:14px;box-shadow:var(--sh)}
-.kpi .l{color:var(--mut);font-size:12.5px;font-weight:600}.kpi .v{font-size:24px;font-weight:800;margin-top:6px}
-.soon{margin-top:20px;background:#fff8e1;border:1px solid #ffe082;color:#6d4c00;border-radius:10px;padding:12px 14px;font-size:13.5px}
-.ghost{background:#fff;border:1px solid var(--line);border-radius:9px;padding:8px 14px;font-weight:600;cursor:pointer}
+.authcard{background:#fff;border:1px solid var(--line);border-radius:var(--rad);box-shadow:var(--sh);padding:22px;width:100%;max-width:380px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:17px}
+.brand .logo{width:34px;height:34px;border-radius:9px;background:var(--red);color:#fff;display:grid;place-items:center;font-size:18px}
+label.f{display:block;font-size:12.5px;color:var(--mut);font-weight:600;margin:11px 0 5px}
+input,select,textarea{width:100%;border:1px solid #d7dbe0;border-radius:9px;padding:10px 12px}
+.msg{margin-top:12px;font-size:13px;min-height:16px}.msg.err{color:var(--red)}
+.linkb{background:none;border:0;color:var(--red);font-weight:600;cursor:pointer;font-size:13px;padding:0;margin-top:14px}
+/* shell */
+.app{display:flex;min-height:100vh}
+nav.side{width:210px;background:#fff;border-right:1px solid var(--line);padding:12px 9px;flex-shrink:0}
+nav.side .brand{padding:6px 8px 12px}
+nav a{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;color:#3a3f46;text-decoration:none;font-weight:600;cursor:pointer}
+nav a .i{width:18px;text-align:center}
+nav a.on{background:#fdecea;color:var(--red)}
+nav a:not(.on):hover{background:#f3f4f6}
+nav .sep{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#9aa1ab;padding:12px 12px 3px;font-weight:700}
+main{flex:1;min-width:0;padding:18px 22px 90px}
+nav.bottom{display:none}
+.top{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.top h2{margin:0;font-size:20px;flex:1}
+.q input{width:100%}
+header.bar{background:var(--red);color:#fff;display:none;align-items:center;gap:10px;padding:9px 14px;position:sticky;top:0;z-index:20}
+@media(max-width:760px){
+ nav.side{display:none}main{padding:12px 12px 90px}
+ header.bar{display:flex}
+ nav.bottom{display:flex;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--line);z-index:20}
+ nav.bottom a{flex:1;flex-direction:column;gap:2px;font-size:11px;padding:8px 2px;border-radius:0}
+}
+/* componentes */
+.btn{border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 14px;cursor:pointer;font-weight:600;color:var(--ink);text-decoration:none;display:inline-block}
+.btn.p{background:var(--red);border-color:var(--red);color:#fff}
+.btn.g{background:var(--ok);border-color:var(--ok);color:#fff}
+.btn.sm{padding:6px 10px;font-size:13px}
+.btn:disabled{opacity:.55}
+.card{background:#fff;border:1px solid var(--line);border-radius:var(--rad);padding:14px;box-shadow:var(--sh)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px;margin-bottom:16px}
+.kpi .l{color:var(--mut);font-size:12.5px;font-weight:600}.kpi .v{font-size:23px;font-weight:800;margin-top:5px}
+.kpi.clic{cursor:pointer}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:13px}
+.pc{background:#fff;border:1px solid var(--line);border-radius:var(--rad);overflow:hidden;cursor:pointer;box-shadow:var(--sh);display:flex;flex-direction:column}
+.pc .ph{position:relative;aspect-ratio:4/3;background:linear-gradient(135deg,#eef1f4,#e3e7ec);display:grid;place-items:center;color:#9aa1ab;font-size:30px}
+.pc .ph img{width:100%;height:100%;object-fit:cover}
+.pc .ph .loc{position:absolute;left:6px;right:6px;bottom:6px;background:rgba(21,101,192,.94);color:#fff;font-size:10.5px;font-weight:700;border-radius:7px;padding:4px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pc .ph .loc.none{background:rgba(198,40,40,.94)}
+.pc .b{padding:9px 10px;display:flex;flex-direction:column;gap:5px}
+.pc .n{font-weight:700;font-size:13.5px;line-height:1.25}
+.tags{display:flex;gap:5px;flex-wrap:wrap}
+.tag{font-size:11px;border-radius:5px;padding:2px 7px;background:#eef0f3;color:#333;white-space:nowrap}
+.tag.price{background:#e7f6ee;color:var(--ok);font-weight:700}.tag.ml{background:#fff6d6;color:#8a6d00}.tag.olx{background:#efe3ff;color:#54279e}.tag.zero{background:#fdecea;color:var(--red)}
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.chip{border:1px solid #d7dbe0;border-radius:20px;padding:6px 12px;background:#fff;cursor:pointer;font-size:13px}
+.chip.on{background:var(--red);border-color:var(--red);color:#fff}
+.form{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.form .full{grid-column:1/-1}
+.mut{color:var(--mut)}.small{font-size:13px}
+.tree ul{list-style:none;margin:0;padding-left:20px;border-left:1px dashed #d7dbe0}
+.tree>ul{padding-left:0;border:0}
+.node{display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:7px}.node:hover{background:#f4f5f7}
+.node .tg{width:20px;text-align:center;cursor:pointer;color:var(--mut)}
+.node .nm{font-weight:700}.node .ct{font-size:12px;color:var(--mut);cursor:pointer}
+.node .act{margin-left:auto;display:flex;gap:4px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;z-index:50;padding:26px 12px;overflow:auto}
+.modal .box{background:#fff;border-radius:13px;max-width:680px;width:100%;padding:18px;position:relative}
+.modal .x{position:absolute;right:10px;top:8px;border:0;background:none;font-size:23px;cursor:pointer;color:var(--mut)}
+.photos{display:flex;gap:8px;overflow-x:auto}.photos img{height:130px;border-radius:9px;object-fit:cover}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap}.thumbs div{position:relative}
+.thumbs img{width:76px;height:76px;object-fit:cover;border-radius:9px;border:1px solid var(--line)}
+.thumbs button{position:absolute;top:-6px;right:-6px;border:0;border-radius:50%;width:21px;height:21px;background:var(--red);color:#fff;cursor:pointer;font-size:12px}
+table{width:100%;border-collapse:collapse;background:#fff}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);font-size:14px}
+th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:var(--rad)}
+.labels{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.lbl{border:1px dashed #9ca3af;border-radius:7px;background:#fff;padding:8px;display:flex;gap:8px;align-items:center}
+.lbl svg{width:80px;height:80px;flex-shrink:0}.lbl .t{font-size:12px;line-height:1.25;overflow:hidden}.lbl .t b{font-size:14px;display:block}
+.sel{display:flex;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px solid var(--line)}
+.toast{position:fixed;left:50%;bottom:80px;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:9px;z-index:60;font-size:14px;max-width:90vw}
+.empty{text-align:center;color:var(--mut);padding:36px 10px}
+.bar2{height:8px;border-radius:4px;background:var(--red2)}
+.adbox{white-space:pre-wrap;background:#f7f8fa;border:1px solid var(--line);border-radius:9px;padding:10px;font-size:13.5px}
 </style>
 </head>
 <body>
-<div id="app"></div>
+<div id="root"></div>
+<div id="modal"></div>
 <script>
 const $ = s => document.querySelector(s);
-const api = async (path, opts={}) => {
-  const r = await fetch('/api'+path, { headers:{'content-type':'application/json'}, ...opts });
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const brl = n => (Number(n)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const cod = n => '#'+String(n).padStart(6,'0');
+function toast(m){ const t=document.createElement('div'); t.className='toast'; t.textContent=m; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }
+
+async function api(path, opts={}){
+  const o = { headers:{}, ...opts };
+  if (o.body && !(o.body instanceof Blob) && typeof o.body!=='string'){ o.body=JSON.stringify(o.body); o.headers['content-type']='application/json'; }
+  const r = await fetch('/api'+path, o);
   let d={}; try{ d=await r.json(); }catch{}
   if(!r.ok) throw new Error(d.erro || ('erro '+r.status));
   return d;
-};
-const brl = n => (Number(n)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-
-async function boot(){
-  try{ const { user } = await api('/me'); painel(user); }
-  catch{
-    // precisa de setup (primeiro acesso) ou login
-    try{ await api('/health'); }catch{}
-    telaLogin();
-  }
 }
 
-function telaLogin(primeiro=false){
-  $('#app').innerHTML = `<div class="center"><form class="card" id="f">
+const S = { user:null, view:'painel', pecas:[], locais:{}, ui:{ q:'', loc:'', status:'todos', periodo:'mes', editId:null, fotos:[], etqTipo:'pecas', etqSel:new Set(), open:new Set() } };
+const VIEWS = [['painel','📊','Painel'],['estoque','📦','Estoque'],['nova','➕','Nova peça'],['locais','🗄️','Localizações'],['etiquetas','🏷️','Etiquetas'],['vendas','💰','Vendas']];
+
+// ---------- boot / auth ----------
+async function boot(){
+  try{ const { user } = await api('/me'); S.user=user; shell(); }
+  catch{ login(false); }
+}
+function login(primeiro){
+  $('#root').innerHTML = `<div class="center"><form class="authcard" id="f">
     <div class="brand"><span class="logo">🔧</span> Rafa Busca Peças</div>
-    <h1>${primeiro?'Criar acesso do administrador':'Entrar'}</h1>
-    <div class="sub">${primeiro?'Primeiro acesso: defina seu login e senha.':'Use seu login e senha.'}</div>
-    ${primeiro?'<label>Seu nome</label><input name="nome" placeholder="Ex.: Rafael">':''}
-    <label>Login</label><input name="login" autocomplete="username" required>
-    <label>Senha</label><input name="senha" type="password" autocomplete="${primeiro?'new-password':'current-password'}" required>
-    <button class="btn" type="submit">${primeiro?'Criar acesso':'Entrar'}</button>
+    <h3>${primeiro?'Criar acesso do administrador':'Entrar'}</h3>
+    ${primeiro?'<label class="f">Seu nome</label><input name="nome" placeholder="Ex.: Rafael">':''}
+    <label class="f">Login</label><input name="login" autocomplete="username" required>
+    <label class="f">Senha</label><input name="senha" type="password" autocomplete="${primeiro?'new-password':'current-password'}" required>
+    <button class="btn p" style="width:100%;margin-top:16px" type="submit">${primeiro?'Criar acesso':'Entrar'}</button>
     <div class="msg" id="m"></div>
-    <button class="link" type="button" id="alt">${primeiro?'Já tenho acesso — entrar':'Primeiro acesso? Criar administrador'}</button>
+    <button class="linkb" type="button" id="alt">${primeiro?'Já tenho acesso — entrar':'Primeiro acesso? Criar administrador'}</button>
   </form></div>`;
-  $('#alt').onclick = ()=>telaLogin(!primeiro);
-  $('#f').onsubmit = async e=>{
-    e.preventDefault();
-    const b = Object.fromEntries(new FormData(e.target));
-    const btn = e.target.querySelector('button'); btn.disabled=true;
-    try{
-      if(primeiro){ await api('/setup',{method:'POST',body:JSON.stringify(b)}); }
-      const { user } = await api('/login',{method:'POST',body:JSON.stringify({login:b.login,senha:b.senha})});
-      painel(user);
+  $('#alt').onclick=()=>login(!primeiro);
+  $('#f').onsubmit=async e=>{
+    e.preventDefault(); const b=Object.fromEntries(new FormData(e.target)); const btn=e.target.querySelector('button'); btn.disabled=true;
+    try{ if(primeiro) await api('/setup',{method:'POST',body:b});
+      const { user }=await api('/login',{method:'POST',body:{login:b.login,senha:b.senha}}); S.user=user; shell();
     }catch(err){ $('#m').className='msg err'; $('#m').textContent=err.message; btn.disabled=false; }
   };
 }
 
-async function painel(user){
-  $('#app').innerHTML = `<div class="wrap">
-    <div class="top"><div class="brand"><span class="logo">🔧</span> Rafa Busca Peças</div>
-      <button class="ghost" id="sair">Sair (${user.nome})</button></div>
-    <div class="kpis" id="k">carregando…</div>
-    <div class="soon">✅ Sistema no ar e com login. As telas de <b>estoque</b>, <b>localizações</b>, <b>etiquetas</b> e <b>vendas</b> estão sendo montadas — em breve aqui.</div>
-  </div>`;
-  $('#sair').onclick = async ()=>{ await api('/logout',{method:'POST'}); telaLogin(); };
-  try{
-    const p = await api('/painel');
-    $('#k').innerHTML = [
-      ['Peças em estoque', p.estoque.pecas, p.estoque.cadastros+' cadastros'],
-      ['Valor do estoque', brl(p.estoque.valor), ''],
-      ['Vendas no mês', brl(p.vendasMes.total), p.vendasMes.n+' vendas'],
-      ['Sem anúncio', p.semAnuncio, ''],
-      ['Sem localização', p.semLocal, ''],
-      ['Paradas +90 dias', p.parado, ''],
-    ].map(([l,v,s])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div>${s?`<div class="l" style="margin-top:3px">${s}</div>`:''}</div>`).join('');
-  }catch(err){ $('#k').textContent = 'Não foi possível carregar o painel: '+err.message; }
+// ---------- shell ----------
+function shell(){
+  $('#root').innerHTML = `<div class="app">
+    <nav class="side"><div class="brand"><span class="logo">🔧</span> Rafa Busca Peças</div><div id="nav"></div>
+      <a id="sair" style="margin-top:14px;color:var(--mut)"><span class="i">⎋</span> Sair</a></nav>
+    <main><header class="bar"><b>🔧 Rafa Busca Peças</b></header>
+      <div id="main"></div></main>
+    <nav class="bottom" id="navb"></nav></div>`;
+  $('#sair').onclick=async()=>{ await api('/logout',{method:'POST'}); location.reload(); };
+  renderNav(); go(S.view);
 }
+function renderNav(){
+  const link=([k,i,l])=>`<a data-v="${k}" class="${k===S.view?'on':''}"><span class="i">${i}</span>${l}</a>`;
+  $('#nav').innerHTML=VIEWS.map(link).join('');
+  $('#navb').innerHTML=VIEWS.filter(v=>v[0]!=='nova').map(link).join('');
+  document.querySelectorAll('[data-v]').forEach(a=>a.onclick=()=>go(a.dataset.v));
+}
+async function go(v){ S.view=v; if(v!=='nova'){ S.ui.editId=null; S.ui.fotos=[]; } renderNav(); window.scrollTo(0,0);
+  const f={painel,estoque,nova,locais,etiquetas,vendas}[v]; $('#main').innerHTML='<p class="mut">carregando…</p>'; try{ await f(); }catch(e){ $('#main').innerHTML='<div class="empty">Erro: '+esc(e.message)+'</div>'; } }
+
+// ---------- dados ----------
+async function carregaLocais(){ const { locais }=await api('/locais'); S.locais={}; locais.forEach(l=>S.locais[l.id]=l); }
+function locPath(id){ const p=[]; let c=S.locais[id],g=0; while(c&&g++<20){ p.unshift(c.nome); c=S.locais[c.pai]; } return p.join(' › '); }
+function locChildren(pai){ return Object.values(S.locais).filter(l=>(l.pai||'')===(pai||'')).sort((a,b)=>a.nome.localeCompare(b.nome,'pt',{numeric:true})); }
+function locOptions(sel){ return Object.keys(S.locais).map(id=>[id,locPath(id)]).sort((a,b)=>a[1].localeCompare(b[1],'pt',{numeric:true}))
+  .map(([id,p])=>`<option value="${id}" ${sel===id?'selected':''}>${esc(p)}</option>`).join(''); }
+
+// ---------- Painel ----------
+async function painel(){
+  const p=await api('/painel');
+  const canais=p.porCanal||[]; const maxC=Math.max(1,...canais.map(c=>c.total));
+  $('#main').innerHTML=`<div class="top"><h2>Painel</h2></div>
+  <div class="kpis">
+    <div class="card kpi"><div class="l">Peças em estoque</div><div class="v">${p.estoque.pecas}</div><div class="small mut">${p.estoque.cadastros} cadastros</div></div>
+    <div class="card kpi"><div class="l">Valor do estoque</div><div class="v">${brl(p.estoque.valor)}</div></div>
+    <div class="card kpi"><div class="l">Vendas no mês</div><div class="v">${brl(p.vendasMes.total)}</div><div class="small mut">${p.vendasMes.n} vendas</div></div>
+    <div class="card kpi clic" data-st="semanuncio"><div class="l">Sem anúncio</div><div class="v">${p.semAnuncio}</div></div>
+    <div class="card kpi clic" data-st="semlocal"><div class="l">Sem localização</div><div class="v">${p.semLocal}</div></div>
+    <div class="card kpi clic" data-st="parado"><div class="l">Paradas +90 dias</div><div class="v">${p.parado}</div></div>
+  </div>
+  <div class="card"><b>Vendas do mês por canal</b>
+    ${canais.length?canais.map(c=>`<div style="margin-top:10px"><div class="small" style="display:flex;justify-content:space-between"><span>${esc(c.canal)}</span><b>${brl(c.total)}</b></div><div class="bar2" style="width:${c.total/maxC*100}%"></div></div>`).join(''):'<p class="mut small">Nenhuma venda este mês.</p>'}
+  </div>`;
+  document.querySelectorAll('[data-st]').forEach(e=>e.onclick=()=>{ S.ui.status=e.dataset.st; S.ui.loc=''; S.ui.q=''; go('estoque'); });
+}
+
+// ---------- Estoque ----------
+async function estoque(){
+  await carregaLocais();
+  const chips=[['todos','Todas'],['disp','Disponíveis'],['zerado','Esgotadas'],['semanuncio','Sem anúncio'],['semlocal','Sem local'],['parado','+90 dias']];
+  $('#main').innerHTML=`<div class="top"><h2>Estoque</h2><a class="btn p" data-v="nova">+ Nova peça</a></div>
+    <div class="q" style="margin-bottom:10px"><input id="gq" placeholder="Buscar nome, código, part number ou veículo…" value="${esc(S.ui.q)}"></div>
+    <div class="filters">
+      <select id="floc"><option value="">Todas as localizações</option>${locOptions(S.ui.loc)}</select>
+      ${chips.map(([k,l])=>`<button class="chip ${S.ui.status===k?'on':''}" data-c="${k}">${l}</button>`).join('')}
+    </div><div id="lista"><p class="mut">carregando…</p></div>`;
+  $('[data-v="nova"]').onclick=()=>go('nova');
+  $('#gq').oninput=e=>{ S.ui.q=e.target.value.trim(); clearTimeout(window._t); window._t=setTimeout(listaEstoque,250); };
+  $('#floc').onchange=e=>{ S.ui.loc=e.target.value; listaEstoque(); };
+  document.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{ S.ui.status=b.dataset.c; estoque(); });
+  listaEstoque();
+}
+async function listaEstoque(){
+  const qs=new URLSearchParams(); if(S.ui.q)qs.set('q',S.ui.q); if(S.ui.loc)qs.set('local',S.ui.loc); if(S.ui.status&&S.ui.status!=='todos')qs.set('status',S.ui.status);
+  const { pecas }=await api('/pecas?'+qs); S.pecas=pecas;
+  const el=$('#lista'); if(!el) return;
+  if(!pecas.length){ el.innerHTML='<div class="empty">Nenhuma peça encontrada.</div>'; return; }
+  el.innerHTML=`<p class="small mut">${pecas.length} peça(s)</p><div class="grid">${pecas.map(cardPeca).join('')}</div>`;
+  document.querySelectorAll('[data-pid]').forEach(c=>c.onclick=()=>abrePeca(c.dataset.pid));
+}
+function cardPeca(p){
+  const img=p.fotos&&p.fotos[0]?`<img src="/api/foto/${p.fotos[0]}" alt="">`:'📦';
+  const loc=p.local_id&&S.locais[p.local_id]?`<span class="loc">📍 ${esc(locPath(p.local_id))}</span>`:'<span class="loc none">sem localização</span>';
+  const q=Number(p.qtd)||0;
+  return `<div class="pc" data-pid="${p.id}"><div class="ph">${img}${loc}</div><div class="b">
+    <div class="n">${esc(p.nome)}</div>
+    <div class="small mut">${esc([p.marca,p.modelo,p.ano].filter(Boolean).join(' '))}${p.pn?' · PN '+esc(p.pn):''}</div>
+    <div class="tags"><span class="tag price">${brl(p.preco)}</span><span class="tag ${q>0?'':'zero'}">${q} un</span><span class="tag">${cod(p.codigo)}</span>${p.ml?'<span class="tag ml">ML</span>':''}${p.olx?'<span class="tag olx">OLX</span>':''}</div>
+  </div></div>`;
+}
+
+// ---------- Detalhe ----------
+function abrePeca(id){
+  const p=S.pecas.find(x=>x.id===id); if(!p) return; const q=Number(p.qtd)||0;
+  modal(`<h3 style="margin:0 28px 10px 0">${esc(p.nome)}</h3>
+   ${p.fotos&&p.fotos.length?`<div class="photos">${p.fotos.map(f=>`<img src="/api/foto/${f}">`).join('')}</div>`:''}
+   <div class="tags" style="margin:12px 0"><span class="tag price">${brl(p.preco)}</span><span class="tag ${q>0?'':'zero'}">${q} un</span><span class="tag">${cod(p.codigo)}</span>${p.ml?'<span class="tag ml">ML</span>':''}${p.olx?'<span class="tag olx">OLX</span>':''}</div>
+   <table class="small"><tr><th>Veículo</th><td>${esc([p.marca,p.modelo,p.ano].filter(Boolean).join(' '))||'—'}</td></tr>
+   <tr><th>Part number</th><td>${esc(p.pn)||'—'}</td></tr><tr><th>Condição</th><td>${esc(p.cond)||'—'}</td></tr>
+   <tr><th>Sucata de origem</th><td>${esc(p.veiculo)||'—'}</td></tr>
+   <tr><th>Localização</th><td>${p.local_id&&S.locais[p.local_id]?'📍 '+esc(locPath(p.local_id)):'<span class="tag zero">sem localização</span>'}</td></tr>
+   ${p.obs?`<tr><th>Obs.</th><td>${esc(p.obs)}</td></tr>`:''}</table>
+   <div class="top" style="margin-top:14px;flex-wrap:wrap;gap:8px">
+     <button class="btn g" id="dv" ${q>0?'':'disabled'}>💰 Vender</button>
+     <button class="btn" id="da">📣 Anúncio</button><button class="btn" id="de">✏️ Editar</button>
+     <button class="btn" id="dx" style="color:var(--red)">Excluir</button></div>`);
+  $('#dv').onclick=()=>vender(p); $('#da').onclick=()=>anuncio(p); $('#de').onclick=()=>editar(p.id);
+  $('#dx').onclick=()=>{ if(confirm('Excluir '+p.nome+'?')) api('/pecas/'+id,{method:'DELETE'}).then(()=>{ fecha(); toast('Peça excluída'); listaEstoque(); }); };
+}
+function editar(id){ fecha(); S.ui.editId=id; const p=S.pecas.find(x=>x.id===id); S.ui.fotos=[...(p.fotos||[]).map(k=>({key:k}))]; go('nova'); }
+
+// ---------- Nova / editar ----------
+async function nova(){
+  await carregaLocais();
+  const p=S.ui.editId?(S.pecas.find(x=>x.id===S.ui.editId)||{}):{};
+  $('#main').innerHTML=`<div class="top"><h2>${S.ui.editId?'Editar peça '+cod(p.codigo):'Nova peça'}</h2></div>
+  <form id="pf" class="card"><div class="form">
+    <label class="f full">Nome da peça *<input name="nome" required value="${esc(p.nome)}" placeholder="Ex.: Caixa de fusível"></label>
+    <label class="f">Marca<input name="marca" value="${esc(p.marca)}"></label>
+    <label class="f">Modelo<input name="modelo" value="${esc(p.modelo)}"></label>
+    <label class="f">Ano<input name="ano" value="${esc(p.ano)}" placeholder="2008/2014"></label>
+    <label class="f">Part number<input name="pn" value="${esc(p.pn)}"></label>
+    <label class="f">Condição<select name="cond">${['Usada, em bom estado','Usada, com marcas de uso','Usada, com avaria','Nova'].map(c=>`<option ${p.cond===c?'selected':''}>${c}</option>`).join('')}</select></label>
+    <label class="f">Sucata de origem<input name="veiculo" value="${esc(p.veiculo)}"></label>
+    <label class="f">Preço (R$) *<input name="preco" type="number" step="0.01" min="0" required value="${p.preco??''}"></label>
+    <label class="f">Quantidade *<input name="qtd" type="number" min="0" required value="${p.qtd??1}"></label>
+    <label class="f full">Localização<select name="local_id"><option value="">— sem localização —</option>${locOptions(p.local_id)}</select></label>
+    <label class="f full">Observações<textarea name="obs" rows="2">${esc(p.obs)}</textarea></label>
+    <div class="full"><div class="small mut" style="font-weight:600;margin-bottom:6px">Fotos (até 4)</div>
+      <div class="thumbs" id="thumbs"></div>
+      <label class="btn sm" style="margin-top:8px">📷 Adicionar fotos<input type="file" accept="image/*" multiple id="pfoto" hidden></label></div>
+  </div><div class="top" style="margin-top:16px">
+    <button class="btn p" type="submit">${S.ui.editId?'Salvar':'Cadastrar'}</button>
+    ${S.ui.editId?'<button class="btn" type="button" id="canc">Cancelar</button>':'<label class="small"><input type="checkbox" id="outra" checked style="width:auto"> continuar na mesma sucata</label>'}
+  </div></form>`;
+  drawThumbs();
+  if($('#canc'))$('#canc').onclick=()=>{ S.ui.editId=null; S.ui.fotos=[]; go('estoque'); };
+  $('#pfoto').onchange=async e=>{ for(const f of [...e.target.files]){ if(S.ui.fotos.length>=4)break; try{ S.ui.fotos.push({blob:await shrink(f)}); }catch{} } e.target.value=''; drawThumbs(); };
+  $('#pf').onsubmit=salvaPeca;
+}
+function drawThumbs(){ const t=$('#thumbs'); if(!t)return; t.innerHTML=S.ui.fotos.map((f,i)=>`<div><img src="${f.key?'/api/foto/'+f.key:URL.createObjectURL(f.blob)}"><button type="button" data-i="${i}">×</button></div>`).join('');
+  t.querySelectorAll('button').forEach(b=>b.onclick=()=>{ S.ui.fotos.splice(+b.dataset.i,1); drawThumbs(); }); }
+function shrink(file){ return new Promise((res,rej)=>{ const img=new Image(),u=URL.createObjectURL(file);
+  img.onload=()=>{ const M=900,r=Math.min(1,M/Math.max(img.width,img.height)); const c=document.createElement('canvas'); c.width=img.width*r|0; c.height=img.height*r|0; c.getContext('2d').drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(u); c.toBlob(b=>res(b),'image/jpeg',0.72); };
+  img.onerror=()=>{ URL.revokeObjectURL(u); rej(); }; img.src=u; }); }
+async function salvaPeca(e){
+  e.preventDefault(); const btn=e.target.querySelector('button[type=submit]'); btn.disabled=true;
+  const fd=Object.fromEntries(new FormData(e.target).entries());
+  const keysExistentes=S.ui.fotos.filter(f=>f.key).map(f=>f.key);
+  const body={ nome:fd.nome.trim(),marca:fd.marca.trim(),modelo:fd.modelo.trim(),ano:fd.ano.trim(),pn:fd.pn.trim(),cond:fd.cond,veiculo:fd.veiculo.trim(),preco:fd.preco,qtd:fd.qtd,local_id:fd.local_id,obs:fd.obs.trim(),fotos:keysExistentes };
+  try{
+    let peca; const editando=!!S.ui.editId;
+    if(editando) peca=(await api('/pecas/'+S.ui.editId,{method:'PATCH',body})).peca;
+    else peca=(await api('/pecas',{method:'POST',body})).peca;
+    for(const f of S.ui.fotos){ if(f.blob) await fetch('/api/pecas/'+peca.id+'/foto',{method:'POST',headers:{'content-type':'image/jpeg'},body:f.blob}); }
+    toast(editando?'Peça atualizada':'Peça '+cod(peca.codigo)+' cadastrada');
+    const manter=!editando && $('#outra') && $('#outra').checked;
+    S.ui.editId=null; S.ui.fotos=[];
+    if(manter){ await nova(); ['marca','modelo','ano','veiculo','local_id'].forEach(k=>{ const el=$('#pf').elements[k]; if(el) el.value=body[k]||''; }); $('#pf').elements.nome.focus(); }
+    else go('estoque');
+  }catch(err){ toast('Erro: '+err.message); btn.disabled=false; }
+}
+
+// ---------- Venda ----------
+function vender(p){
+  modal(`<h3>Registrar venda</h3><p class="mut small">${esc(p.nome)} · ${p.qtd} em estoque</p>
+   <div class="form"><label class="f">Quantidade<input id="vq" type="number" min="1" max="${p.qtd}" value="1"></label>
+   <label class="f">Valor unitário (R$)<input id="vp" type="number" step="0.01" value="${p.preco}"></label>
+   <label class="f">Canal<select id="vc"><option>Balcão</option><option>Mercado Livre</option><option>OLX</option><option>WhatsApp</option><option>Outro</option></select></label>
+   <label class="f">Cliente<input id="vcl" placeholder="opcional"></label>
+   <label class="f">Pagamento<select id="vpg"><option>Pix</option><option>Dinheiro</option><option>Cartão</option><option>Boleto</option></select></label></div>
+   <div class="top" style="margin-top:14px"><button class="btn g" id="ok">Confirmar venda</button><button class="btn" id="cc">Cancelar</button></div>`);
+  $('#cc').onclick=()=>abrePeca(p.id);
+  $('#ok').onclick=async()=>{ try{
+    await api('/vendas',{method:'POST',body:{peca_id:p.id,qtd:$('#vq').value,unit:$('#vp').value,canal:$('#vc').value,cliente:$('#vcl').value,pagamento:$('#vpg').value,local_path:p.local_id?locPath(p.local_id):''}});
+    fecha(); toast('Venda registrada! Retirar em '+(p.local_id?locPath(p.local_id):'—')); listaEstoque&&listaEstoque();
+  }catch(err){ toast('Erro: '+err.message); } };
+}
+
+// ---------- Anúncio (texto pronto) ----------
+function anuncio(p){
+  const veic=[p.marca,p.modelo,p.ano].filter(Boolean).join(' ');
+  let titulo=[p.nome,p.pn,veic].filter(Boolean).join(' ').replace(/\s+/g,' ').trim(); if(titulo.length>60)titulo=titulo.slice(0,60).replace(/\s\S*$/,'');
+  const desc=`${p.nome}${veic?' '+veic:''}\n\n✅ Condição: ${p.cond||'Usada, em bom estado'}\n${p.pn?'🔢 Código original: '+p.pn+'\n':''}🚗 ${p.veiculo?'Retirada de '+p.veiculo+'. ':''}Confira a compatibilidade pelo código antes de comprar.\n📦 Enviamos para todo o Brasil.\n🛡️ Garantia de 90 dias.\n\nCódigo interno: ${cod(p.codigo)}`;
+  modal(`<h3>Anúncio pronto</h3><label class="f">Título (${titulo.length}/60)</label><input id="at" value="${esc(titulo)}">
+   <div style="margin:8px 0"><button class="btn sm" id="ct">Copiar título</button></div>
+   <label class="f">Descrição</label><div class="adbox" id="ad">${esc(desc)}</div>
+   <div style="margin:8px 0"><button class="btn sm" id="cd">Copiar descrição</button></div>
+   <div class="card small" style="background:#f7f8fa"><b>Marcar onde anunciou</b>
+     <div style="margin-top:8px"><label><input type="checkbox" id="aml" ${p.ml?'checked':''} style="width:auto"> Mercado Livre</label>
+     &nbsp;&nbsp;<label><input type="checkbox" id="aolx" ${p.olx?'checked':''} style="width:auto"> OLX</label></div>
+     <button class="btn p sm" id="sa" style="margin-top:10px">Salvar</button></div>`);
+  $('#ct').onclick=()=>{ navigator.clipboard?.writeText($('#at').value); toast('Título copiado'); };
+  $('#cd').onclick=()=>{ navigator.clipboard?.writeText(desc); toast('Descrição copiada'); };
+  $('#sa').onclick=async()=>{ await api('/pecas/'+p.id,{method:'PATCH',body:{ml:$('#aml').checked,olx:$('#aolx').checked}}); toast('Salvo'); fecha(); listaEstoque&&listaEstoque(); };
+}
+
+// ---------- Localizações ----------
+async function locais(){
+  await carregaLocais();
+  const raiz=locChildren('');
+  $('#main').innerHTML=`<div class="top"><h2>Localizações</h2><button class="btn p" id="addr">+ Galpão/Pátio</button></div>
+   <p class="small mut">Organize em níveis: Galpão › Prateleira › Nível › Caixa. Toque no nº de peças para ver o que está guardado.</p>
+   <div class="card tree">${raiz.length?`<ul>${raiz.map(l=>nodeHTML(l.id)).join('')}</ul>`:'<div class="empty">Nenhuma localização ainda.</div>'}</div>`;
+  $('#addr').onclick=()=>novoLocal('');
+  bindTree();
+}
+function nodeHTML(id){ const l=S.locais[id],ch=locChildren(id),open=S.ui.open.has(id);
+  const n=Object.values(S.pecas).filter(p=>p.local_id===id).length;
+  return `<li><div class="node"><span class="tg" data-tg="${id}">${ch.length?(open?'▾':'▸'):'·'}</span>
+    <span class="nm">${esc(l.nome)}</span><span class="ct" data-go="${id}">${n?n+' peça(s)':''}</span>
+    <span class="act"><button class="btn sm" data-add="${id}">+</button><button class="btn sm" data-ren="${id}">✏️</button><button class="btn sm" data-del="${id}">🗑</button></span></div>
+    ${ch.length&&open?`<ul>${ch.map(c=>nodeHTML(c.id)).join('')}</ul>`:''}</li>`; }
+function bindTree(){
+  document.querySelectorAll('[data-tg]').forEach(e=>e.onclick=()=>{ const id=e.dataset.tg; S.ui.open.has(id)?S.ui.open.delete(id):S.ui.open.add(id); locais(); });
+  document.querySelectorAll('[data-go]').forEach(e=>e.onclick=()=>{ S.ui.loc=e.dataset.go; S.ui.q=''; S.ui.status='todos'; go('estoque'); });
+  document.querySelectorAll('[data-add]').forEach(e=>e.onclick=()=>novoLocal(e.dataset.add));
+  document.querySelectorAll('[data-ren]').forEach(e=>e.onclick=()=>renomear(e.dataset.ren));
+  document.querySelectorAll('[data-del]').forEach(e=>e.onclick=()=>excluirLocal(e.dataset.del));
+}
+const NIVEIS=['Galpão/Pátio','Prateleira','Nível','Caixa'];
+function depth(id){ let d=0,c=S.locais[id]; while(c&&c.pai){ d++; c=S.locais[c.pai]; } return d; }
+function novoLocal(pai){ const d=pai?depth(pai)+1:0; const tipo=NIVEIS[Math.min(d,3)]; const irm=locChildren(pai).length;
+  const sug=['GALPÃO-','PRT-','NÍVEL-','CAIXA-'][Math.min(d,3)]+(d===2?String.fromCharCode(65+irm):irm+1);
+  modal(`<h3>Novo: ${tipo}</h3>${pai?`<p class="mut small">Dentro de ${esc(locPath(pai))}</p>`:''}
+   <div class="form"><label class="f">Nome<input id="ln" value="${esc(sug)}"></label><label class="f">Criar várias<input id="lq" type="number" min="1" max="50" value="1"></label></div>
+   <p class="small mut">Para várias, use nome terminado em número/letra (CAIXA-1) que o sistema numera em sequência.</p>
+   <div class="top" style="margin-top:12px"><button class="btn p" id="ok">Criar</button><button class="btn" id="cc">Cancelar</button></div>`);
+  $('#cc').onclick=fecha; setTimeout(()=>$('#ln')?.select(),40);
+  $('#ok').onclick=async()=>{ const nome=$('#ln').value.trim(); if(!nome)return; await api('/locais',{method:'POST',body:{nome,pai:pai||null,quantidade:$('#lq').value}}); if(pai)S.ui.open.add(pai); fecha(); toast('Criado'); locais(); };
+}
+function renomear(id){ modal(`<h3>Renomear</h3><label class="f">Nome<input id="ln" value="${esc(S.locais[id].nome)}"></label>
+   <div class="top" style="margin-top:12px"><button class="btn p" id="ok">Salvar</button><button class="btn" id="cc">Cancelar</button></div>`);
+  $('#cc').onclick=fecha; $('#ok').onclick=async()=>{ const v=$('#ln').value.trim(); if(v){ await api('/locais/'+id,{method:'PATCH',body:{nome:v}}); fecha(); locais(); } }; }
+async function excluirLocal(id){ try{ await api('/locais/'+id,{method:'DELETE'}); toast('Excluído'); locais(); }catch(e){ toast(e.message); } }
+
+// ---------- Etiquetas ----------
+async function etiquetas(){
+  await carregaLocais(); const { pecas }=await api('/pecas'); S.pecas=pecas;
+  const tipo=S.ui.etqTipo;
+  const lista=tipo==='pecas'?pecas.map(p=>[p.id,cod(p.codigo)+' · '+p.nome]):Object.keys(S.locais).map(id=>[id,locPath(id)]).sort((a,b)=>a[1].localeCompare(b[1],'pt',{numeric:true}));
+  $('#main').innerHTML=`<div class="top"><h2>Etiquetas</h2></div>
+   <div class="filters"><button class="chip ${tipo==='pecas'?'on':''}" data-t="pecas">Peças</button><button class="chip ${tipo==='locais'?'on':''}" data-t="locais">Prateleiras/caixas</button></div>
+   <div class="top" style="align-items:flex-start;gap:14px;flex-wrap:wrap">
+    <div class="card" style="flex:1;min-width:240px;max-height:420px;overflow:auto">
+      <div class="small" style="margin-bottom:6px"><a id="todas" style="cursor:pointer;color:var(--red)">marcar todas</a> · <a id="limpar" style="cursor:pointer;color:var(--red)">limpar</a> · <span class="mut">${S.ui.etqSel.size} selec.</span></div>
+      ${lista.length?lista.map(([id,t])=>`<label class="sel small"><input type="checkbox" data-sel="${id}" ${S.ui.etqSel.has(id)?'checked':''} style="width:auto"> ${esc(t)}</label>`).join(''):'<div class="mut small">Nada cadastrado.</div>'}
+    </div>
+    <div style="flex:2;min-width:260px"><button class="btn p" id="imp">🖨️ Imprimir selecionadas</button>
+      <div id="prev" class="labels" style="margin-top:12px"></div></div></div>`;
+  document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{ S.ui.etqTipo=b.dataset.t; S.ui.etqSel=new Set(); etiquetas(); });
+  document.querySelectorAll('[data-sel]').forEach(c=>c.onclick=()=>{ c.checked?S.ui.etqSel.add(c.dataset.sel):S.ui.etqSel.delete(c.dataset.sel); previewEtq(); });
+  $('#todas').onclick=()=>{ lista.forEach(([id])=>S.ui.etqSel.add(id)); etiquetas(); };
+  $('#limpar').onclick=()=>{ S.ui.etqSel=new Set(); etiquetas(); };
+  $('#imp').onclick=imprimeEtq;
+  previewEtq();
+}
+function qrSVG(text){ if(typeof qrcode!=='function')return '<svg viewBox="0 0 10 10"><rect width="10" height="10" fill="#eee"/></svg>';
+  const q=qrcode(0,'M'); q.addData(text); q.make(); const n=q.getModuleCount(); let d='';
+  for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(q.isDark(r,c))d+=`M${c} ${r}h1v1h-1z`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 ${n+4} ${n+4}" shape-rendering="crispEdges"><rect x="-2" y="-2" width="${n+4}" height="${n+4}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`; }
+function etqData(){ const t=S.ui.etqTipo;
+  if(t==='pecas')return [...S.ui.etqSel].map(id=>S.pecas.find(p=>p.id===id)).filter(Boolean).map(p=>({qr:'P:'+String(p.codigo).padStart(6,'0'),big:cod(p.codigo),l1:p.nome,l2:[p.marca,p.modelo,p.ano].filter(Boolean).join(' '),l3:p.local_id&&S.locais[p.local_id]?locPath(p.local_id):'',price:brl(p.preco)}));
+  return [...S.ui.etqSel].filter(id=>S.locais[id]).map(id=>({qr:'L:'+id,big:S.locais[id].nome,l1:locPath(id),l2:'',l3:'',price:''})); }
+function previewEtq(){ const el=$('#prev'); if(!el)return; const d=etqData();
+  el.innerHTML=d.length?d.map(l=>`<div class="lbl">${qrSVG(l.qr)}<div class="t"><b>${esc(l.big)}</b>${esc(l.l1)}<br><span class="mut">${esc(l.l2)}</span>${l.l3?'<br>📍 '+esc(l.l3):''}${l.price?'<br><b>'+esc(l.price)+'</b>':''}</div></div>`).join(''):'<div class="empty">Selecione itens ao lado.</div>'; }
+function imprimeEtq(){ const d=etqData(); if(!d.length)return toast('Selecione itens');
+  const w=window.open('','_blank'); w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Etiquetas</title><style>@page{size:A4;margin:8mm}body{font-family:Arial;margin:0}.g{display:grid;grid-template-columns:repeat(3,62mm);gap:3mm}.e{width:62mm;height:32mm;border:1px dashed #999;display:flex;gap:2mm;align-items:center;padding:1.5mm;box-sizing:border-box;overflow:hidden;page-break-inside:avoid}.e svg{width:28mm;height:28mm}.t{font-size:8pt;line-height:1.2}.t b{font-size:11pt;display:block}</style></head><body><div class="g">${d.map(l=>`<div class="e">${qrSVG(l.qr)}<div class="t"><b>${esc(l.big)}</b>${esc(l.l1)}<br>${esc(l.l2)}${l.l3?'<br>'+esc(l.l3):''}${l.price?'<br><b>'+esc(l.price)+'</b>':''}</div></div>`).join('')}</div><script>onload=()=>setTimeout(()=>print(),300)<\/script></body></html>`); w.document.close(); }
+
+// ---------- Vendas ----------
+async function vendas(){
+  const { vendas }=await api('/vendas?periodo='+S.ui.periodo);
+  const ok=vendas.filter(v=>!v.cancelada); const tot=ok.reduce((a,v)=>a+v.total,0);
+  $('#main').innerHTML=`<div class="top"><h2>Vendas</h2></div>
+   <div class="filters">${[['hoje','Hoje'],['7d','7 dias'],['mes','Este mês']].map(([k,l])=>`<button class="chip ${S.ui.periodo===k?'on':''}" data-p="${k}">${l}</button>`).join('')}</div>
+   <div class="kpis"><div class="card kpi"><div class="l">Faturamento</div><div class="v">${brl(tot)}</div></div><div class="card kpi"><div class="l">Vendas</div><div class="v">${ok.length}</div></div><div class="card kpi"><div class="l">Ticket médio</div><div class="v">${brl(ok.length?tot/ok.length:0)}</div></div></div>
+   ${vendas.length?`<div class="tw"><table><tr><th>Data</th><th>Peça</th><th>Qtd</th><th>Total</th><th>Canal</th><th></th></tr>
+   ${vendas.map(v=>`<tr style="${v.cancelada?'opacity:.5;text-decoration:line-through':''}"><td>${new Date(v.data).toLocaleDateString('pt-BR')}</td><td>${cod(v.codigo)} ${esc(v.nome)}</td><td>${v.qtd}</td><td><b>${brl(v.total)}</b></td><td>${esc(v.canal)}</td><td>${v.cancelada?'':`<button class="btn sm" data-cv="${v.id}">Cancelar</button>`}</td></tr>`).join('')}</table></div>`:'<div class="empty">Nenhuma venda no período.</div>'}`;
+  document.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{ S.ui.periodo=b.dataset.p; vendas(); });
+  document.querySelectorAll('[data-cv]').forEach(b=>b.onclick=async()=>{ if(confirm('Cancelar esta venda? A peça volta ao estoque.')){ await api('/vendas/'+b.dataset.cv+'/cancelar',{method:'POST'}); toast('Venda cancelada'); vendas(); } });
+}
+
+// ---------- modal ----------
+function modal(html){ $('#modal').innerHTML=`<div class="modal" id="ov"><div class="box"><button class="x" id="xb">×</button>${html}</div></div>`;
+  $('#ov').onclick=e=>{ if(e.target.id==='ov')fecha(); }; $('#xb').onclick=fecha; }
+function fecha(){ $('#modal').innerHTML=''; }
 
 boot();
 </script>
