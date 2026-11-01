@@ -100,6 +100,7 @@ async function api(request, env, url) {
   if (mt && m === 'DELETE') return excluiLocal(mt[1], env);
 
   // peças
+  if (p === '/api/sugestoes' && m === 'GET') return sugestoes(url, env);
   if (p === '/api/pecas' && m === 'GET') return listaPecas(url, env);
   if (p === '/api/pecas' && m === 'POST') return criaPeca(request, env);
   mt = p.match(/^\/api\/pecas\/([\w-]+)$/);
@@ -229,6 +230,21 @@ async function getPeca(id, env) {
   const r = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(id).first();
   if (!r) return bad('peça não encontrada', 404);
   return json({ peca: parsePeca(r) });
+}
+// sugestões "enquanto digita": peças parecidas no catálogo próprio (Etapa 2 soma anúncios do ML)
+async function sugestoes(url, env) {
+  const q = (url.searchParams.get('q') || '').trim();
+  if (q.length < 2) return json({ sugestoes: [] });
+  const cond = [], binds = [];
+  for (const w of norm(q).split(/\s+/).filter(Boolean)) { cond.push('busca LIKE ?'); binds.push('%' + w + '%'); }
+  if (!cond.length) return json({ sugestoes: [] });
+  const r = await env.DB.prepare(
+    `SELECT nome, marca, modelo, ano, pn, cond, preco, MAX(criado_em) AS ult, COUNT(*) AS n
+     FROM pecas WHERE ${cond.join(' AND ')}
+     GROUP BY COALESCE(NULLIF(pn, ''), lower(nome))
+     ORDER BY n DESC, ult DESC LIMIT 8`
+  ).bind(...binds).all();
+  return json({ sugestoes: r.results });
 }
 const CAMPOS = ['nome', 'marca', 'modelo', 'ano', 'pn', 'cond', 'veiculo', 'preco', 'qtd', 'local_id', 'obs', 'ml', 'ml_id', 'ml_link', 'olx', 'olx_link'];
 async function criaPeca(request, env) {

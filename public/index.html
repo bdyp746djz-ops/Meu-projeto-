@@ -65,6 +65,11 @@ header.bar{background:var(--red);color:#fff;display:none;align-items:center;gap:
 .chip.on{background:var(--red);border-color:var(--red);color:#fff}
 .form{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
 .form .full{grid-column:1/-1}
+.sugbox{border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:var(--sh);background:#fff}
+.sughd{background:#f7f8fa;padding:7px 11px;font-size:12px;color:var(--mut);font-weight:700}
+.sugitem{padding:9px 11px;border-top:1px solid var(--line);cursor:pointer;font-size:13.5px}
+.sugitem:hover{background:#fdecea}
+.sugpr{color:var(--ok);font-weight:700}
 .mut{color:var(--mut)}.small{font-size:13px}
 .tree ul{list-style:none;margin:0;padding-left:20px;border-left:1px dashed #d7dbe0}
 .tree>ul{padding-left:0;border:0}
@@ -250,7 +255,8 @@ async function nova(){
   const p=S.ui.editId?(S.pecas.find(x=>x.id===S.ui.editId)||{}):{};
   $('#main').innerHTML=`<div class="top"><h2>${S.ui.editId?'Editar peça '+cod(p.codigo):'Nova peça'}</h2></div>
   <form id="pf" class="card"><div class="form">
-    <label class="f full">Nome da peça *<input name="nome" required value="${esc(p.nome)}" placeholder="Ex.: Caixa de fusível"></label>
+    <label class="f full">Nome da peça *<input name="nome" required value="${esc(p.nome)}" placeholder="Ex.: Caixa de fusível" autocomplete="off"></label>
+    <div class="full" id="sugwrap"></div>
     <label class="f">Marca<input name="marca" value="${esc(p.marca)}"></label>
     <label class="f">Modelo<input name="modelo" value="${esc(p.modelo)}"></label>
     <label class="f">Ano<input name="ano" value="${esc(p.ano)}" placeholder="2008/2014"></label>
@@ -272,8 +278,28 @@ async function nova(){
   drawThumbs();
   if($('#canc'))$('#canc').onclick=()=>{ S.ui.editId=null; S.ui.fotos=[]; go('estoque'); };
   if($('#sugloc'))$('#sugloc').onclick=sugereCaixa;
+  bindSugestoes();
   $('#pfoto').onchange=async e=>{ for(const f of [...e.target.files]){ if(S.ui.fotos.length>=4)break; try{ S.ui.fotos.push({blob:await shrink(f)}); }catch{} } e.target.value=''; drawThumbs(); };
   $('#pf').onsubmit=salvaPeca;
+}
+// sugestões enquanto digita o nome ou o part number (catálogo próprio; ML entra na Etapa 2)
+let _sugT;
+function bindSugestoes(){
+  const box=()=>$('#sugwrap'); const f=$('#pf'); if(!f) return;
+  const atualiza=()=>{ clearTimeout(_sugT); _sugT=setTimeout(async()=>{
+    const b=box(); if(!b) return;
+    const q=(f.elements.nome.value+' '+f.elements.pn.value).trim();
+    if(q.length<2){ b.innerHTML=''; return; }
+    let r; try{ r=await api('/sugestoes?q='+encodeURIComponent(q)); }catch{ return; }
+    if(!r.sugestoes||!r.sugestoes.length){ b.innerHTML=''; return; }
+    b.innerHTML=`<div class="sugbox"><div class="sughd">📋 Peças parecidas no seu cadastro — toque para preencher</div>${r.sugestoes.map((s,i)=>`<div class="sugitem" data-si="${i}"><b>${esc(s.nome)}</b> <span class="mut">${esc([s.marca,s.modelo,s.ano].filter(Boolean).join(' '))}${s.pn?' · PN '+esc(s.pn):''}</span> <span class="sugpr">${brl(s.preco)}</span>${s.n>1?` <span class="mut">· ${s.n}×</span>`:''}</div>`).join('')}</div>`;
+    b.querySelectorAll('[data-si]').forEach(el=>el.onclick=()=>{ preencheDe(r.sugestoes[+el.dataset.si]); b.innerHTML=''; });
+  },220); };
+  ['nome','pn'].forEach(k=>{ const el=f.elements[k]; if(el) el.addEventListener('input',atualiza); });
+}
+function preencheDe(s){ const f=$('#pf'); const set=(k,v)=>{ if(f.elements[k]!=null && v!=null && v!=='') f.elements[k].value=v; };
+  set('nome',s.nome); set('marca',s.marca); set('modelo',s.modelo); set('ano',s.ano); set('pn',s.pn); if(s.cond)set('cond',s.cond); if(s.preco)set('preco',s.preco);
+  toast('Preenchido a partir do seu cadastro — confira e ajuste'); if(f.elements.preco)f.elements.preco.focus();
 }
 // sugere uma caixa (folha) com espaço livre — tecnologia de "localização inteligente"
 function sugereCaixa(){
