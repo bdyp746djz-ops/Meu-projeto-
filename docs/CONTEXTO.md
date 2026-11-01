@@ -62,3 +62,10 @@ Se passar de 60, encurta nesta ordem: ano 2008/11 → combustível abreviado →
 
 ## Regra de preço (src/preco.js)
 Ao sugerir preço, comparar só peças equivalentes e inteiras: mesma condição (usado×usado), part number conferido, descartando anúncios com termos de avaria ("no estado", "retirada de peças", "quebrado"…) e preços fora da curva (abaixo de 0,5× a mediana). Mostra min/mediana/máx e a lista do que foi descartado, para o usuário conferir. Limite: não detecta dano escondido em foto.
+
+## 🚀 NO AR (01/11/2026)
+- Sistema publicado na Cloudflare: **https://rafa-busca-pecas.rafabuscapecas.workers.dev**
+- Banco D1 `rafa-desmanche` (id 670ba013-5810-4ee9-b314-3bbbb064ee97), bucket R2 `rafa-fotos`.
+- Primeiro deploy foi de uma versão um pouco anterior (sem as 4 funções de agilidade). Para atualizar: baixar ZIP novo → npm install → corrigir database_id → `npm run db:up` (migração 0002) → `npm run deploy`.
+- Bug corrigido no deploy: PBKDF2 no Workers só aceita até 100000 iterações.
+- Pendente: atualização das 4 funções (duplicar/massa/mover/produtividade); Etapa 2 (Mercado Livre); importar catálogo do iBR (Excel).
