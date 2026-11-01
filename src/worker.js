@@ -82,6 +82,8 @@ async function api(request, env, url) {
   if (p === '/api/health') return json({ ok: true });
   if (p === '/api/setup' && m === 'POST') return setup(request, env);
   if (p === '/api/login' && m === 'POST') return login(request, env, secret);
+  // retorno do Mercado Livre (vem de fora, protegido pelo state) — público
+  if (p === '/api/ml/callback' && m === 'GET') return mlCallback(env, url);
 
   // autenticação
   const userId = await leSessao(cookies(request).sess, secret);
@@ -131,7 +133,6 @@ async function api(request, env, url) {
   if (p === '/api/config' && m === 'GET') return getConfig(env, url);
   if (p === '/api/ml/credenciais' && m === 'POST') return mlSalvaCred(request, env, user);
   if (p === '/api/ml/connect' && m === 'GET') return mlConnect(env, url, user);
-  if (p === '/api/ml/callback' && m === 'GET') return mlCallback(env, url);
   if (p === '/api/ml/desconectar' && m === 'POST') return mlDesconecta(env, user);
 
   return bad('rota não encontrada', 404);
@@ -186,7 +187,7 @@ async function mlConnect(env, url, user) {
   await setCfg(env, 'ml_oauth_state', state);
   const redirect = url.origin + '/api/ml/callback';
   const auth = `${ML_AUTH}?response_type=code&client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirect)}&code_challenge=${challenge}&code_challenge_method=S256&state=${state}`;
-  return new Response(null, { status: 302, headers: { Location: auth } });
+  return json({ url: auth });
 }
 async function mlGuardaToken(env, d) {
   await setCfg(env, 'ml_access_token', d.access_token);

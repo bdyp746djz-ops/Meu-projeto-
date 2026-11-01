@@ -470,7 +470,7 @@ async function integracoes(){
      <hr style="border:none;border-top:1px solid #eee;margin:14px 0">
      <b class="small">2) Conectar a conta</b>
      <p class="small mut">Salve as credenciais acima e clique abaixo para fazer login no Mercado Livre.</p>
-     <a class="btn p" href="/api/ml/connect" style="display:inline-block;margin-top:6px">🔗 Conectar Mercado Livre</a>
+     <button class="btn p" id="mlconn" style="margin-top:6px">🔗 Conectar Mercado Livre</button>
      `:'<p class="small mut">Somente o administrador pode configurar a conexão.</p>'}
    </div>`;
   if($('#mldesc'))$('#mldesc').onclick=async()=>{ if(!confirm('Desconectar o Mercado Livre?'))return; await api('/ml/desconectar',{method:'POST'}); toast('Desconectado'); integracoes(); };
@@ -479,6 +479,10 @@ async function integracoes(){
     if(!ml.appIdSet && (!appId||!secret)){ toast('Preencha App ID e Secret'); return; }
     try{ await api('/ml/credenciais',{method:'POST',body:{appId:appId||undefined, secret:secret||undefined}}); toast('Credenciais salvas'); integracoes(); }
     catch(e){ toast(e.message); }
+  };
+  if($('#mlconn'))$('#mlconn').onclick=async()=>{
+    try{ const r=await api('/ml/connect'); if(r&&r.url){ toast('Abrindo Mercado Livre…'); location.href=r.url; } else toast('Não foi possível gerar o link'); }
+    catch(e){ toast('Erro: '+e.message); }
   };
 }
 
