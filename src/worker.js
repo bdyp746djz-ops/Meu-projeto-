@@ -127,7 +127,103 @@ async function api(request, env, url) {
 
   if (p === '/api/painel' && m === 'GET') return painel(env);
 
+  // integrações / Mercado Livre
+  if (p === '/api/config' && m === 'GET') return getConfig(env, url);
+  if (p === '/api/ml/credenciais' && m === 'POST') return mlSalvaCred(request, env, user);
+  if (p === '/api/ml/connect' && m === 'GET') return mlConnect(env, url, user);
+  if (p === '/api/ml/callback' && m === 'GET') return mlCallback(env, url);
+  if (p === '/api/ml/desconectar' && m === 'POST') return mlDesconecta(env, user);
+
   return bad('rota não encontrada', 404);
+}
+
+// ---------- config (chave/valor) ----------
+async function ensureConfig(env) {
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS config (chave TEXT PRIMARY KEY, valor TEXT, atualizado_em INTEGER)').run();
+}
+async function getCfg(env, chave) {
+  await ensureConfig(env);
+  const r = await env.DB.prepare('SELECT valor FROM config WHERE chave=?').bind(chave).first();
+  return r ? r.valor : null;
+}
+async function setCfg(env, chave, valor) {
+  await ensureConfig(env);
+  await env.DB.prepare('INSERT INTO config (chave,valor,atualizado_em) VALUES (?,?,?) ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor, atualizado_em=excluded.atualizado_em')
+    .bind(chave, valor == null ? '' : String(valor), now()).run();
+}
+
+// ---------- Mercado Livre (OAuth) ----------
+const ML_AUTH = 'https://auth.mercadolivre.com.br/authorization';
+const ML_API = 'https://api.mercadolibre.com';
+
+async function getConfig(env, url) {
+  const appId = await getCfg(env, 'ml_app_id');
+  const token = await getCfg(env, 'ml_access_token');
+  const nick = await getCfg(env, 'ml_nickname');
+  return json({ ml: { appIdSet: !!appId, conectado: !!token, nickname: nick || null, redirectUri: url.origin + '/api/ml/callback' } });
+}
+async function mlSalvaCred(request, env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  const { appId, secret } = await request.json();
+  if (appId) await setCfg(env, 'ml_app_id', String(appId).trim());
+  if (secret) await setCfg(env, 'ml_secret', String(secret).trim());
+  const a = await getCfg(env, 'ml_app_id'), s = await getCfg(env, 'ml_secret');
+  if (!a || !s) return bad('informe o App ID e o Secret');
+  return json({ ok: true });
+}
+async function pkce() {
+  const verifier = b64u(crypto.getRandomValues(new Uint8Array(32)));
+  const challenge = b64u(await crypto.subtle.digest('SHA-256', enc.encode(verifier)));
+  return { verifier, challenge };
+}
+async function mlConnect(env, url, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  const appId = await getCfg(env, 'ml_app_id');
+  if (!appId) return bad('configure o App ID e o Secret primeiro');
+  const { verifier, challenge } = await pkce();
+  const state = b64u(crypto.getRandomValues(new Uint8Array(16)));
+  await setCfg(env, 'ml_pkce_verifier', verifier);
+  await setCfg(env, 'ml_oauth_state', state);
+  const redirect = url.origin + '/api/ml/callback';
+  const auth = `${ML_AUTH}?response_type=code&client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirect)}&code_challenge=${challenge}&code_challenge_method=S256&state=${state}`;
+  return new Response(null, { status: 302, headers: { Location: auth } });
+}
+async function mlGuardaToken(env, d) {
+  await setCfg(env, 'ml_access_token', d.access_token);
+  if (d.refresh_token) await setCfg(env, 'ml_refresh_token', d.refresh_token);
+  await setCfg(env, 'ml_token_exp', String(now() + (Number(d.expires_in || 21600) * 1000)));
+}
+async function mlCallback(env, url) {
+  const code = url.searchParams.get('code');
+  const state = url.searchParams.get('state');
+  const erro = url.searchParams.get('error');
+  const volta = (ok, msg) => new Response(null, { status: 302, headers: { Location: url.origin + '/#integracoes' + (ok ? '?ml=ok' : '?ml=erro&m=' + encodeURIComponent(msg || '')) } });
+  if (erro) return volta(false, erro);
+  if (!code) return volta(false, 'sem código');
+  if (!state || state !== (await getCfg(env, 'ml_oauth_state'))) return volta(false, 'state inválido');
+  const appId = await getCfg(env, 'ml_app_id');
+  const secret = await getCfg(env, 'ml_secret');
+  const verifier = await getCfg(env, 'ml_pkce_verifier');
+  const redirect = url.origin + '/api/ml/callback';
+  const body = new URLSearchParams({ grant_type: 'authorization_code', client_id: appId, client_secret: secret, code, redirect_uri: redirect, code_verifier: verifier });
+  const r = await fetch(ML_API + '/oauth/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.access_token) return volta(false, (d && (d.message || d.error)) || ('http ' + r.status));
+  await mlGuardaToken(env, d);
+  try {
+    const me = await fetch(ML_API + '/users/me', { headers: { Authorization: 'Bearer ' + d.access_token } });
+    const mu = await me.json();
+    if (mu && mu.nickname) await setCfg(env, 'ml_nickname', mu.nickname);
+    if (mu && mu.id) await setCfg(env, 'ml_user_id', String(mu.id));
+  } catch { /* nickname é opcional */ }
+  await setCfg(env, 'ml_oauth_state', '');
+  await setCfg(env, 'ml_pkce_verifier', '');
+  return volta(true);
+}
+async function mlDesconecta(env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  for (const k of ['ml_access_token', 'ml_refresh_token', 'ml_token_exp', 'ml_nickname', 'ml_user_id']) await setCfg(env, k, '');
+  return json({ ok: true });
 }
 
 // ---------- autenticação ----------

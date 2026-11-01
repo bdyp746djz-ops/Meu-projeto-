@@ -130,7 +130,7 @@ async function api(path, opts={}){
 }
 
 const S = { user:null, view:'painel', pecas:[], locais:{}, ui:{ q:'', loc:'', status:'todos', periodo:'mes', editId:null, fotos:[], etqTipo:'pecas', etqW:100, etqH:50, etqSel:new Set(), open:new Set(), selMode:false, sel:new Set() } };
-const VIEWS = [['painel','📊','Painel'],['estoque','📦','Estoque'],['nova','➕','Nova peça'],['locais','🗄️','Localizações'],['mover','🔀','Mover'],['etiquetas','🏷️','Etiquetas'],['vendas','💰','Vendas']];
+const VIEWS = [['painel','📊','Painel'],['estoque','📦','Estoque'],['nova','➕','Nova peça'],['locais','🗄️','Localizações'],['mover','🔀','Mover'],['etiquetas','🏷️','Etiquetas'],['vendas','💰','Vendas'],['integracoes','🔗','Integrações']];
 
 // ---------- boot / auth ----------
 async function boot(){
@@ -166,7 +166,7 @@ function shell(){
       <div id="main"></div></main>
     <nav class="bottom" id="navb"></nav></div>`;
   $('#sair').onclick=async()=>{ await api('/logout',{method:'POST'}); location.reload(); };
-  renderNav(); go(S.view);
+  renderNav(); go(location.hash.indexOf('integracoes')>=0 ? 'integracoes' : S.view);
 }
 function renderNav(){
   const link=([k,i,l])=>`<a data-v="${k}" class="${k===S.view?'on':''}"><span class="i">${i}</span>${l}</a>`;
@@ -175,7 +175,7 @@ function renderNav(){
   document.querySelectorAll('[data-v]').forEach(a=>a.onclick=()=>go(a.dataset.v));
 }
 async function go(v){ S.view=v; if(v!=='nova'){ S.ui.editId=null; S.ui.fotos=[]; } renderNav(); window.scrollTo(0,0);
-  const f={painel,estoque,nova,locais,mover,etiquetas,vendas}[v]; $('#main').innerHTML='<p class="mut">carregando…</p>'; try{ await f(); }catch(e){ $('#main').innerHTML='<div class="empty">Erro: '+esc(e.message)+'</div>'; } }
+  const f={painel,estoque,nova,locais,mover,etiquetas,vendas,integracoes}[v]; $('#main').innerHTML='<p class="mut">carregando…</p>'; try{ await f(); }catch(e){ $('#main').innerHTML='<div class="empty">Erro: '+esc(e.message)+'</div>'; } }
 
 // ---------- dados ----------
 async function carregaLocais(){ const { locais }=await api('/locais'); S.locais={}; locais.forEach(l=>S.locais[l.id]=l); }
@@ -441,6 +441,45 @@ function anuncio(p){
   $('#ct').onclick=()=>{ navigator.clipboard?.writeText($('#at').value); toast('Título copiado'); };
   $('#cd').onclick=()=>{ navigator.clipboard?.writeText(desc); toast('Descrição copiada'); };
   $('#sa').onclick=async()=>{ await api('/pecas/'+p.id,{method:'PATCH',body:{ml:$('#aml').checked,olx:$('#aolx').checked}}); toast('Salvo'); fecha(); listaEstoque&&listaEstoque(); };
+}
+
+// ---------- Integrações (Mercado Livre) ----------
+async function integracoes(){
+  const c=await api('/config'); const ml=c.ml||{};
+  const q=new URLSearchParams((location.hash.split('?')[1]||''));
+  const flash=q.get('ml')==='ok'
+    ?'<div class="card" style="background:#e8f7ec;border-color:#bfe6c9"><b style="color:#116b2e">✅ Mercado Livre conectado!</b></div>'
+    :q.get('ml')==='erro'
+    ?`<div class="card" style="background:#fdeaea;border-color:#f3c2c2"><b style="color:#a12">❌ Não conectou:</b> ${esc(q.get('m')||'')}</div>`:'';
+  const admin=S.user&&S.user.papel==='admin';
+  $('#main').innerHTML=`<div class="top"><h2>Integrações</h2></div>
+   ${flash}
+   <div class="card">
+     <div class="top" style="margin:0 0 6px"><h3 style="margin:0">🛒 Mercado Livre</h3>
+       ${ml.conectado?'<span class="tag ml">Conectado</span>':'<span class="tag zero">Desconectado</span>'}</div>
+     <p class="small mut">Conecte sua conta do Mercado Livre para publicar anúncios direto do sistema.</p>
+     ${ml.conectado?`<p class="small">Conta: <b>${esc(ml.nickname||'conectada')}</b> &nbsp; <button class="btn sm" id="mldesc">Desconectar</button></p>`:''}
+     ${admin?`
+     <hr style="border:none;border-top:1px solid #eee;margin:14px 0">
+     <b class="small">1) Credenciais do seu app no Mercado Livre</b>
+     <label class="f">App ID<input id="mlapp" placeholder="${ml.appIdSet?'•••••• (já salvo — preencha só p/ trocar)':'número do App ID'}"></label>
+     <label class="f">Secret Key<input id="mlsec" placeholder="${ml.appIdSet?'•••••• (já salvo — preencha só p/ trocar)':'código secreto'}"></label>
+     <button class="btn p sm" id="mlsave">Salvar credenciais</button>
+     <p class="small mut" style="margin-top:10px">No cadastro do app no Mercado Livre, use esta <b>URL de redirect</b>:<br>
+       <code style="font-size:11px;word-break:break-all">${esc(ml.redirectUri||'')}</code></p>
+     <hr style="border:none;border-top:1px solid #eee;margin:14px 0">
+     <b class="small">2) Conectar a conta</b>
+     <p class="small mut">Salve as credenciais acima e clique abaixo para fazer login no Mercado Livre.</p>
+     <a class="btn p" href="/api/ml/connect" style="display:inline-block;margin-top:6px">🔗 Conectar Mercado Livre</a>
+     `:'<p class="small mut">Somente o administrador pode configurar a conexão.</p>'}
+   </div>`;
+  if($('#mldesc'))$('#mldesc').onclick=async()=>{ if(!confirm('Desconectar o Mercado Livre?'))return; await api('/ml/desconectar',{method:'POST'}); toast('Desconectado'); integracoes(); };
+  if($('#mlsave'))$('#mlsave').onclick=async()=>{
+    const appId=$('#mlapp').value.trim(), secret=$('#mlsec').value.trim();
+    if(!ml.appIdSet && (!appId||!secret)){ toast('Preencha App ID e Secret'); return; }
+    try{ await api('/ml/credenciais',{method:'POST',body:{appId:appId||undefined, secret:secret||undefined}}); toast('Credenciais salvas'); integracoes(); }
+    catch(e){ toast(e.message); }
+  };
 }
 
 // ---------- Localizações ----------
