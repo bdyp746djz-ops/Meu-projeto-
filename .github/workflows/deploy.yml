@@ -1,0 +1,30 @@
+name: Deploy (Cloudflare)
+
+# Publica o sistema na Cloudflare automaticamente a cada push.
+# Assim você NÃO precisa mais baixar ZIP nem rodar nada no PC:
+# o Claude corrige -> o GitHub publica sozinho -> o site atualiza.
+#
+# Pré-requisito (feito 1 vez só): criar o segredo CLOUDFLARE_API_TOKEN
+# em Settings > Secrets and variables > Actions do repositório.
+
+on:
+  push:
+    branches:
+      - claude/reverse-engineering-br-vaapt-g5tizd
+      - main
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install
+      - name: Publicar na Cloudflare
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: cc15a419f43d0e368e2fe2b1361b568e
