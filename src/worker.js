@@ -68,7 +68,15 @@ export default {
       try { return await api(request, env, url); }
       catch (e) { return bad('erro interno: ' + (e && e.message || e), 500); }
     }
-    return env.ASSETS.fetch(request); // SPA + estáticos
+    const res = await env.ASSETS.fetch(request); // SPA + estáticos
+    // não cachear o HTML do app: o navegador sempre pega a versão mais nova
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('text/html')) {
+      const h = new Headers(res.headers);
+      h.set('cache-control', 'no-store, must-revalidate');
+      return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+    }
+    return res;
   },
 };
 
