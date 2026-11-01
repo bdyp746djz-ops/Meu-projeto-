@@ -129,7 +129,7 @@ async function api(path, opts={}){
   return d;
 }
 
-const S = { user:null, view:'painel', pecas:[], locais:{}, ui:{ q:'', loc:'', status:'todos', periodo:'mes', editId:null, fotos:[], etqTipo:'pecas', etqSel:new Set(), open:new Set(), selMode:false, sel:new Set() } };
+const S = { user:null, view:'painel', pecas:[], locais:{}, ui:{ q:'', loc:'', status:'todos', periodo:'mes', editId:null, fotos:[], etqTipo:'pecas', etqW:100, etqH:50, etqSel:new Set(), open:new Set(), selMode:false, sel:new Set() } };
 const VIEWS = [['painel','📊','Painel'],['estoque','📦','Estoque'],['nova','➕','Nova peça'],['locais','🗄️','Localizações'],['mover','🔀','Mover'],['etiquetas','🏷️','Etiquetas'],['vendas','💰','Vendas']];
 
 // ---------- boot / auth ----------
@@ -506,8 +506,8 @@ async function etiquetas(){
     </div>
     <div style="flex:2;min-width:260px">
       <div class="small" style="margin-bottom:8px">Tamanho da sua etiqueta (mm):
-        <input id="etqw" type="number" min="20" value="${S.ui.etqW||60}" style="width:62px;display:inline-block"> largura ×
-        <input id="etqh" type="number" min="15" value="${S.ui.etqH||40}" style="width:62px;display:inline-block"> altura</div>
+        <input id="etqw" type="number" min="20" value="${S.ui.etqW||100}" style="width:62px;display:inline-block"> largura ×
+        <input id="etqh" type="number" min="15" value="${S.ui.etqH||50}" style="width:62px;display:inline-block"> altura</div>
       <button class="btn p" id="imp">🖨️ Imprimir selecionadas</button>
       <p class="small mut" style="margin-top:6px">Impressora térmica (Zebra): uma etiqueta por vez, deitada, preenchendo tudo. Na janela de impressão escolha a sua impressora e imprima em 100% (sem "ajustar à página").</p>
       <div id="prev" class="labels" style="margin-top:12px"></div></div></div>`;
@@ -533,7 +533,7 @@ function previewEtq(){ const el=$('#prev'); if(!el)return; const d=etqData();
 function imprimeEtq(){ const d=etqData(); if(!d.length)return toast('Selecione itens'); imprimeLabels(d); }
 function imprimeLabels(d){ if(!d||!d.length)return toast('Selecione itens');
   // impressora térmica: 1 etiqueta por página, deitada, preenchendo a etiqueta toda
-  const W=Math.max(20,parseInt(S.ui.etqW)||60), H=Math.max(15,parseInt(S.ui.etqH)||40);
+  const W=Math.max(20,parseInt(S.ui.etqW)||100), H=Math.max(15,parseInt(S.ui.etqH)||50);
   const qr=Math.max(8,Math.min(H-3, W*0.42));
   const fB=Math.max(8,Math.round(H/3.2)), fT=Math.max(6,Math.round(H/4.5));
   const w=window.open('','_blank'); w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Etiquetas</title><style>
