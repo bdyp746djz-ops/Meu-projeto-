@@ -70,6 +70,12 @@ header.bar{background:var(--red);color:#fff;display:none;align-items:center;gap:
 .sugitem{padding:9px 11px;border-top:1px solid var(--line);cursor:pointer;font-size:13.5px}
 .sugitem:hover{background:#fdecea}
 .sugpr{color:var(--ok);font-weight:700}
+.withmic{position:relative}
+.withmic>input,.withmic>textarea{width:100%;padding-right:46px}
+.mic{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:#eef0f3;border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:16px;line-height:1}
+.withmic.ta .mic{top:8px;transform:none}
+.mic.on{background:#fdecea;animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.45}}
 .mut{color:var(--mut)}.small{font-size:13px}
 .tree ul{list-style:none;margin:0;padding-left:20px;border-left:1px dashed #d7dbe0}
 .tree>ul{padding-left:0;border:0}
@@ -199,7 +205,7 @@ async function estoque(){
   await carregaLocais();
   const chips=[['todos','Todas'],['disp','Disponíveis'],['zerado','Esgotadas'],['semanuncio','Sem anúncio'],['semlocal','Sem local'],['parado','+90 dias']];
   $('#main').innerHTML=`<div class="top"><h2>Estoque</h2><a class="btn p" data-v="nova">+ Nova peça</a></div>
-    <div class="q" style="margin-bottom:10px"><input id="gq" placeholder="Buscar nome, código, part number ou veículo…" value="${esc(S.ui.q)}"></div>
+    <div class="q" style="margin-bottom:10px"><div class="withmic"><input id="gq" placeholder="Buscar nome, código, part number ou veículo…" value="${esc(S.ui.q)}"><button type="button" class="mic" title="Ditar por voz">🎤</button></div></div>
     <div class="filters">
       <select id="floc"><option value="">Todas as localizações</option>${locOptions(S.ui.loc)}</select>
       ${chips.map(([k,l])=>`<button class="chip ${S.ui.status===k?'on':''}" data-c="${k}">${l}</button>`).join('')}
@@ -208,6 +214,7 @@ async function estoque(){
   $('#gq').oninput=e=>{ S.ui.q=e.target.value.trim(); clearTimeout(window._t); window._t=setTimeout(listaEstoque,250); };
   $('#floc').onchange=e=>{ S.ui.loc=e.target.value; listaEstoque(); };
   document.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{ S.ui.status=b.dataset.c; estoque(); });
+  bindMics();
   listaEstoque();
 }
 async function listaEstoque(){
@@ -255,7 +262,7 @@ async function nova(){
   const p=S.ui.editId?(S.pecas.find(x=>x.id===S.ui.editId)||{}):{};
   $('#main').innerHTML=`<div class="top"><h2>${S.ui.editId?'Editar peça '+cod(p.codigo):'Nova peça'}</h2></div>
   <form id="pf" class="card"><div class="form">
-    <label class="f full">Nome da peça *<input name="nome" required value="${esc(p.nome)}" placeholder="Ex.: Caixa de fusível" autocomplete="off"></label>
+    <label class="f full">Nome da peça *<div class="withmic"><input name="nome" required value="${esc(p.nome)}" placeholder="Ex.: Caixa de fusível" autocomplete="off"><button type="button" class="mic" title="Ditar por voz">🎤</button></div></label>
     <div class="full" id="sugwrap"></div>
     <label class="f">Marca<input name="marca" value="${esc(p.marca)}"></label>
     <label class="f">Modelo<input name="modelo" value="${esc(p.modelo)}"></label>
@@ -267,7 +274,7 @@ async function nova(){
     <label class="f">Quantidade *<input name="qtd" type="number" min="0" required value="${p.qtd??1}"></label>
     <label class="f full">Localização<select name="local_id"><option value="">— sem localização —</option>${locOptions(p.local_id)}</select>
       <button type="button" class="btn sm" id="sugloc" style="margin-top:6px;align-self:flex-start">🎯 Sugerir caixa com espaço</button></label>
-    <label class="f full">Observações<textarea name="obs" rows="2">${esc(p.obs)}</textarea></label>
+    <label class="f full">Observações<div class="withmic ta"><textarea name="obs" rows="2">${esc(p.obs)}</textarea><button type="button" class="mic" title="Ditar por voz">🎤</button></div></label>
     <div class="full"><div class="small mut" style="font-weight:600;margin-bottom:6px">Fotos (até 4)</div>
       <div class="thumbs" id="thumbs"></div>
       <label class="btn sm" style="margin-top:8px">📷 Adicionar fotos<input type="file" accept="image/*" multiple id="pfoto" hidden></label></div>
@@ -278,7 +285,7 @@ async function nova(){
   drawThumbs();
   if($('#canc'))$('#canc').onclick=()=>{ S.ui.editId=null; S.ui.fotos=[]; go('estoque'); };
   if($('#sugloc'))$('#sugloc').onclick=sugereCaixa;
-  bindSugestoes();
+  bindSugestoes(); bindMics();
   $('#pfoto').onchange=async e=>{ for(const f of [...e.target.files]){ if(S.ui.fotos.length>=4)break; try{ S.ui.fotos.push({blob:await shrink(f)}); }catch{} } e.target.value=''; drawThumbs(); };
   $('#pf').onsubmit=salvaPeca;
 }
@@ -301,6 +308,22 @@ function preencheDe(s){ const f=$('#pf'); const set=(k,v)=>{ if(f.elements[k]!=n
   set('nome',s.nome); set('marca',s.marca); set('modelo',s.modelo); set('ano',s.ano); set('pn',s.pn); if(s.cond)set('cond',s.cond); if(s.preco)set('preco',s.preco);
   toast('Preenchido a partir do seu cadastro — confira e ajuste'); if(f.elements.preco)f.elements.preco.focus();
 }
+// ditar por voz (Web Speech API — grátis; funciona no Google Chrome, em português)
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+function iniciaDitado(btn){
+  if(!SR){ toast('Ditado por voz não disponível aqui. Use o Google Chrome.'); return; }
+  const campo=btn.closest('.withmic').querySelector('input,textarea'); if(!campo||btn.classList.contains('on'))return;
+  const rec=new SR(); rec.lang='pt-BR'; rec.interimResults=false; rec.maxAlternatives=1;
+  btn.classList.add('on'); btn.textContent='🔴';
+  rec.onresult=e=>{ let t=(e.results[0][0].transcript||'').trim(); if(!t)return;
+    if(!campo.value.trim()) t=t.charAt(0).toUpperCase()+t.slice(1);
+    campo.value=campo.value.trim()?(campo.value.trim()+' '+t):t;
+    campo.dispatchEvent(new Event('input',{bubbles:true})); campo.focus(); };
+  rec.onerror=ev=>{ if(ev.error==='not-allowed'||ev.error==='service-not-allowed')toast('Permita o microfone no navegador.'); else if(ev.error!=='no-speech'&&ev.error!=='aborted')toast('Não consegui ouvir. Tente de novo.'); };
+  rec.onend=()=>{ btn.classList.remove('on'); btn.textContent='🎤'; };
+  try{ rec.start(); }catch{ btn.classList.remove('on'); btn.textContent='🎤'; }
+}
+function bindMics(){ document.querySelectorAll('.mic').forEach(b=>{ if(!b._b){ b._b=1; b.onclick=()=>iniciaDitado(b); } }); }
 // sugere uma caixa (folha) com espaço livre — tecnologia de "localização inteligente"
 function sugereCaixa(){
   const folhas=Object.values(S.locais).filter(l=>locChildren(l.id).length===0);
