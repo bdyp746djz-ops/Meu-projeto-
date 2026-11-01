@@ -6,7 +6,7 @@ compatibility_date = "2026-10-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "rafa-desmanche"
-database_id = "PREENCHER_APOS_CRIAR"
+database_id = "670ba013-5810-4ee9-b314-3bbbb064ee97"
 
 # Armazenamento das fotos (R2). Crie com: wrangler r2 bucket create rafa-fotos
 [[r2_buckets]]

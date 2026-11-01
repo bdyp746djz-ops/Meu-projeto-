@@ -2,6 +2,9 @@
 -- Use SÓ para atualizar um banco criado ANTES dessas funções (como o primeiro deploy).
 -- Num banco novo (criado pelo 0001 mais recente) isto não é necessário.
 
+-- capacidade da caixa (localização inteligente)
+ALTER TABLE locais ADD COLUMN capacidade INTEGER;
+
 -- quem cadastrou a peça (produtividade por funcionário)
 ALTER TABLE pecas ADD COLUMN criado_por TEXT;
 
