@@ -447,10 +447,8 @@ function anuncio(p){
 async function integracoes(){
   const c=await api('/config'); const ml=c.ml||{};
   const q=new URLSearchParams((location.hash.split('?')[1]||''));
-  const flash=q.get('ml')==='ok'
-    ?'<div class="card" style="background:#e8f7ec;border-color:#bfe6c9"><b style="color:#116b2e">✅ Mercado Livre conectado!</b></div>'
-    :q.get('ml')==='erro'
-    ?`<div class="card" style="background:#fdeaea;border-color:#f3c2c2"><b style="color:#a12">❌ Não conectou:</b> ${esc(q.get('m')||'')}</div>`:'';
+  const flash=q.get('ml')==='ok' && ml.conectado
+    ?'<div class="card" style="background:#e8f7ec;border-color:#bfe6c9"><b style="color:#116b2e">✅ Mercado Livre conectado!</b></div>':'';
   const admin=S.user&&S.user.papel==='admin';
   $('#main').innerHTML=`<div class="top"><h2>Integrações</h2></div>
    ${flash}
@@ -459,6 +457,7 @@ async function integracoes(){
        ${ml.conectado?'<span class="tag ml">Conectado</span>':'<span class="tag zero">Desconectado</span>'}</div>
      <p class="small mut">Conecte sua conta do Mercado Livre para publicar anúncios direto do sistema.</p>
      ${ml.conectado?`<p class="small">Conta: <b>${esc(ml.nickname||'conectada')}</b> &nbsp; <button class="btn sm" id="mldesc">Desconectar</button></p>`:''}
+     ${!ml.conectado && ml.ultimoErro?`<div class="card small" style="background:#fdeaea;border-color:#f3c2c2;margin:8px 0"><b style="color:#a12">❌ Última tentativa de conectar falhou:</b><br>${esc(ml.ultimoErro)}</div>`:''}
      ${admin?`
      <hr style="border:none;border-top:1px solid #eee;margin:14px 0">
      <b class="small">1) Credenciais do seu app no Mercado Livre</b>

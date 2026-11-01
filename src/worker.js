@@ -161,7 +161,8 @@ async function getConfig(env, url) {
   const appId = await getCfg(env, 'ml_app_id');
   const token = await getCfg(env, 'ml_access_token');
   const nick = await getCfg(env, 'ml_nickname');
-  return json({ ml: { appIdSet: !!appId, conectado: !!token, nickname: nick || null, redirectUri: url.origin + '/api/ml/callback' } });
+  const erro = await getCfg(env, 'ml_ultimo_erro');
+  return json({ ml: { appIdSet: !!appId, conectado: !!token, nickname: nick || null, ultimoErro: erro || null, redirectUri: url.origin + '/api/ml/callback' } });
 }
 async function mlSalvaCred(request, env, user) {
   if (user.papel !== 'admin') return bad('somente o administrador', 403);
@@ -197,19 +198,28 @@ async function mlGuardaToken(env, d) {
 async function mlCallback(env, url) {
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
-  const erro = url.searchParams.get('error');
-  const volta = (ok, msg) => new Response(null, { status: 302, headers: { Location: url.origin + '/#integracoes' + (ok ? '?ml=ok' : '?ml=erro&m=' + encodeURIComponent(msg || '')) } });
-  if (erro) return volta(false, erro);
-  if (!code) return volta(false, 'sem código');
-  if (!state || state !== (await getCfg(env, 'ml_oauth_state'))) return volta(false, 'state inválido');
+  const erroMl = url.searchParams.get('error');
+  const volta = async (ok, msg) => {
+    await setCfg(env, 'ml_ultimo_erro', ok ? '' : (msg || 'erro desconhecido'));
+    return new Response(null, { status: 302, headers: { Location: url.origin + '/#integracoes?ml=' + (ok ? 'ok' : 'erro') } });
+  };
+  if (erroMl) return volta(false, 'Mercado Livre recusou: ' + erroMl);
+  if (!code) return volta(false, 'não veio o código de autorização');
+  if (!state || state !== (await getCfg(env, 'ml_oauth_state'))) return volta(false, 'verificação de segurança (state) não bateu — conecte de novo sem clicar várias vezes');
   const appId = await getCfg(env, 'ml_app_id');
   const secret = await getCfg(env, 'ml_secret');
   const verifier = await getCfg(env, 'ml_pkce_verifier');
   const redirect = url.origin + '/api/ml/callback';
   const body = new URLSearchParams({ grant_type: 'authorization_code', client_id: appId, client_secret: secret, code, redirect_uri: redirect, code_verifier: verifier });
-  const r = await fetch(ML_API + '/oauth/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok || !d.access_token) return volta(false, (d && (d.message || d.error)) || ('http ' + r.status));
+  let r, d;
+  try {
+    r = await fetch(ML_API + '/oauth/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body });
+    d = await r.json().catch(() => ({}));
+  } catch (e) { return volta(false, 'falha de rede ao falar com o Mercado Livre: ' + (e && e.message || e)); }
+  if (!r.ok || !d.access_token) {
+    const det = d.error ? (d.error + (d.error_description ? ' — ' + d.error_description : '')) : (d.message || ('HTTP ' + (r ? r.status : '?')));
+    return volta(false, 'troca do código falhou: ' + det);
+  }
   await mlGuardaToken(env, d);
   try {
     const me = await fetch(ML_API + '/users/me', { headers: { Authorization: 'Bearer ' + d.access_token } });
