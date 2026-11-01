@@ -1,0 +1,23 @@
+name = "rafa-busca-pecas"
+main = "src/worker.js"
+compatibility_date = "2026-10-01"
+
+# Banco de dados (D1). O database_id vem de: wrangler d1 create rafa-desmanche
+[[d1_databases]]
+binding = "DB"
+database_name = "rafa-desmanche"
+database_id = "PREENCHER_APOS_CRIAR"
+
+# Armazenamento das fotos (R2). Crie com: wrangler r2 bucket create rafa-fotos
+[[r2_buckets]]
+binding = "FOTOS"
+bucket_name = "rafa-fotos"
+
+# Frontend (arquivos estáticos). Rotas que não são /api/* caem no index.html.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+# O SESSION_SECRET NÃO vai aqui. Defina como secret:
+#   wrangler secret put SESSION_SECRET

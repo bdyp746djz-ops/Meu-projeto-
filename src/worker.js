@@ -1,0 +1,336 @@
+// Rafa Busca Peças — Worker para Cloudflare (API + arquivos estáticos).
+// Etapa 1: login, localizações, estoque, vendas, fotos (R2), painel.
+// Bindings esperados (wrangler.toml): DB (D1), FOTOS (R2), ASSETS (estáticos),
+// e o secret SESSION_SECRET.
+
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+
+// ---------- HTTP ----------
+const json = (data, status = 200, headers = {}) =>
+  new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', ...headers } });
+const bad = (msg, status = 400) => json({ erro: msg }, status);
+const uid = () => crypto.randomUUID();
+const now = () => Date.now();
+
+function cookies(req) {
+  const h = req.headers.get('cookie') || '';
+  return Object.fromEntries(
+    h.split(';').map(c => c.trim().split('=')).filter(a => a[0]).map(([k, ...v]) => [k, decodeURIComponent(v.join('='))])
+  );
+}
+function cookie(name, val, maxAgeSec) {
+  return `${name}=${encodeURIComponent(val)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAgeSec}`;
+}
+
+// ---------- cripto: senha (PBKDF2) e sessão (HMAC) ----------
+const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64u = s => { s = s.replace(/-/g, '+').replace(/_/g, '/'); return Uint8Array.from(atob(s), c => c.charCodeAt(0)); };
+
+async function hashSenha(senha, saltB64) {
+  const salt = saltB64 ? unb64u(saltB64) : crypto.getRandomValues(new Uint8Array(16));
+  const key = await crypto.subtle.importKey('raw', enc.encode(senha), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 120000, hash: 'SHA-256' }, key, 256);
+  return { hash: b64u(bits), salt: b64u(salt) };
+}
+async function verificaSenha(senha, hashB64, saltB64) {
+  const { hash } = await hashSenha(senha, saltB64);
+  if (hash.length !== hashB64.length) return false;
+  let diff = 0;
+  for (let i = 0; i < hash.length; i++) diff |= hash.charCodeAt(i) ^ hashB64.charCodeAt(i);
+  return diff === 0;
+}
+async function hmacKey(secret) {
+  return crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+}
+async function assinaSessao(userId, secret, dias = 30) {
+  const payload = b64u(enc.encode(JSON.stringify({ u: userId, e: now() + dias * 864e5 })));
+  const sig = b64u(await crypto.subtle.sign('HMAC', await hmacKey(secret), enc.encode(payload)));
+  return `${payload}.${sig}`;
+}
+async function leSessao(token, secret) {
+  if (!token || !token.includes('.')) return null;
+  const [payload, sig] = token.split('.');
+  let ok = false;
+  try { ok = await crypto.subtle.verify('HMAC', await hmacKey(secret), unb64u(sig), enc.encode(payload)); } catch { return null; }
+  if (!ok) return null;
+  try { const d = JSON.parse(dec.decode(unb64u(payload))); return d.e < now() ? null : d.u; } catch { return null; }
+}
+
+// ---------- roteador ----------
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    if (url.pathname.startsWith('/api/')) {
+      try { return await api(request, env, url); }
+      catch (e) { return bad('erro interno: ' + (e && e.message || e), 500); }
+    }
+    return env.ASSETS.fetch(request); // SPA + estáticos
+  },
+};
+
+async function api(request, env, url) {
+  const p = url.pathname.replace(/\/+$/, '');
+  const m = request.method;
+  const secret = env.SESSION_SECRET;
+  if (!secret) return bad('SESSION_SECRET não configurado no ambiente', 500);
+
+  // públicas
+  if (p === '/api/health') return json({ ok: true });
+  if (p === '/api/setup' && m === 'POST') return setup(request, env);
+  if (p === '/api/login' && m === 'POST') return login(request, env, secret);
+
+  // autenticação
+  const userId = await leSessao(cookies(request).sess, secret);
+  if (!userId) return bad('não autenticado', 401);
+  const user = await env.DB.prepare('SELECT id,nome,login,papel FROM usuarios WHERE id=?').bind(userId).first();
+  if (!user) return bad('sessão inválida', 401);
+
+  if (p === '/api/logout' && m === 'POST') return json({ ok: true }, 200, { 'set-cookie': cookie('sess', '', 0) });
+  if (p === '/api/me' && m === 'GET') return json({ user });
+
+  // localizações
+  if (p === '/api/locais' && m === 'GET') return listaLocais(env);
+  if (p === '/api/locais' && m === 'POST') return criaLocais(request, env);
+  let mt = p.match(/^\/api\/locais\/([\w-]+)$/);
+  if (mt && m === 'PATCH') return renomeiaLocal(mt[1], request, env);
+  if (mt && m === 'DELETE') return excluiLocal(mt[1], env);
+
+  // peças
+  if (p === '/api/pecas' && m === 'GET') return listaPecas(url, env);
+  if (p === '/api/pecas' && m === 'POST') return criaPeca(request, env);
+  mt = p.match(/^\/api\/pecas\/([\w-]+)$/);
+  if (mt && m === 'GET') return getPeca(mt[1], env);
+  if (mt && m === 'PATCH') return atualizaPeca(mt[1], request, env);
+  if (mt && m === 'DELETE') return excluiPeca(mt[1], env);
+  mt = p.match(/^\/api\/pecas\/([\w-]+)\/foto$/);
+  if (mt && m === 'POST') return subirFoto(mt[1], request, env);
+
+  // fotos (R2)
+  mt = p.match(/^\/api\/foto\/(.+)$/);
+  if (mt && m === 'GET') return serveFoto(decodeURIComponent(mt[1]), env);
+
+  // vendas
+  if (p === '/api/vendas' && m === 'GET') return listaVendas(url, env);
+  if (p === '/api/vendas' && m === 'POST') return criaVenda(request, env);
+  mt = p.match(/^\/api\/vendas\/([\w-]+)\/cancelar$/);
+  if (mt && m === 'POST') return cancelaVenda(mt[1], env);
+
+  if (p === '/api/painel' && m === 'GET') return painel(env);
+
+  return bad('rota não encontrada', 404);
+}
+
+// ---------- autenticação ----------
+async function setup(request, env) {
+  const n = await env.DB.prepare('SELECT COUNT(*) c FROM usuarios').first();
+  if (n.c > 0) return bad('sistema já configurado', 403);
+  const { nome, login: lg, senha } = await request.json();
+  if (!lg || !senha) return bad('login e senha são obrigatórios');
+  const { hash, salt } = await hashSenha(senha);
+  const id = uid();
+  await env.DB.prepare('INSERT INTO usuarios (id,nome,login,senha_hash,salt,papel,criado_em) VALUES (?,?,?,?,?,?,?)')
+    .bind(id, nome || 'Administrador', lg, hash, salt, 'admin', now()).run();
+  return json({ ok: true });
+}
+async function login(request, env, secret) {
+  const { login: lg, senha } = await request.json();
+  const u = await env.DB.prepare('SELECT * FROM usuarios WHERE login=?').bind(lg).first();
+  if (!u || !(await verificaSenha(senha, u.senha_hash, u.salt))) return bad('login ou senha incorretos', 401);
+  const token = await assinaSessao(u.id, secret);
+  return json({ ok: true, user: { id: u.id, nome: u.nome, login: u.login, papel: u.papel } },
+    200, { 'set-cookie': cookie('sess', token, 30 * 86400) });
+}
+
+// ---------- localizações ----------
+async function listaLocais(env) {
+  const r = await env.DB.prepare('SELECT id,nome,pai FROM locais').all();
+  return json({ locais: r.results });
+}
+async function criaLocais(request, env) {
+  const { nome, pai, quantidade } = await request.json();
+  if (!nome) return bad('nome é obrigatório');
+  const q = Math.min(50, Math.max(1, parseInt(quantidade) || 1));
+  const base = String(nome).match(/^(.*?)(\d+|[A-Za-z])$/);
+  const criados = [];
+  for (let i = 0; i < q; i++) {
+    let nm = nome;
+    if (i > 0 && base) nm = /\d/.test(base[2]) ? base[1] + (parseInt(base[2]) + i) : base[1] + String.fromCharCode(base[2].charCodeAt(0) + i);
+    else if (i > 0) nm = `${nome}-${i + 1}`;
+    const id = uid();
+    await env.DB.prepare('INSERT INTO locais (id,nome,pai,criado_em) VALUES (?,?,?,?)').bind(id, nm, pai || null, now()).run();
+    criados.push({ id, nome: nm, pai: pai || null });
+  }
+  return json({ criados });
+}
+async function renomeiaLocal(id, request, env) {
+  const { nome } = await request.json();
+  if (!nome) return bad('nome é obrigatório');
+  await env.DB.prepare('UPDATE locais SET nome=? WHERE id=?').bind(nome, id).run();
+  return json({ ok: true });
+}
+async function excluiLocal(id, env) {
+  const filhos = await env.DB.prepare('SELECT COUNT(*) c FROM locais WHERE pai=?').bind(id).first();
+  const pecas = await env.DB.prepare('SELECT COUNT(*) c FROM pecas WHERE local_id=?').bind(id).first();
+  if (filhos.c > 0 || pecas.c > 0) return bad('este local ainda tem conteúdo; mova ou exclua antes', 409);
+  await env.DB.prepare('DELETE FROM locais WHERE id=?').bind(id).run();
+  return json({ ok: true });
+}
+
+// ---------- peças ----------
+function parsePeca(row) {
+  if (row && typeof row.fotos === 'string') { try { row.fotos = JSON.parse(row.fotos); } catch { row.fotos = []; } }
+  return row;
+}
+async function proxCodigo(env) {
+  const r = await env.DB.prepare('SELECT MAX(codigo) m FROM pecas').first();
+  return (r.m || 0) + 1;
+}
+async function listaPecas(url, env) {
+  const q = (url.searchParams.get('q') || '').trim();
+  const local = url.searchParams.get('local') || '';
+  const status = url.searchParams.get('status') || '';
+  const cond = [], binds = [];
+  if (q) {
+    const t = '%' + q + '%';
+    cond.push('(nome LIKE ? OR pn LIKE ? OR marca LIKE ? OR modelo LIKE ? OR veiculo LIKE ? OR CAST(codigo AS TEXT) LIKE ?)');
+    binds.push(t, t, t, t, t, t);
+  }
+  if (local) {
+    const sub = await env.DB.prepare(
+      'WITH RECURSIVE sub(id) AS (SELECT ? UNION ALL SELECT l.id FROM locais l JOIN sub ON l.pai=sub.id) SELECT id FROM sub'
+    ).bind(local).all();
+    const ids = sub.results.map(r => r.id);
+    if (!ids.length) return json({ pecas: [] });
+    cond.push(`local_id IN (${ids.map(() => '?').join(',')})`);
+    binds.push(...ids);
+  }
+  if (status === 'disp') cond.push('qtd>0');
+  else if (status === 'zerado') cond.push('qtd<=0');
+  else if (status === 'semanuncio') cond.push('qtd>0 AND ml=0 AND olx=0');
+  else if (status === 'semlocal') cond.push('(local_id IS NULL OR local_id NOT IN (SELECT id FROM locais))');
+  else if (status === 'parado') { cond.push('qtd>0 AND criado_em < ?'); binds.push(now() - 90 * 864e5); }
+  const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
+  const r = await env.DB.prepare(`SELECT * FROM pecas ${where} ORDER BY criado_em DESC LIMIT 500`).bind(...binds).all();
+  return json({ pecas: r.results.map(parsePeca) });
+}
+async function getPeca(id, env) {
+  const r = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(id).first();
+  if (!r) return bad('peça não encontrada', 404);
+  return json({ peca: parsePeca(r) });
+}
+const CAMPOS = ['nome', 'marca', 'modelo', 'ano', 'pn', 'cond', 'veiculo', 'preco', 'qtd', 'local_id', 'obs', 'ml', 'ml_id', 'ml_link', 'olx', 'olx_link'];
+async function criaPeca(request, env) {
+  const b = await request.json();
+  if (!b.nome) return bad('nome é obrigatório');
+  const id = uid();
+  const codigo = b.codigo ? parseInt(b.codigo) : await proxCodigo(env); // permite manter código do iBR na importação
+  await env.DB.prepare(
+    `INSERT INTO pecas (id,codigo,nome,marca,modelo,ano,pn,cond,veiculo,preco,qtd,local_id,obs,fotos,ml,ml_link,olx,olx_link,criado_em)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(id, codigo, b.nome, b.marca || null, b.modelo || null, b.ano || null, b.pn || null, b.cond || null,
+    b.veiculo || null, Number(b.preco) || 0, parseInt(b.qtd) || 0, b.local_id || null, b.obs || null,
+    JSON.stringify(b.fotos || []), b.ml ? 1 : 0, b.ml_link || null, b.olx ? 1 : 0, b.olx_link || null, now()).run();
+  return getPeca(id, env);
+}
+async function atualizaPeca(id, request, env) {
+  const atual = await env.DB.prepare('SELECT id FROM pecas WHERE id=?').bind(id).first();
+  if (!atual) return bad('peça não encontrada', 404);
+  const b = await request.json();
+  const sets = [], binds = [];
+  for (const c of CAMPOS) {
+    if (c in b) {
+      sets.push(`${c}=?`);
+      if (c === 'preco') binds.push(Number(b[c]) || 0);
+      else if (c === 'qtd') binds.push(parseInt(b[c]) || 0);
+      else if (c === 'ml' || c === 'olx') binds.push(b[c] ? 1 : 0);
+      else binds.push(b[c] ?? null);
+    }
+  }
+  if (Array.isArray(b.fotos)) { sets.push('fotos=?'); binds.push(JSON.stringify(b.fotos)); }
+  if (!sets.length) return getPeca(id, env);
+  sets.push('atualizado_em=?'); binds.push(now());
+  binds.push(id);
+  await env.DB.prepare(`UPDATE pecas SET ${sets.join(',')} WHERE id=?`).bind(...binds).run();
+  return getPeca(id, env);
+}
+async function excluiPeca(id, env) {
+  await env.DB.prepare('DELETE FROM pecas WHERE id=?').bind(id).run();
+  return json({ ok: true });
+}
+
+// ---------- fotos (R2) ----------
+async function subirFoto(pecaId, request, env) {
+  const peca = await env.DB.prepare('SELECT fotos FROM pecas WHERE id=?').bind(pecaId).first();
+  if (!peca) return bad('peça não encontrada', 404);
+  const ct = request.headers.get('content-type') || 'image/jpeg';
+  if (!ct.startsWith('image/')) return bad('envie uma imagem');
+  const ext = ct.includes('png') ? 'png' : ct.includes('webp') ? 'webp' : 'jpg';
+  const key = `pecas/${pecaId}/${uid()}.${ext}`;
+  await env.FOTOS.put(key, request.body, { httpMetadata: { contentType: ct } });
+  const fotos = JSON.parse(peca.fotos || '[]');
+  fotos.push(key);
+  await env.DB.prepare('UPDATE pecas SET fotos=?, atualizado_em=? WHERE id=?').bind(JSON.stringify(fotos), now(), pecaId).run();
+  return json({ key, url: `/api/foto/${key}`, fotos });
+}
+async function serveFoto(key, env) {
+  const obj = await env.FOTOS.get(key);
+  if (!obj) return bad('foto não encontrada', 404);
+  return new Response(obj.body, {
+    headers: { 'content-type': obj.httpMetadata?.contentType || 'image/jpeg', 'cache-control': 'public, max-age=31536000' },
+  });
+}
+
+// ---------- vendas ----------
+async function listaVendas(url, env) {
+  const periodo = url.searchParams.get('periodo') || 'mes';
+  let ini = 0;
+  const d = new Date();
+  if (periodo === 'hoje') { d.setHours(0, 0, 0, 0); ini = d.getTime(); }
+  else if (periodo === '7d') ini = now() - 7 * 864e5;
+  else if (periodo === 'mes') ini = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+  const r = await env.DB.prepare('SELECT * FROM vendas WHERE data>=? ORDER BY data DESC LIMIT 1000').bind(ini).all();
+  return json({ vendas: r.results });
+}
+async function criaVenda(request, env) {
+  const b = await request.json();
+  const peca = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(b.peca_id).first();
+  if (!peca) return bad('peça não encontrada', 404);
+  const qtd = Math.max(1, parseInt(b.qtd) || 1);
+  if (qtd > peca.qtd) return bad('quantidade maior que o estoque', 409);
+  const unit = Number(b.unit) || peca.preco || 0;
+  const id = uid();
+  await env.DB.prepare(
+    `INSERT INTO vendas (id,peca_id,nome,codigo,qtd,unit,total,canal,cliente,pagamento,local_path,data)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(id, peca.id, peca.nome, peca.codigo, qtd, unit, qtd * unit, b.canal || 'Balcão',
+    b.cliente || null, b.pagamento || null, b.local_path || null, now()).run();
+  await env.DB.prepare('UPDATE pecas SET qtd=qtd-?, atualizado_em=? WHERE id=?').bind(qtd, now(), peca.id).run();
+  return json({ ok: true, id });
+}
+async function cancelaVenda(id, env) {
+  const v = await env.DB.prepare('SELECT * FROM vendas WHERE id=?').bind(id).first();
+  if (!v) return bad('venda não encontrada', 404);
+  if (v.cancelada) return json({ ok: true });
+  await env.DB.prepare('UPDATE vendas SET cancelada=1 WHERE id=?').bind(id).run();
+  await env.DB.prepare('UPDATE pecas SET qtd=qtd+?, atualizado_em=? WHERE id=?').bind(v.qtd, now(), v.peca_id).run();
+  return json({ ok: true });
+}
+
+// ---------- painel ----------
+async function painel(env) {
+  const inicioMes = (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); })();
+  const est = await env.DB.prepare('SELECT COUNT(*) cadastros, COALESCE(SUM(qtd),0) pecas, COALESCE(SUM(qtd*preco),0) valor FROM pecas').first();
+  const vend = await env.DB.prepare('SELECT COUNT(*) n, COALESCE(SUM(total),0) total FROM vendas WHERE cancelada=0 AND data>=?').bind(inicioMes).first();
+  const semAnuncio = await env.DB.prepare('SELECT COUNT(*) c FROM pecas WHERE qtd>0 AND ml=0 AND olx=0').first();
+  const semLocal = await env.DB.prepare('SELECT COUNT(*) c FROM pecas WHERE local_id IS NULL OR local_id NOT IN (SELECT id FROM locais)').first();
+  const parado = await env.DB.prepare('SELECT COUNT(*) c FROM pecas WHERE qtd>0 AND criado_em < ?').bind(now() - 90 * 864e5).first();
+  const canais = await env.DB.prepare('SELECT canal, SUM(total) total FROM vendas WHERE cancelada=0 AND data>=? GROUP BY canal').bind(inicioMes).all();
+  const ultimas = await env.DB.prepare('SELECT id,nome,codigo,total,canal,data,cancelada FROM vendas ORDER BY data DESC LIMIT 8').all();
+  return json({
+    estoque: { cadastros: est.cadastros, pecas: est.pecas, valor: est.valor },
+    vendasMes: { n: vend.n, total: vend.total },
+    semAnuncio: semAnuncio.c, semLocal: semLocal.c, parado: parado.c,
+    porCanal: canais.results, ultimas: ultimas.results,
+  });
+}

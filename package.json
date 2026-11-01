@@ -3,6 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute rafa-desmanche --remote --file=migrations/0001_init.sql",
+    "db:init:local": "wrangler d1 execute rafa-desmanche --local --file=migrations/0001_init.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
   }
 }

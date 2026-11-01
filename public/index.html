@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rafa Busca Peças</title>
+<style>
+:root{--red:#c62828;--ink:#1d1f23;--mut:#6b7280;--line:#e8eaed;--bg:#f4f5f7;--card:#fff;--ok:#1f9d55;--rad:14px;--sh:0 1px 3px rgba(16,24,40,.07)}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.center{min-height:100vh;display:grid;place-items:center;padding:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--rad);box-shadow:var(--sh);padding:22px;width:100%;max-width:380px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;margin-bottom:6px}
+.brand .logo{width:36px;height:36px;border-radius:9px;background:var(--red);color:#fff;display:grid;place-items:center;font-size:19px}
+h1{font-size:18px;margin:14px 0 4px}.sub{color:var(--mut);font-size:13px;margin-bottom:16px}
+label{display:block;font-size:12.5px;color:var(--mut);font-weight:600;margin:10px 0 5px}
+input{width:100%;border:1px solid #d7dbe0;border-radius:9px;padding:11px 12px;font:inherit}
+.btn{width:100%;margin-top:16px;background:var(--red);color:#fff;border:0;border-radius:10px;padding:12px;font-weight:700;font-size:15px;cursor:pointer}
+.btn:disabled{opacity:.6}
+.msg{margin-top:12px;font-size:13px;min-height:18px}.msg.err{color:var(--red)}.msg.ok{color:var(--ok)}
+.link{background:none;border:0;color:var(--red);font-weight:600;cursor:pointer;font-size:13px;padding:0;margin-top:14px}
+/* painel */
+.wrap{max-width:900px;margin:0 auto;padding:20px}
+.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:var(--rad);padding:14px;box-shadow:var(--sh)}
+.kpi .l{color:var(--mut);font-size:12.5px;font-weight:600}.kpi .v{font-size:24px;font-weight:800;margin-top:6px}
+.soon{margin-top:20px;background:#fff8e1;border:1px solid #ffe082;color:#6d4c00;border-radius:10px;padding:12px 14px;font-size:13.5px}
+.ghost{background:#fff;border:1px solid var(--line);border-radius:9px;padding:8px 14px;font-weight:600;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const $ = s => document.querySelector(s);
+const api = async (path, opts={}) => {
+  const r = await fetch('/api'+path, { headers:{'content-type':'application/json'}, ...opts });
+  let d={}; try{ d=await r.json(); }catch{}
+  if(!r.ok) throw new Error(d.erro || ('erro '+r.status));
+  return d;
+};
+const brl = n => (Number(n)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+
+async function boot(){
+  try{ const { user } = await api('/me'); painel(user); }
+  catch{
+    // precisa de setup (primeiro acesso) ou login
+    try{ await api('/health'); }catch{}
+    telaLogin();
+  }
+}
+
+function telaLogin(primeiro=false){
+  $('#app').innerHTML = `<div class="center"><form class="card" id="f">
+    <div class="brand"><span class="logo">🔧</span> Rafa Busca Peças</div>
+    <h1>${primeiro?'Criar acesso do administrador':'Entrar'}</h1>
+    <div class="sub">${primeiro?'Primeiro acesso: defina seu login e senha.':'Use seu login e senha.'}</div>
+    ${primeiro?'<label>Seu nome</label><input name="nome" placeholder="Ex.: Rafael">':''}
+    <label>Login</label><input name="login" autocomplete="username" required>
+    <label>Senha</label><input name="senha" type="password" autocomplete="${primeiro?'new-password':'current-password'}" required>
+    <button class="btn" type="submit">${primeiro?'Criar acesso':'Entrar'}</button>
+    <div class="msg" id="m"></div>
+    <button class="link" type="button" id="alt">${primeiro?'Já tenho acesso — entrar':'Primeiro acesso? Criar administrador'}</button>
+  </form></div>`;
+  $('#alt').onclick = ()=>telaLogin(!primeiro);
+  $('#f').onsubmit = async e=>{
+    e.preventDefault();
+    const b = Object.fromEntries(new FormData(e.target));
+    const btn = e.target.querySelector('button'); btn.disabled=true;
+    try{
+      if(primeiro){ await api('/setup',{method:'POST',body:JSON.stringify(b)}); }
+      const { user } = await api('/login',{method:'POST',body:JSON.stringify({login:b.login,senha:b.senha})});
+      painel(user);
+    }catch(err){ $('#m').className='msg err'; $('#m').textContent=err.message; btn.disabled=false; }
+  };
+}
+
+async function painel(user){
+  $('#app').innerHTML = `<div class="wrap">
+    <div class="top"><div class="brand"><span class="logo">🔧</span> Rafa Busca Peças</div>
+      <button class="ghost" id="sair">Sair (${user.nome})</button></div>
+    <div class="kpis" id="k">carregando…</div>
+    <div class="soon">✅ Sistema no ar e com login. As telas de <b>estoque</b>, <b>localizações</b>, <b>etiquetas</b> e <b>vendas</b> estão sendo montadas — em breve aqui.</div>
+  </div>`;
+  $('#sair').onclick = async ()=>{ await api('/logout',{method:'POST'}); telaLogin(); };
+  try{
+    const p = await api('/painel');
+    $('#k').innerHTML = [
+      ['Peças em estoque', p.estoque.pecas, p.estoque.cadastros+' cadastros'],
+      ['Valor do estoque', brl(p.estoque.valor), ''],
+      ['Vendas no mês', brl(p.vendasMes.total), p.vendasMes.n+' vendas'],
+      ['Sem anúncio', p.semAnuncio, ''],
+      ['Sem localização', p.semLocal, ''],
+      ['Paradas +90 dias', p.parado, ''],
+    ].map(([l,v,s])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div>${s?`<div class="l" style="margin-top:3px">${s}</div>`:''}</div>`).join('');
+  }catch(err){ $('#k').textContent = 'Não foi possível carregar o painel: '+err.message; }
+}
+
+boot();
+</script>
+</body>
+</html>
