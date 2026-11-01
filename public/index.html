@@ -250,10 +250,13 @@ function renderBulk(){
     <button class="btn sm" id="bpreco">💲 Preço</button>
     <button class="btn sm" id="blocal">📍 Mover</button>
     <button class="btn sm" id="bml">🏷️ ML</button>
+    <button class="btn sm" id="betq">🖨️ Etiqueta</button>
     <button class="btn sm" id="bclear">Limpar</button>`;
-  $('#bpreco').onclick=bulkPreco; $('#blocal').onclick=bulkLocal; $('#bml').onclick=bulkML;
+  $('#bpreco').onclick=bulkPreco; $('#blocal').onclick=bulkLocal; $('#bml').onclick=bulkML; $('#betq').onclick=bulkEtiqueta;
   $('#bclear').onclick=()=>{ S.ui.sel=new Set(); estoque(); };
 }
+function bulkEtiqueta(){ const d=[...S.ui.sel].map(id=>S.pecas.find(p=>p.id===id)).filter(Boolean).map(labelPeca);
+  if(!d.length)return toast('Selecione peças'); imprimeLabels(d); }
 function bulkPreco(){ modal(`<h3>Alterar preço de ${S.ui.sel.size} peça(s)</h3><label class="f">Novo preço (R$)<input id="bp" type="number" step="0.01" min="0"></label>
   <div class="top" style="margin-top:12px"><button class="btn p" id="ok">Aplicar</button><button class="btn" id="cc">Cancelar</button></div>`);
   $('#cc').onclick=fecha; $('#ok').onclick=async()=>{ await api('/pecas/massa',{method:'POST',body:{ids:[...S.ui.sel],set:{preco:$('#bp').value}}}); fecha(); toast('Preço alterado'); S.ui.sel=new Set(); estoque(); }; }
@@ -521,12 +524,14 @@ function qrSVG(text){ if(typeof qrcode!=='function')return '<svg viewBox="0 0 10
   const q=qrcode(0,'M'); q.addData(text); q.make(); const n=q.getModuleCount(); let d='';
   for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(q.isDark(r,c))d+=`M${c} ${r}h1v1h-1z`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 ${n+4} ${n+4}" shape-rendering="crispEdges"><rect x="-2" y="-2" width="${n+4}" height="${n+4}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`; }
+function labelPeca(p){ return {qr:'P:'+String(p.codigo).padStart(6,'0'),big:cod(p.codigo),l1:p.nome,l2:[p.marca,p.modelo,p.ano].filter(Boolean).join(' '),l3:p.local_id&&S.locais[p.local_id]?locPath(p.local_id):'',price:brl(p.preco)}; }
 function etqData(){ const t=S.ui.etqTipo;
-  if(t==='pecas')return [...S.ui.etqSel].map(id=>S.pecas.find(p=>p.id===id)).filter(Boolean).map(p=>({qr:'P:'+String(p.codigo).padStart(6,'0'),big:cod(p.codigo),l1:p.nome,l2:[p.marca,p.modelo,p.ano].filter(Boolean).join(' '),l3:p.local_id&&S.locais[p.local_id]?locPath(p.local_id):'',price:brl(p.preco)}));
+  if(t==='pecas')return [...S.ui.etqSel].map(id=>S.pecas.find(p=>p.id===id)).filter(Boolean).map(labelPeca);
   return [...S.ui.etqSel].filter(id=>S.locais[id]).map(id=>({qr:'L:'+id,big:S.locais[id].nome,l1:locPath(id),l2:'',l3:'',price:''})); }
 function previewEtq(){ const el=$('#prev'); if(!el)return; const d=etqData();
   el.innerHTML=d.length?d.map(l=>`<div class="lbl">${qrSVG(l.qr)}<div class="t"><b>${esc(l.big)}</b>${esc(l.l1)}<br><span class="mut">${esc(l.l2)}</span>${l.l3?'<br>📍 '+esc(l.l3):''}${l.price?'<br><b>'+esc(l.price)+'</b>':''}</div></div>`).join(''):'<div class="empty">Selecione itens ao lado.</div>'; }
-function imprimeEtq(){ const d=etqData(); if(!d.length)return toast('Selecione itens');
+function imprimeEtq(){ const d=etqData(); if(!d.length)return toast('Selecione itens'); imprimeLabels(d); }
+function imprimeLabels(d){ if(!d||!d.length)return toast('Selecione itens');
   // impressora térmica: 1 etiqueta por página, deitada, preenchendo a etiqueta toda
   const W=Math.max(20,parseInt(S.ui.etqW)||60), H=Math.max(15,parseInt(S.ui.etqH)||40);
   const qr=Math.max(8,Math.min(H-3, W*0.42));
