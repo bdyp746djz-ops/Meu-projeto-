@@ -501,13 +501,20 @@ async function etiquetas(){
       <div class="small" style="margin-bottom:6px"><a id="todas" style="cursor:pointer;color:var(--red)">marcar todas</a> · <a id="limpar" style="cursor:pointer;color:var(--red)">limpar</a> · <span class="mut">${S.ui.etqSel.size} selec.</span></div>
       ${lista.length?lista.map(([id,t])=>`<label class="sel small"><input type="checkbox" data-sel="${id}" ${S.ui.etqSel.has(id)?'checked':''} style="width:auto"> ${esc(t)}</label>`).join(''):'<div class="mut small">Nada cadastrado.</div>'}
     </div>
-    <div style="flex:2;min-width:260px"><button class="btn p" id="imp">🖨️ Imprimir selecionadas</button>
+    <div style="flex:2;min-width:260px">
+      <div class="small" style="margin-bottom:8px">Tamanho da sua etiqueta (mm):
+        <input id="etqw" type="number" min="20" value="${S.ui.etqW||60}" style="width:62px;display:inline-block"> largura ×
+        <input id="etqh" type="number" min="15" value="${S.ui.etqH||40}" style="width:62px;display:inline-block"> altura</div>
+      <button class="btn p" id="imp">🖨️ Imprimir selecionadas</button>
+      <p class="small mut" style="margin-top:6px">Impressora térmica (Zebra): uma etiqueta por vez, deitada, preenchendo tudo. Na janela de impressão escolha a sua impressora e imprima em 100% (sem "ajustar à página").</p>
       <div id="prev" class="labels" style="margin-top:12px"></div></div></div>`;
   document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{ S.ui.etqTipo=b.dataset.t; S.ui.etqSel=new Set(); etiquetas(); });
   document.querySelectorAll('[data-sel]').forEach(c=>c.onclick=()=>{ c.checked?S.ui.etqSel.add(c.dataset.sel):S.ui.etqSel.delete(c.dataset.sel); previewEtq(); });
   $('#todas').onclick=()=>{ lista.forEach(([id])=>S.ui.etqSel.add(id)); etiquetas(); };
   $('#limpar').onclick=()=>{ S.ui.etqSel=new Set(); etiquetas(); };
   $('#imp').onclick=imprimeEtq;
+  if($('#etqw'))$('#etqw').onchange=e=>{ S.ui.etqW=e.target.value; };
+  if($('#etqh'))$('#etqh').onchange=e=>{ S.ui.etqH=e.target.value; };
   previewEtq();
 }
 function qrSVG(text){ if(typeof qrcode!=='function')return '<svg viewBox="0 0 10 10"><rect width="10" height="10" fill="#eee"/></svg>';
@@ -520,7 +527,22 @@ function etqData(){ const t=S.ui.etqTipo;
 function previewEtq(){ const el=$('#prev'); if(!el)return; const d=etqData();
   el.innerHTML=d.length?d.map(l=>`<div class="lbl">${qrSVG(l.qr)}<div class="t"><b>${esc(l.big)}</b>${esc(l.l1)}<br><span class="mut">${esc(l.l2)}</span>${l.l3?'<br>📍 '+esc(l.l3):''}${l.price?'<br><b>'+esc(l.price)+'</b>':''}</div></div>`).join(''):'<div class="empty">Selecione itens ao lado.</div>'; }
 function imprimeEtq(){ const d=etqData(); if(!d.length)return toast('Selecione itens');
-  const w=window.open('','_blank'); w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Etiquetas</title><style>@page{size:A4;margin:8mm}body{font-family:Arial;margin:0}.g{display:grid;grid-template-columns:repeat(3,62mm);gap:3mm}.e{width:62mm;height:32mm;border:1px dashed #999;display:flex;gap:2mm;align-items:center;padding:1.5mm;box-sizing:border-box;overflow:hidden;page-break-inside:avoid}.e svg{width:28mm;height:28mm}.t{font-size:8pt;line-height:1.2}.t b{font-size:11pt;display:block}</style></head><body><div class="g">${d.map(l=>`<div class="e">${qrSVG(l.qr)}<div class="t"><b>${esc(l.big)}</b>${esc(l.l1)}<br>${esc(l.l2)}${l.l3?'<br>'+esc(l.l3):''}${l.price?'<br><b>'+esc(l.price)+'</b>':''}</div></div>`).join('')}</div><script>onload=()=>setTimeout(()=>print(),300)<\/script></body></html>`); w.document.close(); }
+  // impressora térmica: 1 etiqueta por página, deitada, preenchendo a etiqueta toda
+  const W=Math.max(20,parseInt(S.ui.etqW)||60), H=Math.max(15,parseInt(S.ui.etqH)||40);
+  const qr=Math.max(8,Math.min(H-3, W*0.42));
+  const fB=Math.max(8,Math.round(H/3.2)), fT=Math.max(6,Math.round(H/4.5));
+  const w=window.open('','_blank'); w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Etiquetas</title><style>
+@page{size:${W}mm ${H}mm;margin:0}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:Arial,sans-serif}
+.e{width:${W}mm;height:${H}mm;display:flex;gap:1.5mm;align-items:center;padding:1.5mm;overflow:hidden;page-break-after:always}
+.e:last-child{page-break-after:auto}
+.e svg{width:${qr}mm;height:${qr}mm;flex-shrink:0}
+.t{flex:1;font-size:${fT}pt;line-height:1.15;overflow:hidden;word-break:break-word}
+.t b{font-size:${fB}pt;display:block;line-height:1.1}
+.t .pr{font-weight:bold;font-size:${fB}pt}
+</style></head><body>${d.map(l=>`<div class="e">${qrSVG(l.qr)}<div class="t"><b>${esc(l.big)}</b>${esc(l.l1)}${l.l2?'<br>'+esc(l.l2):''}${l.l3?'<br>'+esc(l.l3):''}${l.price?'<br><span class="pr">'+esc(l.price)+'</span>':''}</div></div>`).join('')}<script>onload=()=>setTimeout(()=>print(),300)<\/script></body></html>`); w.document.close(); }
 
 // ---------- Vendas ----------
 async function vendas(){
