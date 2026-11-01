@@ -33,7 +33,7 @@ const unb64u = s => { s = s.replace(/-/g, '+').replace(/_/g, '/'); return Uint8A
 async function hashSenha(senha, saltB64) {
   const salt = saltB64 ? unb64u(saltB64) : crypto.getRandomValues(new Uint8Array(16));
   const key = await crypto.subtle.importKey('raw', enc.encode(senha), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 120000, hash: 'SHA-256' }, key, 256);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, key, 256);
   return { hash: b64u(bits), salt: b64u(salt) };
 }
 async function verificaSenha(senha, hashB64, saltB64) {

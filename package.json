@@ -7,7 +7,8 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:init": "wrangler d1 execute rafa-desmanche --remote --file=migrations/0001_init.sql",
-    "db:init:local": "wrangler d1 execute rafa-desmanche --local --file=migrations/0001_init.sql"
+    "db:init:local": "wrangler d1 execute rafa-desmanche --local --file=migrations/0001_init.sql",
+    "db:up": "wrangler d1 execute rafa-desmanche --remote --file=migrations/0002_agilidade.sql"
   },
   "devDependencies": {
     "wrangler": "^3.90.0"
