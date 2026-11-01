@@ -50,7 +50,10 @@ header.bar{background:var(--red);color:#fff;display:none;align-items:center;gap:
 .kpi .l{color:var(--mut);font-size:12.5px;font-weight:600}.kpi .v{font-size:23px;font-weight:800;margin-top:5px}
 .kpi.clic{cursor:pointer}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:13px}
-.pc{background:#fff;border:1px solid var(--line);border-radius:var(--rad);overflow:hidden;cursor:pointer;box-shadow:var(--sh);display:flex;flex-direction:column}
+.pc{position:relative;background:#fff;border:1px solid var(--line);border-radius:var(--rad);overflow:hidden;cursor:pointer;box-shadow:var(--sh);display:flex;flex-direction:column}
+.pc.sel{outline:3px solid var(--red);outline-offset:-2px}
+.selck{position:absolute;left:7px;top:7px;z-index:3;width:24px;height:24px;border-radius:6px;background:#fff;border:2px solid var(--red);color:var(--red);display:grid;place-items:center;font-weight:800;font-size:14px}
+.bulkbar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:#1d1f23;color:#fff;border-radius:12px;padding:10px 14px;display:flex;gap:8px;align-items:center;z-index:40;box-shadow:0 4px 16px rgba(0,0,0,.28);flex-wrap:wrap;max-width:94vw}
 .pc .ph{position:relative;aspect-ratio:4/3;background:linear-gradient(135deg,#eef1f4,#e3e7ec);display:grid;place-items:center;color:#9aa1ab;font-size:30px}
 .pc .ph img{width:100%;height:100%;object-fit:cover}
 .pc .ph .loc{position:absolute;left:6px;right:6px;bottom:6px;background:rgba(21,101,192,.94);color:#fff;font-size:10.5px;font-weight:700;border-radius:7px;padding:4px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -126,8 +129,8 @@ async function api(path, opts={}){
   return d;
 }
 
-const S = { user:null, view:'painel', pecas:[], locais:{}, ui:{ q:'', loc:'', status:'todos', periodo:'mes', editId:null, fotos:[], etqTipo:'pecas', etqSel:new Set(), open:new Set() } };
-const VIEWS = [['painel','📊','Painel'],['estoque','📦','Estoque'],['nova','➕','Nova peça'],['locais','🗄️','Localizações'],['etiquetas','🏷️','Etiquetas'],['vendas','💰','Vendas']];
+const S = { user:null, view:'painel', pecas:[], locais:{}, ui:{ q:'', loc:'', status:'todos', periodo:'mes', editId:null, fotos:[], etqTipo:'pecas', etqSel:new Set(), open:new Set(), selMode:false, sel:new Set() } };
+const VIEWS = [['painel','📊','Painel'],['estoque','📦','Estoque'],['nova','➕','Nova peça'],['locais','🗄️','Localizações'],['mover','🔀','Mover'],['etiquetas','🏷️','Etiquetas'],['vendas','💰','Vendas']];
 
 // ---------- boot / auth ----------
 async function boot(){
@@ -172,7 +175,7 @@ function renderNav(){
   document.querySelectorAll('[data-v]').forEach(a=>a.onclick=()=>go(a.dataset.v));
 }
 async function go(v){ S.view=v; if(v!=='nova'){ S.ui.editId=null; S.ui.fotos=[]; } renderNav(); window.scrollTo(0,0);
-  const f={painel,estoque,nova,locais,etiquetas,vendas}[v]; $('#main').innerHTML='<p class="mut">carregando…</p>'; try{ await f(); }catch(e){ $('#main').innerHTML='<div class="empty">Erro: '+esc(e.message)+'</div>'; } }
+  const f={painel,estoque,nova,locais,mover,etiquetas,vendas}[v]; $('#main').innerHTML='<p class="mut">carregando…</p>'; try{ await f(); }catch(e){ $('#main').innerHTML='<div class="empty">Erro: '+esc(e.message)+'</div>'; } }
 
 // ---------- dados ----------
 async function carregaLocais(){ const { locais }=await api('/locais'); S.locais={}; locais.forEach(l=>S.locais[l.id]=l); }
@@ -185,6 +188,7 @@ function locOptions(sel){ return Object.keys(S.locais).map(id=>[id,locPath(id)])
 async function painel(){
   const p=await api('/painel');
   const canais=p.porCanal||[]; const maxC=Math.max(1,...canais.map(c=>c.total));
+  const prod=(await api('/relatorios/produtividade?periodo=hoje').catch(()=>({}))).porFuncionario||[];
   $('#main').innerHTML=`<div class="top"><h2>Painel</h2></div>
   <div class="kpis">
     <div class="card kpi"><div class="l">Peças em estoque</div><div class="v">${p.estoque.pecas}</div><div class="small mut">${p.estoque.cadastros} cadastros</div></div>
@@ -196,6 +200,9 @@ async function painel(){
   </div>
   <div class="card"><b>Vendas do mês por canal</b>
     ${canais.length?canais.map(c=>`<div style="margin-top:10px"><div class="small" style="display:flex;justify-content:space-between"><span>${esc(c.canal)}</span><b>${brl(c.total)}</b></div><div class="bar2" style="width:${c.total/maxC*100}%"></div></div>`).join(''):'<p class="mut small">Nenhuma venda este mês.</p>'}
+  </div>
+  <div class="card" style="margin-top:14px"><b>Cadastros de hoje por funcionário</b>
+    ${prod.length?prod.map(f=>`<div class="sel small"><span style="flex:1">${esc(f.nome)}</span><b>${f.cadastros}</b></div>`).join(''):'<p class="mut small">Nenhum cadastro hoje ainda.</p>'}
   </div>`;
   document.querySelectorAll('[data-st]').forEach(e=>e.onclick=()=>{ S.ui.status=e.dataset.st; S.ui.loc=''; S.ui.q=''; go('estoque'); });
 }
@@ -204,13 +211,16 @@ async function painel(){
 async function estoque(){
   await carregaLocais();
   const chips=[['todos','Todas'],['disp','Disponíveis'],['zerado','Esgotadas'],['semanuncio','Sem anúncio'],['semlocal','Sem local'],['parado','+90 dias']];
-  $('#main').innerHTML=`<div class="top"><h2>Estoque</h2><a class="btn p" data-v="nova">+ Nova peça</a></div>
+  $('#main').innerHTML=`<div class="top"><h2>Estoque</h2>
+    <button class="btn sm" id="selbtn">${S.ui.selMode?'✖ Cancelar':'☑️ Selecionar'}</button>
+    <a class="btn p" data-v="nova">+ Nova peça</a></div>
     <div class="q" style="margin-bottom:10px"><div class="withmic"><input id="gq" placeholder="Buscar nome, código, part number ou veículo…" value="${esc(S.ui.q)}"><button type="button" class="mic" title="Ditar por voz">🎤</button></div></div>
     <div class="filters">
       <select id="floc"><option value="">Todas as localizações</option>${locOptions(S.ui.loc)}</select>
       ${chips.map(([k,l])=>`<button class="chip ${S.ui.status===k?'on':''}" data-c="${k}">${l}</button>`).join('')}
     </div><div id="lista"><p class="mut">carregando…</p></div>`;
   $('[data-v="nova"]').onclick=()=>go('nova');
+  $('#selbtn').onclick=()=>{ S.ui.selMode=!S.ui.selMode; S.ui.sel=new Set(); const b=document.getElementById('bulkbar'); if(b)b.remove(); estoque(); };
   $('#gq').oninput=e=>{ S.ui.q=e.target.value.trim(); clearTimeout(window._t); window._t=setTimeout(listaEstoque,250); };
   $('#floc').onchange=e=>{ S.ui.loc=e.target.value; listaEstoque(); };
   document.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{ S.ui.status=b.dataset.c; estoque(); });
@@ -222,14 +232,45 @@ async function listaEstoque(){
   const { pecas }=await api('/pecas?'+qs); S.pecas=pecas;
   const el=$('#lista'); if(!el) return;
   if(!pecas.length){ el.innerHTML='<div class="empty">Nenhuma peça encontrada.</div>'; return; }
-  el.innerHTML=`<p class="small mut">${pecas.length} peça(s)</p><div class="grid">${pecas.map(cardPeca).join('')}</div>`;
-  document.querySelectorAll('[data-pid]').forEach(c=>c.onclick=()=>abrePeca(c.dataset.pid));
+  el.innerHTML=`<p class="small mut">${pecas.length} peça(s)${S.ui.selMode?' · toque para selecionar':''}</p><div class="grid">${pecas.map(cardPeca).join('')}</div>`;
+  document.querySelectorAll('[data-pid]').forEach(c=>c.onclick=()=>{
+    if(S.ui.selMode){ const id=c.dataset.pid;
+      if(S.ui.sel.has(id)){ S.ui.sel.delete(id); c.classList.remove('sel'); c.querySelector('.selck').textContent=''; }
+      else { S.ui.sel.add(id); c.classList.add('sel'); c.querySelector('.selck').textContent='✓'; }
+      renderBulk();
+    } else abrePeca(c.dataset.pid);
+  });
+  renderBulk();
 }
+function renderBulk(){
+  let bar=document.getElementById('bulkbar');
+  if(!S.ui.selMode || !S.ui.sel.size){ if(bar)bar.remove(); return; }
+  if(!bar){ bar=document.createElement('div'); bar.id='bulkbar'; bar.className='bulkbar'; document.body.appendChild(bar); }
+  bar.innerHTML=`<b>${S.ui.sel.size} selecionada(s)</b>
+    <button class="btn sm" id="bpreco">💲 Preço</button>
+    <button class="btn sm" id="blocal">📍 Mover</button>
+    <button class="btn sm" id="bml">🏷️ ML</button>
+    <button class="btn sm" id="bclear">Limpar</button>`;
+  $('#bpreco').onclick=bulkPreco; $('#blocal').onclick=bulkLocal; $('#bml').onclick=bulkML;
+  $('#bclear').onclick=()=>{ S.ui.sel=new Set(); estoque(); };
+}
+function bulkPreco(){ modal(`<h3>Alterar preço de ${S.ui.sel.size} peça(s)</h3><label class="f">Novo preço (R$)<input id="bp" type="number" step="0.01" min="0"></label>
+  <div class="top" style="margin-top:12px"><button class="btn p" id="ok">Aplicar</button><button class="btn" id="cc">Cancelar</button></div>`);
+  $('#cc').onclick=fecha; $('#ok').onclick=async()=>{ await api('/pecas/massa',{method:'POST',body:{ids:[...S.ui.sel],set:{preco:$('#bp').value}}}); fecha(); toast('Preço alterado'); S.ui.sel=new Set(); estoque(); }; }
+function bulkLocal(){ modal(`<h3>Mover ${S.ui.sel.size} peça(s) para…</h3><label class="f">Localização<select id="bl"><option value="">— sem localização —</option>${locOptions('')}</select></label>
+  <div class="top" style="margin-top:12px"><button class="btn p" id="ok">Mover</button><button class="btn" id="cc">Cancelar</button></div>`);
+  $('#cc').onclick=fecha; $('#ok').onclick=async()=>{ await api('/mover',{method:'POST',body:{ids:[...S.ui.sel],local_id:$('#bl').value}}); fecha(); toast('Peças movidas'); S.ui.sel=new Set(); estoque(); }; }
+function bulkML(){ modal(`<h3>Anúncio de ${S.ui.sel.size} peça(s)</h3><p class="small mut">Marcar ou desmarcar como anunciada no Mercado Livre.</p>
+  <div class="top" style="margin-top:12px"><button class="btn p" id="on">Marcar ML</button><button class="btn" id="off">Desmarcar</button><button class="btn" id="cc">Cancelar</button></div>`);
+  $('#cc').onclick=fecha;
+  $('#on').onclick=async()=>{ await api('/pecas/massa',{method:'POST',body:{ids:[...S.ui.sel],set:{ml:true}}}); fecha(); toast('Marcadas'); S.ui.sel=new Set(); estoque(); };
+  $('#off').onclick=async()=>{ await api('/pecas/massa',{method:'POST',body:{ids:[...S.ui.sel],set:{ml:false}}}); fecha(); toast('Desmarcadas'); S.ui.sel=new Set(); estoque(); }; }
 function cardPeca(p){
   const img=p.fotos&&p.fotos[0]?`<img src="/api/foto/${p.fotos[0]}" alt="">`:'📦';
   const loc=p.local_id&&S.locais[p.local_id]?`<span class="loc">📍 ${esc(locPath(p.local_id))}</span>`:'<span class="loc none">sem localização</span>';
   const q=Number(p.qtd)||0;
-  return `<div class="pc" data-pid="${p.id}"><div class="ph">${img}${loc}</div><div class="b">
+  const checked=S.ui.selMode&&S.ui.sel.has(p.id);
+  return `<div class="pc${checked?' sel':''}" data-pid="${p.id}">${S.ui.selMode?`<div class="selck">${checked?'✓':''}</div>`:''}<div class="ph">${img}${loc}</div><div class="b">
     <div class="n">${esc(p.nome)}</div>
     <div class="small mut">${esc([p.marca,p.modelo,p.ano].filter(Boolean).join(' '))}${p.pn?' · PN '+esc(p.pn):''}</div>
     <div class="tags"><span class="tag price">${brl(p.preco)}</span><span class="tag ${q>0?'':'zero'}">${q} un</span><span class="tag">${cod(p.codigo)}</span>${p.ml?'<span class="tag ml">ML</span>':''}${p.olx?'<span class="tag olx">OLX</span>':''}</div>
@@ -250,11 +291,18 @@ function abrePeca(id){
    <div class="top" style="margin-top:14px;flex-wrap:wrap;gap:8px">
      <button class="btn g" id="dv" ${q>0?'':'disabled'}>💰 Vender</button>
      <button class="btn" id="da">📣 Anúncio</button><button class="btn" id="de">✏️ Editar</button>
+     <button class="btn" id="ddup">🔁 Duplicar</button>
      <button class="btn" id="dx" style="color:var(--red)">Excluir</button></div>`);
   $('#dv').onclick=()=>vender(p); $('#da').onclick=()=>anuncio(p); $('#de').onclick=()=>editar(p.id);
+  $('#ddup').onclick=()=>duplicar(p);
   $('#dx').onclick=()=>{ if(confirm('Excluir '+p.nome+'?')) api('/pecas/'+id,{method:'DELETE'}).then(()=>{ fecha(); toast('Peça excluída'); listaEstoque(); }); };
 }
 function editar(id){ fecha(); S.ui.editId=id; const p=S.pecas.find(x=>x.id===id); S.ui.fotos=[...(p.fotos||[]).map(k=>({key:k}))]; go('nova'); }
+async function duplicar(p){
+  const body={ nome:p.nome,marca:p.marca,modelo:p.modelo,ano:p.ano,pn:p.pn,cond:p.cond,veiculo:p.veiculo,preco:p.preco,qtd:1,local_id:p.local_id,obs:p.obs,fotos:p.fotos||[] };
+  try{ const r=await api('/pecas',{method:'POST',body}); fecha(); toast('Peça duplicada: '+cod(r.peca.codigo)); if(S.view==='estoque')listaEstoque(); }
+  catch(e){ toast('Erro: '+e.message); }
+}
 
 // ---------- Nova / editar ----------
 async function nova(){
@@ -485,6 +533,70 @@ async function vendas(){
    ${vendas.map(v=>`<tr style="${v.cancelada?'opacity:.5;text-decoration:line-through':''}"><td>${new Date(v.data).toLocaleDateString('pt-BR')}</td><td>${cod(v.codigo)} ${esc(v.nome)}</td><td>${v.qtd}</td><td><b>${brl(v.total)}</b></td><td>${esc(v.canal)}</td><td>${v.cancelada?'':`<button class="btn sm" data-cv="${v.id}">Cancelar</button>`}</td></tr>`).join('')}</table></div>`:'<div class="empty">Nenhuma venda no período.</div>'}`;
   document.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{ S.ui.periodo=b.dataset.p; vendas(); });
   document.querySelectorAll('[data-cv]').forEach(b=>b.onclick=async()=>{ if(confirm('Cancelar esta venda? A peça volta ao estoque.')){ await api('/vendas/'+b.dataset.cv+'/cancelar',{method:'POST'}); toast('Venda cancelada'); vendas(); } });
+}
+
+// ---------- Mover / Conferir com o leitor ----------
+let MV={ modo:'mover', destino:'', fila:[], confBox:'', confAchadas:new Set(), confEsper:[] };
+async function mover(){
+  await carregaLocais();
+  $('#main').innerHTML=`<div class="top"><h2>Mover / Conferir com o leitor</h2></div>
+   <div class="filters"><button class="chip ${MV.modo==='mover'?'on':''}" data-mm="mover">Mover peças</button><button class="chip ${MV.modo==='conferir'?'on':''}" data-mm="conferir">Conferir caixa</button></div>
+   <div id="movbody"></div>`;
+  document.querySelectorAll('[data-mm]').forEach(b=>b.onclick=()=>{ MV.modo=b.dataset.mm; mover(); });
+  if(MV.modo==='mover') renderMover(); else renderConferir();
+}
+function renderMover(){
+  $('#movbody').innerHTML=`<div class="card">
+    <label class="f">Caixa de destino<select id="mdest"><option value="">— escolha —</option>${locOptions(MV.destino)}</select></label>
+    <label class="f" style="margin-top:10px">Leia ou digite o código da peça<input id="mscan" placeholder="Ex.: 123 ou P:000123" autocomplete="off"></label>
+    <p class="small mut">Aponte o leitor para o QR da peça (ou digite o número) e aperte Enter. Repita para cada peça.</p>
+    <div id="mfila"></div>
+    <button class="btn p" id="mok" style="margin-top:12px">Mover peças</button>
+   </div>`;
+  $('#mdest').onchange=e=>{ MV.destino=e.target.value; atualizaMok(); };
+  const scan=$('#mscan'); scan.focus();
+  scan.onkeydown=async e=>{ if(e.key!=='Enter')return; e.preventDefault(); const v=scan.value.trim(); scan.value=''; if(!v)return;
+    const mm=v.match(/^(?:P[:\-]?)?0*(\d+)$/i); if(!mm){ toast('Use o número da peça'); scan.focus(); return; }
+    const codigo=parseInt(mm[1]);
+    if(MV.fila.find(x=>Number(x.codigo)===codigo)){ toast('Já está na lista'); scan.focus(); return; }
+    try{ const {peca}=await api('/peca-codigo/'+codigo); MV.fila.push(peca); renderFila(); }
+    catch{ toast('Peça '+cod(codigo)+' não encontrada'); }
+    scan.focus();
+  };
+  $('#mok').onclick=async()=>{ if(!MV.destino){ toast('Escolha a caixa de destino'); return; } if(!MV.fila.length){ toast('Leia ao menos uma peça'); return; }
+    await api('/mover',{method:'POST',body:{ids:MV.fila.map(p=>p.id),local_id:MV.destino}});
+    toast(MV.fila.length+' peça(s) movida(s) para '+locPath(MV.destino)); MV.fila=[]; renderMover();
+  };
+  renderFila();
+}
+function renderFila(){ const el=$('#mfila'); if(!el)return;
+  el.innerHTML=MV.fila.length?`<div style="margin-top:8px">${MV.fila.map((p,i)=>`<div class="sel small"><span style="flex:1">${cod(p.codigo)} ${esc(p.nome)}</span><span class="mut">${p.local_id&&S.locais[p.local_id]?esc(locPath(p.local_id)):'sem local'}</span><button class="btn sm" data-rm="${i}">✖</button></div>`).join('')}</div>`:'<p class="small mut" style="margin-top:8px">Nenhuma peça lida ainda.</p>';
+  el.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{ MV.fila.splice(+b.dataset.rm,1); renderFila(); });
+  atualizaMok();
+}
+function atualizaMok(){ const ok=$('#mok'); if(ok){ ok.disabled=!(MV.fila.length&&MV.destino); ok.textContent='Mover '+MV.fila.length+' peça(s)'; } }
+async function renderConferir(){
+  $('#movbody').innerHTML=`<div class="card">
+    <label class="f">Caixa a conferir<select id="cbox"><option value="">— escolha —</option>${locOptions(MV.confBox)}</select></label>
+    <div id="cwrap">${MV.confBox?'<p class="small mut">carregando…</p>':'<p class="small mut">Escolha a caixa para começar.</p>'}</div>
+   </div>`;
+  $('#cbox').onchange=e=>{ MV.confBox=e.target.value; MV.confAchadas=new Set(); renderConferir(); };
+  if(!MV.confBox)return;
+  const {pecas}=await api('/pecas?local='+MV.confBox); MV.confEsper=pecas.filter(p=>Number(p.qtd)>0);
+  $('#cwrap').innerHTML=`<label class="f" style="margin-top:4px">Leia/digite as peças que estão na caixa<input id="cscan" placeholder="Ex.: 123" autocomplete="off"></label><div id="cres"></div>`;
+  const scan=$('#cscan'); scan.focus();
+  scan.onkeydown=e=>{ if(e.key!=='Enter')return; e.preventDefault(); const v=scan.value.trim(); scan.value=''; const mm=v.match(/^(?:P[:\-]?)?0*(\d+)$/i); if(mm)MV.confAchadas.add(parseInt(mm[1])); renderConfRes(); scan.focus(); };
+  renderConfRes();
+}
+function renderConfRes(){ const el=$('#cres'); if(!el)return; const esp=MV.confEsper||[];
+  const codsEsper=new Set(esp.map(p=>Number(p.codigo)));
+  const faltando=esp.filter(p=>!MV.confAchadas.has(Number(p.codigo)));
+  const fora=[...MV.confAchadas].filter(c=>!codsEsper.has(c));
+  el.innerHTML=`<div class="small" style="margin-top:10px">
+    <p>✅ Conferidas: <b>${esp.length-faltando.length}</b> de ${esp.length}</p>
+    ${faltando.length?`<p class="mut">❌ Faltando (${faltando.length}): ${faltando.map(p=>cod(p.codigo)+' '+esc(p.nome)).join(' · ')}</p>`:'<p style="color:var(--ok)">Tudo conferido nesta caixa. 🎉</p>'}
+    ${fora.length?`<p class="mut">⚠️ Lidas que não são desta caixa: ${fora.map(c=>cod(c)).join(', ')}</p>`:''}
+  </div>`;
 }
 
 // ---------- modal ----------

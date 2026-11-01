@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS pecas (
   olx           INTEGER NOT NULL DEFAULT 0,
   olx_link      TEXT,
   criado_em     INTEGER NOT NULL,
-  atualizado_em INTEGER
+  atualizado_em INTEGER,
+  criado_por    TEXT                              -- id do usuário que cadastrou
 );
 CREATE INDEX IF NOT EXISTS idx_pecas_codigo ON pecas(codigo);
 CREATE INDEX IF NOT EXISTS idx_pecas_pn     ON pecas(pn);
@@ -64,6 +65,20 @@ CREATE TABLE IF NOT EXISTS vendas (
   data      INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_vendas_data ON vendas(data);
+
+-- Histórico de movimentação de peças entre locais (quem moveu, de onde, para onde).
+CREATE TABLE IF NOT EXISTS movimentacoes (
+  id           TEXT PRIMARY KEY,
+  peca_id      TEXT,
+  codigo       INTEGER,
+  nome         TEXT,
+  de_local     TEXT,
+  para_local   TEXT,
+  usuario_id   TEXT,
+  usuario_nome TEXT,
+  data         INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mov_data ON movimentacoes(data);
 
 -- Base própria de compatibilidades por part number (alimenta a Etapa 2 / Mercado Livre).
 CREATE TABLE IF NOT EXISTS compat_base (

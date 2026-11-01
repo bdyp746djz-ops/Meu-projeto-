@@ -101,8 +101,13 @@ async function api(request, env, url) {
 
   // peças
   if (p === '/api/sugestoes' && m === 'GET') return sugestoes(url, env);
+  if (p === '/api/mover' && m === 'POST') return mover(request, env, user);
+  if (p === '/api/relatorios/produtividade' && m === 'GET') return produtividade(url, env);
+  if (p === '/api/pecas/massa' && m === 'POST') return editaMassa(request, env);
+  mt = p.match(/^\/api\/peca-codigo\/(\d+)$/);
+  if (mt && m === 'GET') return pecaPorCodigo(mt[1], env);
   if (p === '/api/pecas' && m === 'GET') return listaPecas(url, env);
-  if (p === '/api/pecas' && m === 'POST') return criaPeca(request, env);
+  if (p === '/api/pecas' && m === 'POST') return criaPeca(request, env, user);
   mt = p.match(/^\/api\/pecas\/([\w-]+)$/);
   if (mt && m === 'GET') return getPeca(mt[1], env);
   if (mt && m === 'PATCH') return atualizaPeca(mt[1], request, env);
@@ -231,6 +236,11 @@ async function getPeca(id, env) {
   if (!r) return bad('peça não encontrada', 404);
   return json({ peca: parsePeca(r) });
 }
+async function pecaPorCodigo(codigo, env) {
+  const r = await env.DB.prepare('SELECT * FROM pecas WHERE codigo=?').bind(parseInt(codigo)).first();
+  if (!r) return bad('peça não encontrada', 404);
+  return json({ peca: parsePeca(r) });
+}
 // sugestões "enquanto digita": peças parecidas no catálogo próprio (Etapa 2 soma anúncios do ML)
 async function sugestoes(url, env) {
   const q = (url.searchParams.get('q') || '').trim();
@@ -247,18 +257,62 @@ async function sugestoes(url, env) {
   return json({ sugestoes: r.results });
 }
 const CAMPOS = ['nome', 'marca', 'modelo', 'ano', 'pn', 'cond', 'veiculo', 'preco', 'qtd', 'local_id', 'obs', 'ml', 'ml_id', 'ml_link', 'olx', 'olx_link'];
-async function criaPeca(request, env) {
+async function criaPeca(request, env, user) {
   const b = await request.json();
   if (!b.nome) return bad('nome é obrigatório');
   const id = uid();
   const codigo = b.codigo ? parseInt(b.codigo) : await proxCodigo(env); // permite manter código do iBR na importação
   await env.DB.prepare(
-    `INSERT INTO pecas (id,codigo,nome,marca,modelo,ano,pn,cond,veiculo,preco,qtd,local_id,obs,busca,fotos,ml,ml_link,olx,olx_link,criado_em)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    `INSERT INTO pecas (id,codigo,nome,marca,modelo,ano,pn,cond,veiculo,preco,qtd,local_id,obs,busca,fotos,ml,ml_link,olx,olx_link,criado_em,criado_por)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(id, codigo, b.nome, b.marca || null, b.modelo || null, b.ano || null, b.pn || null, b.cond || null,
     b.veiculo || null, Number(b.preco) || 0, parseInt(b.qtd) || 0, b.local_id || null, b.obs || null,
-    buscaDe({ ...b, codigo }), JSON.stringify(b.fotos || []), b.ml ? 1 : 0, b.ml_link || null, b.olx ? 1 : 0, b.olx_link || null, now()).run();
+    buscaDe({ ...b, codigo }), JSON.stringify(b.fotos || []), b.ml ? 1 : 0, b.ml_link || null, b.olx ? 1 : 0, b.olx_link || null, now(), (user && user.id) || null).run();
   return getPeca(id, env);
+}
+// edição em massa: muda preço, local ou marcação de anúncio de várias peças de uma vez
+async function editaMassa(request, env) {
+  const { ids, set } = await request.json();
+  if (!Array.isArray(ids) || !ids.length || !set) return bad('informe as peças e o que alterar');
+  const sets = [], binds = [];
+  if ('preco' in set) { sets.push('preco=?'); binds.push(Number(set.preco) || 0); }
+  if ('local_id' in set) { sets.push('local_id=?'); binds.push(set.local_id || null); }
+  if ('ml' in set) { sets.push('ml=?'); binds.push(set.ml ? 1 : 0); }
+  if ('olx' in set) { sets.push('olx=?'); binds.push(set.olx ? 1 : 0); }
+  if (!sets.length) return bad('nada para alterar');
+  sets.push('atualizado_em=?'); binds.push(now());
+  const placeholders = ids.map(() => '?').join(',');
+  await env.DB.prepare(`UPDATE pecas SET ${sets.join(',')} WHERE id IN (${placeholders})`).bind(...binds, ...ids).run();
+  return json({ ok: true, alteradas: ids.length });
+}
+// mover peças para um local, registrando o histórico (quem moveu, de onde, para onde)
+async function mover(request, env, user) {
+  const { ids, local_id } = await request.json();
+  if (!Array.isArray(ids) || !ids.length) return bad('informe as peças');
+  let n = 0;
+  for (const id of ids) {
+    const p = await env.DB.prepare('SELECT id,codigo,nome,local_id FROM pecas WHERE id=?').bind(id).first();
+    if (!p) continue;
+    await env.DB.prepare('UPDATE pecas SET local_id=?, atualizado_em=? WHERE id=?').bind(local_id || null, now(), id).run();
+    await env.DB.prepare(
+      'INSERT INTO movimentacoes (id,peca_id,codigo,nome,de_local,para_local,usuario_id,usuario_nome,data) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).bind(uid(), p.id, p.codigo, p.nome, p.local_id || null, local_id || null, (user && user.id) || null, (user && user.nome) || null, now()).run();
+    n++;
+  }
+  return json({ ok: true, movidas: n });
+}
+// produtividade: peças cadastradas por funcionário no período
+async function produtividade(url, env) {
+  const periodo = url.searchParams.get('periodo') || 'hoje';
+  let ini = 0; const d = new Date();
+  if (periodo === 'hoje') { d.setHours(0, 0, 0, 0); ini = d.getTime(); }
+  else if (periodo === 'mes') ini = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+  const r = await env.DB.prepare(
+    `SELECT COALESCE(u.nome, 'Sem registro') AS nome, COUNT(*) AS cadastros
+     FROM pecas p LEFT JOIN usuarios u ON u.id = p.criado_por
+     WHERE p.criado_em >= ? GROUP BY p.criado_por ORDER BY cadastros DESC`
+  ).bind(ini).all();
+  return json({ periodo, porFuncionario: r.results });
 }
 async function atualizaPeca(id, request, env) {
   const atual = await env.DB.prepare('SELECT id FROM pecas WHERE id=?').bind(id).first();
