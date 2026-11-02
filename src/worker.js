@@ -1283,8 +1283,10 @@ if errorlevel 1 (
 >> iniciar.bat echo "venv\Scripts\python.exe" agente.py
 >> iniciar.bat echo pause
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\Gerador de video Rafa.lnk'); $s.TargetPath='%PASTA%\iniciar.bat'; $s.WorkingDirectory='%PASTA%'; $s.Save()"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Startup')+'\Gerador de video Rafa.lnk'); $s.TargetPath='%PASTA%\iniciar.bat'; $s.WorkingDirectory='%PASTA%'; $s.WindowStyle=7; $s.Save()"
 echo.
 echo  Instalado! Criei o atalho "Gerador de video Rafa" na Area de Trabalho.
+echo  Ele tambem abre sozinho (minimizado) toda vez que o Windows ligar.
 echo  Deixe a janela do gerador aberta enquanto quiser gerar videos.
 echo.
 call iniciar.bat

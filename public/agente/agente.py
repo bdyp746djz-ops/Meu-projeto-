@@ -12,7 +12,7 @@ roteador: é o PC que chama o sistema.
 """
 import importlib, io, json, os, subprocess, sys, tempfile, time, traceback, urllib.error, urllib.parse, urllib.request, zipfile
 
-VERSAO = '2.0'
+VERSAO = '2.1'
 PASTA = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(PASTA, 'config.json'), encoding='utf-8-sig') as f:
     CFG = json.load(f)
@@ -613,7 +613,20 @@ def video_cinema(job):
     return arq
 
 
+def sem_suspender():
+    # enquanto o programa estiver aberto, o Windows não entra em suspensão (a tela pode apagar normalmente)
+    if os.name != 'nt':
+        return
+    try:
+        import ctypes
+        ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)   # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+        log('O PC não vai entrar em suspensão enquanto esta janela estiver aberta.')
+    except Exception as e:
+        log('Não consegui impedir a suspensão do PC:', e)
+
+
 def main():
+    sem_suspender()
     log(f'Gerador de vídeo Rafa Busca Peças v{VERSAO}')
     log(f'Placa: {GPU}' + (f' ({VRAM:.0f} GB)' if VRAM else '') + ' — vídeo: ' + {'wan': 'IA Wan 2.2', 'ltx': 'IA LTX-Video', 'cinema': 'cinematográfico com a foto real'}[MODELO])
     log('Deixe esta janela aberta. Os pedidos de vídeo feitos no sistema aparecem aqui.')
