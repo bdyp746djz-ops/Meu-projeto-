@@ -849,7 +849,7 @@ async function fotosIA(p){
     $('#iarimg').onclick=e=>{ const b=e.target.getBoundingClientRect(), X=(e.clientX-b.left)/b.width*1200, Y=(e.clientY-b.top)/b.height*1200;
       if(Y<500||Y>960)return toast('Toque em cima do desenho do carro'); st.ponto={x:Math.round(X),y:Math.round(Y-130)}; toast('Local marcado'); fazArte(); }; };
   $('#ifap').onclick=async()=>{ await fazFoto(); await fazArte(); };
-  $('#ifpc').onclick=async()=>{ try{ const r=await api('/ia/foto',{method:'POST',body:{peca_id:p.id,opcoes:leComandoFoto($('#ift').value).op}}); toast(r.ja?'Essa foto já está na fila do PC':'🖥️ Foto enviada pro PC — fica pronta sozinha'); abrePeca(p.id); }catch(e){ toast(e.message); } };
+  $('#ifpc').onclick=async()=>{ try{ const r=await api('/ia/foto',{method:'POST',body:{peca_id:p.id,opcoes:leComandoFoto($('#ift').value).op}}); toast(r.ja?'Essas fotos já estão na fila do PC':'🖥️ '+(r.n>1?r.n+' fotos enviadas':'Foto enviada')+' pro PC — ficam prontas sozinhas'); abrePeca(p.id); }catch(e){ toast(e.message); } };
   $('#iaap').onclick=fazArte;
   $('#izona').onchange=e=>{ st.z=e.target.value||null; st.ponto=null; fazArte(); };
   $('#ivolta').onclick=()=>abrePeca(p.id);
@@ -885,17 +885,20 @@ async function telaComandos(){
 // vídeo com IA: pede ao gerador do PC, acompanha e mostra o resultado
 const ST_VID={fila:'Na fila — esperando o PC',gerando:'O PC está gerando',pronto:'Pronto',erro:'Deu erro'};
 function quandoFoi(ms){ if(!ms)return 'nunca'; const s=(Date.now()-ms)/1000; return s<90?'agora há pouco':s<3600?Math.round(s/60)+' min atrás':s<86400?Math.round(s/3600)+' h atrás':new Date(ms).toLocaleDateString('pt-BR'); }
+// foto editada no PC guarda de qual original veio: pecas/<peça>/ia-pc-<código>--<arquivo original>
+function origemEd(k){ const m=String(k||'').match(/^(pecas\/[^/]+\/)ia-pc-\w+--(.+)$/); return m?m[1]+m[2]:null; }
 async function caixaVideo(p){
   const el=$('#vidinfo'); if(!el)return; clearTimeout(window._vidT);
   let d; try{ d=await api('/videos?peca='+p.id); }catch(e){ el.innerHTML='⚠️ '+esc(e.message); return; }
   if(!$('#vidinfo'))return;
-  const fj=d.videos.filter(x=>x.tipo==='foto'), fpend=fj.find(x=>x.status==='fila'||x.status==='gerando'), fok=fj.find(x=>x.status==='pronto'), ferr=fj[0]&&fj[0].status==='erro'?fj[0]:null;
+  const fj=d.videos.filter(x=>x.tipo==='foto'), fpends=fj.filter(x=>x.status==='fila'||x.status==='gerando'), fpend=fpends.find(x=>x.status==='gerando')||fpends[0], fok=fj.find(x=>x.status==='pronto'), ferr=fj[0]&&fj[0].status==='erro'?fj[0]:null;
   d.videos=d.videos.filter(x=>x.tipo!=='foto');
   const v=d.videos[0], ag=d.agente||{}, pc=ag.configurado?(ag.online?`🟢 PC conectado${ag.gpu?' ('+esc(ag.gpu)+')':''}`:`🔴 PC desligado ou gerador fechado (visto ${quandoFoi(ag.visto)})`):'⚪ Gerador ainda não instalado no PC';
   let h=`<div style="margin-bottom:6px">${pc}</div>`;
-  const nEdit=(p.fotos||[]).filter(k=>/\/ia-/.test(k)).length;
-  if(nEdit&&!fpend)h+=`<div class="mlact" style="margin:0 0 8px"><button class="btn sm" id="vorig">↩️ Voltar à foto original${ag.configurado?' e refazer com IA':''}</button></div>`;
-  if(fpend)h+=`<div style="margin-bottom:8px"><span class="spin-s"></span><b>📷 Foto sendo melhorada no PC</b>${fpend.progresso?' — '+esc(fpend.progresso):fpend.status==='fila'?' — na fila':''}</div>`;
+  const fts=p.fotos||[], nEdit=fts.filter(k=>/\/ia-/.test(k)).length, jaEd=new Set(fts.map(origemEd).filter(Boolean));
+  const semEd=fts.filter(k=>!/\/(ia|arte)-/.test(k)&&!jaEd.has(k)).length;
+  if(!fpend&&(nEdit||(ag.configurado&&semEd)))h+=`<div class="mlact" style="margin:0 0 8px">${ag.configurado&&semEd?`<button class="btn sm p" id="vtodas">✨ Editar ${semEd>1?'as '+semEd+' fotos':'a foto'} com IA no PC</button>`:''}${nEdit?`<button class="btn sm" id="vorig">↩️ Voltar às fotos originais${ag.configurado?' e refazer com IA':''}</button>`:''}</div>`;
+  if(fpend)h+=`<div style="margin-bottom:8px"><span class="spin-s"></span><b>📷 ${fpends.length>1?'Fotos sendo melhoradas no PC — faltam '+fpends.length:'Foto sendo melhorada no PC'}</b>${fpend.progresso?' — '+esc(fpend.progresso):fpend.status==='fila'?' — na fila':''}</div>`;
   else if(ferr)h+=`<div style="margin-bottom:8px;color:var(--red)">📷 A melhoria da foto deu erro: ${esc(ferr.erro||'')} <button class="btn sm" data-vr="${ferr.id}">Tentar de novo</button></div>`;
   else if(fok&&Date.now()-fok.atualizado_em<3*864e5)h+=`<div style="margin-bottom:8px">✅ <b>Foto melhorada no PC</b>${fok.detalhe?' — '+esc(fok.detalhe):''}</div>`;
   const pronto=d.videos.find(x=>x.status==='pronto');
@@ -908,11 +911,15 @@ async function caixaVideo(p){
     <div class="small mut" style="margin-top:4px">${ag.modelo==='cinema'?'Vídeo de 10 s feito com a foto real da peça (câmera se aproximando e luz de estúdio): a peça não muda.':'Usa a 1ª foto (a de fundo branco). Confira o vídeo antes de usar: a IA pode mudar detalhes da peça.'}</div>`;
   el.innerHTML=h;
   if($('#vgera'))$('#vgera').onclick=async()=>{ try{ await api('/videos',{method:'POST',body:{peca_id:p.id}}); toast('Pedido enviado pro PC'); caixaVideo(p); }catch(e){ toast(e.message); } };
+  if($('#vtodas'))$('#vtodas').onclick=async()=>{ try{ const c=await cmdIA();
+      const r=await api('/ia/foto',{method:'POST',body:{peca_id:p.id,opcoes:{...leComandoFoto(c.foto).op,ml:!!p.ml_id}}});
+      toast(r.ja?'Essas fotos já estão na fila do PC':`🖥️ ${r.n>1?r.n+' fotos enviadas':'Foto enviada'} pro PC${p.ml_id?' — o anúncio recebe quando todas ficarem prontas':''}`); caixaVideo(p); }catch(e){ toast(e.message); } };
   if($('#vorig'))$('#vorig').onclick=async()=>{
-    if(!confirm(`Tirar ${nEdit===1?'a foto editada':'as '+nEdit+' fotos editadas'} e voltar à foto original?${p.ml_id?'\n• O anúncio no Mercado Livre também volta para a original.':''}${ag.configurado?'\n• Depois o PC refaz a edição com IA a partir da original e gera o vídeo com a foto nova'+(p.ml_id?' (e coloca a foto nova no anúncio)':'')+'.':''}`))return;
-    try{ const r=await api('/pecas/'+p.id+'/fotos-originais',{method:'POST',body:{ml:!!p.ml_id,refazer:!!ag.configurado}});
+    if(!confirm(`Tirar ${nEdit===1?'a foto editada':'as '+nEdit+' fotos editadas'} e voltar às fotos originais?${p.ml_id?'\n• O anúncio no Mercado Livre também volta para as originais.':''}${ag.configurado?'\n• Depois o PC edita com IA cada foto original e gera o vídeo com a foto nova'+(p.ml_id?' (e coloca as fotos novas no anúncio)':'')+'.':''}`))return;
+    try{ const c=await cmdIA().catch(()=>({}));
+      const r=await api('/pecas/'+p.id+'/fotos-originais',{method:'POST',body:{ml:!!p.ml_id,refazer:!!ag.configurado,opcoes:leComandoFoto(c.foto||'').op}});
       p.fotos=r.fotos; const i=S.pecas.findIndex(x=>x.id===p.id); if(i>=0)S.pecas[i]=p;
-      const m=['↩️ Foto original de volta']; if(r.ml)m.push(r.ml==='ok'?'anúncio do ML atualizado':'ML: '+r.ml);
+      const m=['↩️ Fotos originais de volta']; if(r.ml)m.push(r.ml==='ok'?'anúncio do ML atualizado':'ML: '+r.ml);
       if(r.foto)m.push('edição no PC: '+r.foto); if(r.video)m.push('vídeo: '+r.video); if(r.pc)m.push(r.pc);
       toast(m.join(' · ')); abrePeca(p.id);
     }catch(e){ toast(e.message); } };

@@ -1159,19 +1159,26 @@ async function agenteApi(p, m, request, env, url) {
   }
   mt = p.match(/^\/api\/agente\/video\/([\w-]+)$/);
   if (mt && m === 'POST') {
-    const v = await env.DB.prepare('SELECT id,peca_id,tipo,prompt FROM videos WHERE id=?').bind(mt[1]).first();
+    const v = await env.DB.prepare('SELECT id,peca_id,tipo,prompt,foto_key FROM videos WHERE id=?').bind(mt[1]).first();
     if (!v) return bad('pedido não encontrado', 404);
     if (v.tipo === 'foto') {   // foto melhorada no PC: vira a 1ª foto da peça (troca a versão IA anterior, se houver)
       if (!(request.headers.get('content-type') || '').startsWith('image/')) return bad('envie uma imagem');
-      const key = `pecas/${v.peca_id}/ia-pc-${uid()}.jpg`;
+      const orig = v.foto_key || '', daOriginal = !!orig && !/\/(ia|arte)-/.test(orig);
+      const key = `pecas/${v.peca_id}/ia-pc-${uid().slice(0, 8)}` + (daOriginal ? '--' + orig.split('/').pop().replace(/[^\w.-]/g, '') : '.jpg');
       await env.FOTOS.put(key, request.body, { httpMetadata: { contentType: 'image/jpeg' } });
       const pc = await env.DB.prepare('SELECT fotos FROM pecas WHERE id=?').bind(v.peca_id).first();
       let fs = []; try { fs = JSON.parse((pc && pc.fotos) || '[]'); } catch { /* vazio */ }
-      if (fs.length && /\/ia-/.test(fs[0])) fs[0] = key; else fs.unshift(key);
+      const primeiraOrig = fs.find(k => !/\/(ia|arte)-/.test(k));
+      // a versão do PC substitui: as feitas no celular e a edição antiga (sem vínculo) da 1ª foto
+      fs = fs.filter(k => !/\/ia-/.test(k) || (/\/ia-pc-/.test(k) && (origemDaEdicao(k) || orig !== primeiraOrig)));
+      const iOrig = fs.indexOf(orig), iVelha = daOriginal ? fs.findIndex(k => origemDaEdicao(k) === orig) : -1;
+      if (iOrig >= 0) fs[iOrig] = key; else if (iVelha >= 0) fs[iVelha] = key; else fs.unshift(key);
+      fs = fs.filter((k, i) => fs.indexOf(k) === i);
       await env.DB.prepare('UPDATE pecas SET fotos=?, atualizado_em=? WHERE id=?').bind(JSON.stringify(fs.slice(0, 12)), now(), v.peca_id).run();
       let det = (url.searchParams.get('detalhe') || '').slice(0, 260);
       let op = {}; try { op = JSON.parse(v.prompt || '{}'); } catch { /* sem opções */ }
-      if (op.ml) {
+      const faltam = (await env.DB.prepare("SELECT COUNT(*) n FROM videos WHERE peca_id=? AND tipo='foto' AND status IN ('fila','gerando') AND id<>?").bind(v.peca_id, v.id).first()).n;
+      if (op.ml && !faltam) {   // anúncio recebe as fotos novas de uma vez, quando a última ficar pronta
         const pm = await env.DB.prepare('SELECT ml_id FROM pecas WHERE id=?').bind(v.peca_id).first();
         if (pm && pm.ml_id) { const res = await mlTrocaFotos(env, pm.ml_id, fs.slice(0, 12), url.origin); det += res === 'ok' ? ' · anúncio do ML atualizado' : ' · ML: ' + res.slice(0, 60); }
       }
@@ -1223,15 +1230,28 @@ async function novaFotoIA(env, b) {
   const row = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(b.peca_id || '').first();
   if (!row) return bad('peça não encontrada', 404);
   const pc = parsePeca(row), fotos = pc.fotos || [];
-  const origem = fotos.find(k => !/\/(ia|arte)-/.test(k)) || fotos[0];   // sempre parte da foto original
-  if (!origem) return bad('a peça precisa de pelo menos uma foto');
+  // sempre parte das fotos originais: uma edição por foto que você subiu (as que ainda não têm versão editada)
+  const origs = fotos.filter(k => !/\/(ia|arte)-/.test(k));
+  if (!fotos.some(k => !/\/arte-/.test(k))) return bad('a peça precisa de pelo menos uma foto');
   if (!(await getCfg(env, 'agente_token'))) return bad('instale o gerador no PC primeiro (Anúncios ML → Gerador de vídeo)');
-  const ja = await env.DB.prepare("SELECT id FROM videos WHERE peca_id=? AND status IN ('fila','gerando') AND tipo='foto'").bind(pc.id).first();
-  if (ja) return json({ ok: true, id: ja.id, ja: true });
-  const id = uid();
-  await env.DB.prepare("INSERT INTO videos (id,peca_id,status,prompt,foto_key,criado_em,atualizado_em,tipo) VALUES (?,?,?,?,?,?,?,'foto')")
-    .bind(id, pc.id, 'fila', JSON.stringify(b.opcoes || {}).slice(0, 2000), origem, now(), now()).run();
-  return json({ ok: true, id });
+  const editadas = new Set(fotos.map(origemDaEdicao).filter(Boolean));
+  let alvo = b.foto_key && fotos.includes(b.foto_key) ? [b.foto_key] : origs.filter(k => !editadas.has(k));
+  if (!alvo.length) alvo = origs.length ? origs : [fotos.find(k => !/\/arte-/.test(k))];   // tudo já editado: refaz todas
+  const pend = (await env.DB.prepare("SELECT foto_key FROM videos WHERE peca_id=? AND tipo='foto' AND status IN ('fila','gerando')").bind(pc.id).all()).results.map(r => r.foto_key);
+  alvo = alvo.filter(k => !pend.includes(k));
+  if (!alvo.length) return json({ ok: true, ja: true, n: pend.length });
+  const ids = [], t = now();
+  for (let i = 0; i < alvo.length; i++) {
+    const id = uid(); ids.push(id);
+    await env.DB.prepare("INSERT INTO videos (id,peca_id,status,prompt,foto_key,criado_em,atualizado_em,tipo) VALUES (?,?,?,?,?,?,?,'foto')")
+      .bind(id, pc.id, 'fila', JSON.stringify(b.opcoes || {}).slice(0, 2000), alvo[i], t + i, t + i).run();
+  }
+  return json({ ok: true, id: ids[0], ids, n: ids.length });
+}
+// foto editada no PC guarda no nome de qual original ela veio: pecas/<peça>/ia-pc-<código>--<arquivo original>
+function origemDaEdicao(k) {
+  const m = String(k || '').match(/^(pecas\/[^/]+\/)ia-pc-\w+--(.+)$/);
+  return m ? m[1] + m[2] : null;
 }
 // tira as fotos editadas (ia-*) e deixa as originais; opcional: atualiza o anúncio do ML
 // e manda o PC refazer a edição (a partir da original) e depois o vídeo (com a foto já editada)
@@ -1240,16 +1260,22 @@ async function fotosOriginais(pecaId, request, env, url) {
   const row = await env.DB.prepare('SELECT id,fotos,ml_id FROM pecas WHERE id=?').bind(pecaId).first();
   if (!row) return bad('peça não encontrada', 404);
   let fs = []; try { fs = JSON.parse(row.fotos || '[]'); } catch { /* sem fotos */ }
-  const editadas = fs.filter(k => /\/ia-/.test(k)), ficam = fs.filter(k => !/\/ia-/.test(k));
+  const ficam = []; let tiradas = 0;
+  for (const k of fs) {
+    if (!/\/ia-/.test(k)) { if (!ficam.includes(k)) ficam.push(k); continue; }
+    tiradas++;
+    const o = origemDaEdicao(k);   // editada no PC: a original volta no mesmo lugar
+    if (o && !fs.includes(o) && !ficam.includes(o) && await env.FOTOS.head(o)) ficam.push(o);
+  }
   if (!ficam.some(k => !/\/arte-/.test(k))) return bad('a foto original desta peça não ficou guardada no sistema — adicione a foto original de novo em Editar');
-  if (editadas.length) await env.DB.prepare('UPDATE pecas SET fotos=?, atualizado_em=? WHERE id=?').bind(JSON.stringify(ficam), now(), row.id).run();
-  const r = { ok: true, tiradas: editadas.length, fotos: ficam };
+  if (tiradas) await env.DB.prepare('UPDATE pecas SET fotos=?, atualizado_em=? WHERE id=?').bind(JSON.stringify(ficam), now(), row.id).run();
+  const r = { ok: true, tiradas, fotos: ficam };
   if (b.ml && row.ml_id) r.ml = await mlTrocaFotos(env, row.ml_id, ficam, url.origin);
   if (b.refazer) {
     if (!(await getCfg(env, 'agente_token'))) r.pc = 'o gerador não está instalado no PC';
     else {
-      const jf = await (await novaFotoIA(env, { peca_id: row.id, opcoes: { ml: !!(b.ml && row.ml_id) } })).json();
-      r.foto = jf.erro ? 'erro: ' + jf.erro : 'na fila';
+      const jf = await (await novaFotoIA(env, { peca_id: row.id, opcoes: { ...(b.opcoes || {}), ml: !!(b.ml && row.ml_id) } })).json();
+      r.foto = jf.erro ? 'erro: ' + jf.erro : (jf.n || 1) + (jf.n > 1 ? ' fotos na fila' : ' foto na fila');
       const jv = await (await novoVideo(env, { peca_id: row.id })).json();
       r.video = jv.erro ? (/já tem/.test(jv.erro) ? 'já tinha um na fila' : 'erro: ' + jv.erro) : 'na fila';
     }
@@ -1267,7 +1293,7 @@ async function mlTrocaFotos(env, mlId, keys, origem) {
 }
 async function listaVideos(url, env) {
   await garanteVideos(env);
-  const r = await env.DB.prepare("SELECT id,status,video_key,erro,progresso,modelo,criado_em,atualizado_em,COALESCE(tipo,'video') tipo,detalhe FROM videos WHERE peca_id=? ORDER BY criado_em DESC LIMIT 10").bind(url.searchParams.get('peca') || '').all();
+  const r = await env.DB.prepare("SELECT id,status,video_key,erro,progresso,modelo,criado_em,atualizado_em,COALESCE(tipo,'video') tipo,detalhe FROM videos WHERE peca_id=? ORDER BY criado_em DESC LIMIT 40").bind(url.searchParams.get('peca') || '').all();
   const fila = (await env.DB.prepare("SELECT COUNT(*) n FROM videos WHERE status='fila'").first()).n;
   return json({ videos: r.results, fila, agente: await agenteResumo(env) });
 }
