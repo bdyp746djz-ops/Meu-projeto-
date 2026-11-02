@@ -10,7 +10,7 @@ const dec = new TextDecoder();
 
 // ---------- HTTP ----------
 const json = (data, status = 200, headers = {}) =>
-  new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', ...headers } });
+  new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers } });
 const bad = (msg, status = 400) => json({ erro: msg }, status);
 const uid = () => crypto.randomUUID();
 const now = () => Date.now();

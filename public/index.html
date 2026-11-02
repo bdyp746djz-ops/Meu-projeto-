@@ -321,7 +321,7 @@ const cod = n => '#'+String(n).padStart(6,'0');
 function toast(m){ const t=document.createElement('div'); t.className='toast'; t.textContent=m; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }
 
 async function api(path, opts={}){
-  const o = { headers:{}, ...opts };
+  const o = { headers:{}, cache:'no-store', ...opts };   // sempre busca a versão nova (o iPhone às vezes reaproveita a resposta antiga)
   if (o.body && !(o.body instanceof Blob) && typeof o.body!=='string'){ o.body=JSON.stringify(o.body); o.headers['content-type']='application/json'; }
   const r = await fetch('/api'+path, o);
   let d={}; try{ d=await r.json(); }catch{}
@@ -2001,7 +2001,8 @@ async function perguntas(){
      :`<div class="empty">${ui.pergSt==='sem'?'✅ Nenhuma pergunta sem resposta.':'Nenhuma pergunta.'}</div>`}
    <div class="top small" style="max-width:760px;margin:0 auto">${ui.pergPilha.length?'<button class="btn sm" id="pgant">‹ Anteriores</button>':''}${d.proximo!=null?'<button class="btn sm" id="pgprox">Mais antigas ›</button>':''}</div>`;
   document.querySelectorAll('[data-pg]').forEach(b=>b.onclick=()=>{ ui.pergSt=b.dataset.pg; ui.pergOff=0; ui.pergPilha=[]; perguntas(); });
-  $('#pgatu').onclick=()=>{ contaPerguntas(); perguntas(); };
+  $('#pgatu').onclick=async()=>{ const b=$('#pgatu'); b.disabled=true; b.innerHTML='<span class="spin-s"></span> Atualizando…';
+    await contaPerguntas(); await perguntas(); if(S.view==='perguntas')toast('✅ Atualizado'+(ui.pergSt==='sem'?' · '+(S.nPerg||0)+' sem resposta':'')); };
   if($('#pgant'))$('#pgant').onclick=()=>{ ui.pergOff=ui.pergPilha.pop()||0; perguntas(); };
   if($('#pgprox'))$('#pgprox').onclick=()=>{ ui.pergPilha.push(ui.pergOff); ui.pergOff=d.proximo; perguntas(); };
   $('#pgass').onchange=e=>{ try{ localStorage.setItem('rafa_assin',e.target.value.trim()); }catch(_){ } toast('Assinatura salva neste aparelho'); };
