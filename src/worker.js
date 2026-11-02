@@ -174,6 +174,9 @@ async function api(request, env, url) {
   // perguntas dos compradores
   if (p === '/api/ml/perguntas/contagem' && m === 'GET') return mlPergContagem(env);
   if (p === '/api/ml/perguntas' && m === 'GET') return mlPerguntas(url, env);
+  if (p === '/api/ml/perguntas/esconder' && m === 'POST') return mlPergEsconde(request, env);
+  mt = p.match(/^\/api\/ml\/perguntas\/(\d+)\/diagnostico$/);
+  if (mt && m === 'GET') return mlPergDiagnostico(mt[1], env);
   mt = p.match(/^\/api\/ml\/perguntas\/(\d+)\/(responder|sugerir)$/);
   if (mt && m === 'POST') return mt[2] === 'responder' ? mlResponde(mt[1], request, env) : mlSugereResposta(mt[1], env);
   // importar anúncios da conta do ML para o sistema (com fotos e ficha técnica)
@@ -1029,7 +1032,8 @@ async function mlItensResumo(token, ids, itens) {
   }
 }
 // só o que aparece como pendente no ML: sem resposta, não removida/retida, e o anúncio ainda existe
-function motivoOculta(q, it) {
+function motivoOculta(q, it, esc) {
+  if (esc && esc.has(String(q.id))) return 'escondida por você';
   if (q.status !== 'UNANSWERED') return 'não está mais pendente no ML';
   if (q.answer && q.answer.text) return 'já respondida';
   if (q.deleted_from_listing || q.hold) return 'removida ou retida pelo ML';
@@ -1037,13 +1041,14 @@ function motivoOculta(q, it) {
   if (it && ['closed', 'inactive', 'under_review'].includes(it.status)) return 'anúncio finalizado ou inativo';
   return null;
 }
-async function mlPergPendentes(token, seller, off, quer, maxPag) {
+async function pergEscondidas(env) { try { return new Set(JSON.parse((await getCfg(env, 'ml_perg_esc')) || '[]').map(String)); } catch { return new Set(); } }
+async function mlPergPendentes(token, seller, off, quer, maxPag, esc) {
   const itens = {}, lista = [], ocultas = {}; let total = 0, o = off;
   for (let pg = 0; pg < maxPag; pg++) {
     const d = await mlBuscaPerguntas(token, seller, 'UNANSWERED', o, 50);
     const qs = d.questions || []; total = d.total || 0;
     await mlItensResumo(token, qs.map(q => q.item_id), itens);
-    for (const q of qs) { const m = motivoOculta(q, itens[q.item_id]); if (m) ocultas[m] = (ocultas[m] || 0) + 1; else lista.push(q); }
+    for (const q of qs) { const m = motivoOculta(q, itens[q.item_id], esc); if (m) ocultas[m] = (ocultas[m] || 0) + 1; else lista.push(q); }
     o += qs.length;
     if (!qs.length || o >= total || lista.length >= quer) break;
   }
@@ -1052,7 +1057,7 @@ async function mlPergPendentes(token, seller, off, quer, maxPag) {
 async function mlPergContagem(env) {
   const token = await mlToken(env), seller = await getCfg(env, 'ml_user_id');
   if (!token || !seller) return json({ conectado: false, n: 0 });
-  try { const r = await mlPergPendentes(token, seller, 0, 999, 3); return json({ conectado: true, n: r.lista.length, mais: r.proximo != null }); }
+  try { const r = await mlPergPendentes(token, seller, 0, 999, 3, await pergEscondidas(env)); return json({ conectado: true, n: r.lista.length, mais: r.proximo != null }); }
   catch (e) { return json({ conectado: true, n: 0, erro: erroPerg(e) }); }
 }
 async function caminhosLocais(env) {
@@ -1066,13 +1071,14 @@ async function mlPerguntas(url, env) {
   await garanteColsPecas(env);
   const sq = url.searchParams.get('status'), off = Math.max(0, parseInt(url.searchParams.get('offset')) || 0);
   let qs, itens = {}, total, proximo, ocultas = {};
+  const esc = await pergEscondidas(env);
   try {
     if (sq === 'respondidas' || sq === 'todas') {
       const d = await mlBuscaPerguntas(token, seller, sq === 'respondidas' ? 'ANSWERED' : '', off, 30);
       qs = d.questions || []; total = d.total || qs.length; proximo = off + qs.length < total ? off + qs.length : null;
       await mlItensResumo(token, qs.map(q => q.item_id), itens);
     } else {
-      const r = await mlPergPendentes(token, seller, off, 30, 4);
+      const r = await mlPergPendentes(token, seller, off, 30, 4, esc);
       qs = r.lista; itens = r.itens; ocultas = r.ocultas; total = r.total; proximo = r.proximo;
     }
   } catch (e) { return bad(erroPerg(e)); }
@@ -1086,7 +1092,29 @@ async function mlPerguntas(url, env) {
   return json({ total, offset: off, proximo, ocultas, ia: c.chaves.length > 0,
     perguntas: qs.sort((a, b) => new Date(b.date_created) - new Date(a.date_created)).map(q => ({ id: q.id, texto: q.text, data: q.date_created, status: q.status,
       item: itens[q.item_id] || { id: q.item_id, status: itens[q.item_id] === null ? 'removido' : undefined }, peca: pecas[q.item_id] || null,
-      resposta: q.answer && q.answer.text ? { texto: q.answer.text, data: q.answer.date_created } : null, oculta: motivoOculta(q, itens[q.item_id]) })) });
+      resposta: q.answer && q.answer.text ? { texto: q.answer.text, data: q.answer.date_created } : null, oculta: motivoOculta(q, itens[q.item_id], esc) })) });
+}
+async function mlPergEsconde(request, env) {
+  const b = await request.json().catch(() => ({}));
+  const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).filter(x => /^\d+$/.test(x));
+  const esc = await pergEscondidas(env);
+  for (const id of ids) b.mostrar ? esc.delete(id) : esc.add(id);
+  await setCfg(env, 'ml_perg_esc', JSON.stringify([...esc].slice(-3000)));
+  return json({ ok: true, escondidas: esc.size });
+}
+// o que o ML diz dessa pergunta (para descobrir por que ela aparece aqui e não no painel do ML)
+async function mlPergDiagnostico(id, env) {
+  const token = await mlToken(env);
+  if (!token) return bad('conecte o Mercado Livre primeiro');
+  const r = { conta: { id: await getCfg(env, 'ml_user_id'), apelido: await getCfg(env, 'ml_nickname') } };
+  try { const me = await mlReq(token, 'GET', '/users/me'); r.conta_token = { id: me.id, apelido: me.nickname }; } catch (e) { r.conta_token = { erro: e.message }; }
+  try {
+    const q = await mlReq(token, 'GET', '/questions/' + id + '?api_version=4');
+    r.pergunta = { id: q.id, status: q.status, texto: q.text, data: q.date_created, item: q.item_id, vendedor: q.seller_id, de: q.from && q.from.id,
+      retida: q.hold, removida_do_anuncio: q.deleted_from_listing, resposta: q.answer || null, outros: Object.keys(q).filter(k => !['id', 'status', 'text', 'date_created', 'item_id', 'seller_id', 'from', 'hold', 'deleted_from_listing', 'answer'].includes(k)) };
+    try { const it = await mlReq(token, 'GET', '/items/' + q.item_id + '?attributes=id,title,status,sub_status,seller_id,permalink,catalog_listing'); r.anuncio = it; } catch (e) { r.anuncio = { erro: e.message }; }
+  } catch (e) { r.pergunta = { erro: erroPerg(e) }; }
+  return json(r);
 }
 async function mlResponde(id, request, env) {
   const token = await mlToken(env);
