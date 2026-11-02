@@ -374,10 +374,20 @@ async function login(request, env, secret) {
 }
 
 // ---------- localizações ----------
+// colunas novas dos locais (sigla curta e regras de localização automática), criadas sob demanda
+let colsLocaisOk = false;
+async function garanteColsLocais(env) {
+  if (colsLocaisOk) return;
+  for (const c of ['sigla TEXT', 'regras TEXT']) {
+    try { await env.DB.prepare('ALTER TABLE locais ADD COLUMN ' + c).run(); } catch { /* já existe */ }
+  }
+  colsLocaisOk = true;
+}
 async function listaLocais(env) {
+  await garanteColsLocais(env);
   // inclui a capacidade e a ocupação (nº de peças com estoque guardadas direto no local)
   const r = await env.DB.prepare(
-    `SELECT l.id, l.nome, l.pai, l.capacidade,
+    `SELECT l.id, l.nome, l.pai, l.capacidade, l.sigla, l.regras,
        (SELECT COUNT(*) FROM pecas p WHERE p.local_id = l.id AND p.qtd > 0) AS ocupacao
      FROM locais l`
   ).all();
@@ -402,8 +412,12 @@ async function criaLocais(request, env) {
   return json({ criados });
 }
 async function atualizaLocal(id, request, env) {
+  await garanteColsLocais(env);
   const b = await request.json();
   const sets = [], binds = [];
+  const txt = v => { v = String(v ?? '').trim(); return v ? v.slice(0, 500) : null; };
+  if ('sigla' in b) { sets.push('sigla=?'); binds.push(txt(b.sigla) && txt(b.sigla).toUpperCase().slice(0, 12)); }
+  if ('regras' in b) { sets.push('regras=?'); binds.push(txt(b.regras)); }
   if (b.nome != null && b.nome !== '') { sets.push('nome=?'); binds.push(b.nome); }
   if ('capacidade' in b) { sets.push('capacidade=?'); binds.push(capVal(b.capacidade)); }
   if (!sets.length) return json({ ok: true });

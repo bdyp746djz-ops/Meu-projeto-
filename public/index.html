@@ -127,6 +127,23 @@ nav.bottom{display:none}
  .dp-tt{font-size:14px}.dp-sb{font-size:12px}
  .dp-row{flex-wrap:wrap}.dp-ac{width:100%;display:flex;justify-content:flex-end}
 }
+.lc-row{display:flex;align-items:center;gap:10px;padding:10px 14px 10px calc(12px + var(--d,0)*24px);border-bottom:1px solid #eee}
+.lc-row:last-child{border-bottom:0}
+.lc-row:hover{background:#fafafa}
+.lc-tg{width:24px;color:#757575;cursor:pointer;flex-shrink:0;user-select:none}
+.lc-ic{color:#90a4ae;flex-shrink:0}
+.lc-tx{flex:1;min-width:0}
+.lc-nm{font-weight:500;font-size:15px}
+.lc-sig{display:inline-block;margin-left:6px;font-size:11.5px;font-weight:700;color:var(--pri);background:var(--pri-t);border-radius:3px;padding:1px 6px;letter-spacing:.03em;vertical-align:1px}
+.lc-sb{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:3px;font-size:12.5px;color:#9e9e9e}
+.lc-sb .ct{cursor:pointer}
+.lc-rg{display:inline-flex;align-items:center;gap:3px;color:#7e57c2}
+.lc-rg .material-icons{font-size:14px}
+.lc-ac{display:flex;gap:2px;flex-shrink:0}
+.lc-b{width:36px;height:36px;border:0;background:none;border-radius:50%;color:#757575;display:grid;place-items:center;cursor:pointer;padding:0}
+.lc-b:hover{background:#eee;color:var(--ink)}
+.lc-b .material-icons{font-size:20px}
+@media(max-width:760px){.lc-row{flex-wrap:wrap;padding-left:calc(6px + var(--d,0)*12px)}.lc-ac{width:100%;justify-content:flex-end}.lc-b{width:34px;height:34px}}
 /* componentes */
 .btn{border:1px solid #d0d0d0;background:#fff;border-radius:var(--rad);padding:9px 16px;cursor:pointer;font-weight:500;color:var(--ink);text-decoration:none;display:inline-block;transition:filter .13s,box-shadow .13s,background .13s}
 .btn:hover{background:#f5f5f5}
@@ -468,7 +485,7 @@ async function nova(){
     <label class="f">Preço (R$) *<input name="preco" type="number" step="0.01" min="0" required value="${p.preco??''}"></label>
     <label class="f">Quantidade *<input name="qtd" type="number" min="0" required value="${p.qtd??1}"></label>
     <label class="f full">Localização<select name="local_id"><option value="">— sem localização —</option>${locOptions(p.local_id)}</select>
-      <button type="button" class="btn sm" id="sugloc" style="margin-top:6px;align-self:flex-start">🎯 Sugerir caixa com espaço</button></label>
+      <button type="button" class="btn sm" id="sugloc" style="margin-top:6px;align-self:flex-start">🎯 Sugerir caixa com espaço</button><span class="small" id="locdica" style="display:block;margin-top:6px"></span></label>
     <label class="f full">Observações<div class="withmic ta"><textarea name="obs" rows="2">${esc(p.obs)}</textarea><button type="button" class="mic" title="Ditar por voz">🎤</button></div></label>
     <div class="full"><div class="small mut" style="font-weight:600;margin-bottom:6px">Fotos (até 4)</div>
       <div class="thumbs" id="thumbs"></div>
@@ -480,6 +497,7 @@ async function nova(){
   drawThumbs();
   if($('#canc'))$('#canc').onclick=()=>{ S.ui.editId=null; S.ui.fotos=[]; go('estoque'); };
   if($('#sugloc'))$('#sugloc').onclick=sugereCaixa;
+  { const fn=$('#pf').elements.nome; fn.addEventListener('change',autoLocal); fn.addEventListener('blur',autoLocal); }
   bindSugestoes(); bindMics();
   $('#pfoto').onchange=async e=>{ for(const f of [...e.target.files]){ if(S.ui.fotos.length>=4)break; try{ S.ui.fotos.push({blob:await shrink(f)}); }catch{} } e.target.value=''; drawThumbs(); };
   $('#pf').onsubmit=salvaPeca;
@@ -521,15 +539,14 @@ function iniciaDitado(btn){
 function bindMics(){ document.querySelectorAll('.mic').forEach(b=>{ if(!b._b){ b._b=1; b.onclick=()=>iniciaDitado(b); } }); }
 // sugere uma caixa (folha) com espaço livre — tecnologia de "localização inteligente"
 function sugereCaixa(){
-  const folhas=Object.values(S.locais).filter(l=>locChildren(l.id).length===0);
-  const comEspaco=folhas.filter(l=>l.capacidade && (Number(l.ocupacao)||0)<l.capacidade)
-    .sort((a,b)=>(b.capacidade-(Number(b.ocupacao)||0))-(a.capacidade-(Number(a.ocupacao)||0))); // mais espaço livre primeiro
-  const semLimite=folhas.filter(l=>!l.capacidade);
-  const alvo=comEspaco[0]||semLimite[0];
+  const f=$('#pf'), r=regraPara(f.elements.nome.value), alvo=melhorCaixa(r?r.l.id:'');
   if(!alvo){ toast('Nenhuma caixa com espaço. Crie uma em Localizações.'); return; }
-  const sel=$('#pf').elements.local_id; sel.value=alvo.id;
-  toast('Sugerido: '+locPath(alvo.id));
+  f.elements.local_id.value=alvo.id; dicaLocal(alvo,r);
 }
+function dicaLocal(cx,r){ const el=$('#locdica'); if(el)el.innerHTML=`📍 <b>${esc(codigoTxt(cx.id))}</b> — ${esc(locPath(cx.id))}${r?` <span class="mut">· regra “${esc(r.w)}”</span>`:''}`; }
+// localização inteligente: ao terminar de digitar o nome, se o local estiver vazio, escolhe pela regra
+function autoLocal(){ const f=$('#pf'); if(!f||f.elements.local_id.value)return; const r=regraPara(f.elements.nome.value); if(!r)return;
+  const cx=melhorCaixa(r.l.id); if(cx){ f.elements.local_id.value=cx.id; dicaLocal(cx,r); } }
 function drawThumbs(){ const t=$('#thumbs'); if(!t)return; t.innerHTML=S.ui.fotos.map((f,i)=>`<div><img src="${f.key?'/api/foto/'+f.key:URL.createObjectURL(f.blob)}"><button type="button" data-i="${i}">×</button></div>`).join('');
   t.querySelectorAll('button').forEach(b=>b.onclick=()=>{ S.ui.fotos.splice(+b.dataset.i,1); drawThumbs(); }); }
 function shrink(file){ return new Promise((res,rej)=>{ const img=new Image(),u=URL.createObjectURL(file);
@@ -538,6 +555,7 @@ function shrink(file){ return new Promise((res,rej)=>{ const img=new Image(),u=U
 async function salvaPeca(e){
   e.preventDefault(); const btn=e.target.querySelector('button[type=submit]'); btn.disabled=true;
   const fd=Object.fromEntries(new FormData(e.target).entries());
+  if(!fd.local_id){ const r=regraPara(fd.nome); const cx=r?melhorCaixa(r.l.id):null; if(cx){ fd.local_id=cx.id; toast('📍 Guardar em '+codigoTxt(cx.id)+' — '+locPath(cx.id)); } }
   const keysExistentes=S.ui.fotos.filter(f=>f.key).map(f=>f.key);
   const body={ nome:fd.nome.trim(),marca:fd.marca.trim(),modelo:fd.modelo.trim(),ano:fd.ano.trim(),pn:fd.pn.trim(),cond:fd.cond,veiculo:fd.veiculo.trim(),preco:fd.preco,qtd:fd.qtd,local_id:fd.local_id,obs:fd.obs.trim(),fotos:keysExistentes };
   try{
@@ -657,36 +675,95 @@ async function integracoes(){
   desenha();
 }
 
-// ---------- Localizações ----------
+// ---------- Localizações (com Localização Inteligente) ----------
+const ICON_NIVEL=['warehouse','view_week','layers'];
+// sigla curta de cada nível (ex.: GALPÃO-1 → 01, PRT-17E → 17E, NÍVEL-A → A, CAIXA-1 → CX1)
+function siglaDe(id){ const l=S.locais[id]; if(!l)return ''; if(l.sigla)return String(l.sigla).toUpperCase();
+  const d=depth(id), folha=d>0&&!locChildren(id).length, t=String(l.nome).trim().split(/[-\s]+/).pop()||l.nome;
+  let s=t.length<=4?t:t.slice(0,3);
+  if(d===0&&/^\d+$/.test(s))s=s.padStart(2,'0');
+  if(folha&&/^(caixa|cx)/.test(nrm(l.nome))&&!/^cx/i.test(s))s='CX'+s;
+  return s.toUpperCase(); }
+// código curto no padrão da etiqueta da caixa: caixa → ['01 – 17E D 6','CX1'] · demais níveis → ['','01 – 17E D']
+function siglasAte(id){ const ids=[]; let c=S.locais[id],g=0; while(c&&g++<20){ ids.unshift(c.id); c=S.locais[c.pai]; } return ids.map(siglaDe); }
+const juntaSig=sg=>sg.length?sg[0]+(sg.length>1?' – '+sg.slice(1).join(' '):''):'';
+const ehCaixa=id=>depth(id)>0&&!locChildren(id).length;
+function codigoLocal(id){ const sg=siglasAte(id); if(ehCaixa(id)){ const u=sg.pop(); return [juntaSig(sg),u]; } return ['',juntaSig(sg)]; }
+const codigoTxt=id=>codigoLocal(id).filter(Boolean).join(' · ');
+const regrasDe=l=>String(l&&l.regras||'').split(/[,;\n]/).map(x=>x.trim()).filter(Boolean);
+// regra que casa com o nome da peça (a palavra mais específica vence)
+function regraPara(nome){ const t=nrm(nome); let m=null;
+  for(const l of Object.values(S.locais))for(const w of regrasDe(l)){ const n=nrm(w); if(n&&t.includes(n)&&(!m||n.length>m.n.length))m={l,w,n}; }
+  return m; }
+function folhasDe(raiz){ const r=[]; const v=id=>{ const ch=locChildren(id); if(!ch.length){ if(id)r.push(S.locais[id]); } else ch.forEach(c=>v(c.id)); }; v(raiz||''); return r; }
+// caixa com mais espaço livre (dentro da área, se houver); sem limite fica por último
+function melhorCaixa(raiz){ const f=folhasDe(raiz);
+  const com=f.filter(l=>l.capacidade&&(Number(l.ocupacao)||0)<l.capacidade).sort((a,b)=>(b.capacidade-(Number(b.ocupacao)||0))-(a.capacidade-(Number(a.ocupacao)||0)));
+  return com[0]||f.find(l=>!l.capacidade)||null; }
 async function locais(){
   await carregaLocais();
-  const raiz=locChildren('');
-  $('#main').innerHTML=`<div class="top"><h2>Localizações</h2><button class="btn p" id="addr">+ Galpão/Pátio</button></div>
-   <p class="small mut">Organize em níveis: Galpão › Prateleira › Nível › Caixa. Toque no nº de peças para ver o que está guardado.</p>
-   <div class="card tree">${raiz.length?`<ul>${raiz.map(l=>nodeHTML(l.id)).join('')}</ul>`:'<div class="empty">Nenhuma localização ainda.</div>'}</div>`;
+  const ui=S.ui; ui.locQ=ui.locQ||'';
+  $('#main').innerHTML=`<div class="dp-bar">
+     <label class="dp-busca"><span class="material-icons">search</span><input id="lq" placeholder="Procurar localização..." value="${esc(ui.locQ)}" autocomplete="off"></label>
+     <div class="dp-ops">
+       <button class="dp-gerar dp-azul" id="lint"><span class="material-icons">auto_awesome</span>LOCALIZAÇÃO INTELIGENTE</button>
+       <button class="dp-gerar" id="addr"><span class="material-icons">add</span>GALPÃO / PÁTIO</button>
+     </div></div>
+   <div class="dp-lista" id="llista"></div>`;
+  const desenha=()=>{
+    const q=nrm(ui.locQ).split(/\s+/).filter(Boolean); let html;
+    if(q.length){ const l=Object.keys(S.locais).filter(id=>{ const t=nrm(locPath(id)+' '+codigoTxt(id)+' '+(S.locais[id].regras||'')); return q.every(w=>t.includes(w)); }).sort((a,b)=>locPath(a).localeCompare(locPath(b),'pt',{numeric:true}));
+      html=l.map(id=>nodeHTML(id,0,true)).join(''); }
+    else html=locChildren('').map(l=>nodeHTML(l.id,0)).join('');
+    $('#llista').innerHTML=html||`<div class="empty">${q.length?'Nada encontrado.':'Nenhuma localização ainda. Comece criando um Galpão/Pátio.'}</div>`;
+    bindTree();
+  };
+  $('#lq').oninput=e=>{ ui.locQ=e.target.value; desenha(); };
   $('#addr').onclick=()=>novoLocal('');
-  bindTree();
+  $('#lint').onclick=telaRegras;
+  S.ui._redesenhaLoc=desenha; desenha();
 }
 function ocupacaoTotal(id){ let t=Number(S.locais[id]&&S.locais[id].ocupacao)||0; for(const c of locChildren(id)) t+=ocupacaoTotal(c.id); return t; }
-function nodeHTML(id){ const l=S.locais[id],ch=locChildren(id),open=S.ui.open.has(id),ehCaixa=!ch.length;
+function nodeHTML(id,d,plano){ const l=S.locais[id],ch=locChildren(id),open=S.ui.open.has(id),folha=!ch.length;
   let info;
-  if(ehCaixa && l.capacidade){
-    const dir=Number(l.ocupacao)||0, cap=l.capacidade, pct=Math.min(100,Math.round(dir/cap*100));
-    const cor=pct>=100?'var(--red)':pct>=80?'var(--amber)':'var(--blue)';
-    info=`<span class="occ" data-go="${id}"><span class="track" style="width:60px"><span class="fill" style="width:${pct}%;background:${cor}"></span></span><span class="ct">${dir}/${cap}${pct>=100?' · cheia':''}</span></span>`;
-  } else {
-    const t=ocupacaoTotal(id); info=`<span class="ct" data-go="${id}">${t?t+' peça(s)':''}</span>`;
-  }
-  return `<li><div class="node"><span class="tg" data-tg="${id}">${ch.length?(open?'▾':'▸'):'·'}</span>
-    <span class="nm">${esc(l.nome)}</span>${info}
-    <span class="act"><button class="btn sm" data-add="${id}">+</button><button class="btn sm" data-ren="${id}">✏️</button><button class="btn sm" data-del="${id}">🗑</button></span></div>
-    ${ch.length&&open?`<ul>${ch.map(c=>nodeHTML(c.id)).join('')}</ul>`:''}</li>`; }
+  if(folha&&l.capacidade){ const dir=Number(l.ocupacao)||0, cap=l.capacidade, pct=Math.min(100,Math.round(dir/cap*100));
+    const cor=pct>=100?'var(--red)':pct>=80?'var(--amber)':'var(--ok)';
+    info=`<span class="occ" data-go="${id}"><span class="track" style="width:70px"><span class="fill" style="width:${pct}%;background:${cor}"></span></span><span class="ct">${dir}/${cap}${pct>=100?' · cheia':' · '+(cap-dir)+' livre(s)'}</span></span>`; }
+  else { const t=ocupacaoTotal(id); info=`<span class="ct" data-go="${id}">${t} peça(s)</span>`; }
+  const rg=regrasDe(l);
+  const ic=folha&&depth(id)>0?'inventory_2':ICON_NIVEL[Math.min(depth(id),2)];
+  return `<div class="lc-row" style="--d:${plano?0:d}">
+    <span class="lc-tg material-icons" ${ch.length&&!plano?`data-tg="${id}"`:''}>${ch.length&&!plano?(open?'expand_more':'chevron_right'):''}</span>
+    <span class="material-icons lc-ic">${ic}</span>
+    <div class="lc-tx"><div class="lc-nm">${esc(plano?locPath(id):l.nome)} <span class="lc-sig">${esc(codigoTxt(id))}</span></div>
+      <div class="lc-sb">${info}${rg.length?` <span class="lc-rg" title="Regras de localização automática"><span class="material-icons">auto_awesome</span>${esc(rg.join(', '))}</span>`:''}</div></div>
+    <div class="lc-ac">
+      <button class="lc-b" data-add="${id}" title="Criar dentro"><span class="material-icons">add</span></button>
+      <button class="lc-b" data-etq="${id}" title="Etiqueta"><span class="material-icons">qr_code_2</span></button>
+      <button class="lc-b" data-ren="${id}" title="Editar / regras"><span class="material-icons">edit</span></button>
+      <button class="lc-b" data-del="${id}" title="Excluir"><span class="material-icons">delete_outline</span></button></div></div>
+    ${ch.length&&open&&!plano?ch.map(c=>nodeHTML(c.id,d+1)).join(''):''}`; }
 function bindTree(){
-  document.querySelectorAll('[data-tg]').forEach(e=>e.onclick=()=>{ const id=e.dataset.tg; S.ui.open.has(id)?S.ui.open.delete(id):S.ui.open.add(id); locais(); });
+  const red=()=>S.ui._redesenhaLoc?S.ui._redesenhaLoc():locais();
+  document.querySelectorAll('[data-tg]').forEach(e=>e.onclick=()=>{ const id=e.dataset.tg; S.ui.open.has(id)?S.ui.open.delete(id):S.ui.open.add(id); red(); });
   document.querySelectorAll('[data-go]').forEach(e=>e.onclick=()=>{ S.ui.loc=e.dataset.go; S.ui.q=''; S.ui.status='todos'; go('estoque'); });
   document.querySelectorAll('[data-add]').forEach(e=>e.onclick=()=>novoLocal(e.dataset.add));
+  document.querySelectorAll('[data-etq]').forEach(e=>e.onclick=()=>abreGerador([itemLocal(e.dataset.etq)]));
   document.querySelectorAll('[data-ren]').forEach(e=>e.onclick=()=>renomear(e.dataset.ren));
   document.querySelectorAll('[data-del]').forEach(e=>e.onclick=()=>excluirLocal(e.dataset.del));
+}
+// visão geral das regras
+function telaRegras(){
+  const com=Object.keys(S.locais).filter(id=>regrasDe(S.locais[id]).length).sort((a,b)=>locPath(a).localeCompare(locPath(b),'pt',{numeric:true}));
+  modal(`<h3>Localização inteligente</h3>
+   <p class="small mut">Ao cadastrar uma peça, o sistema escolhe sozinho onde guardar:</p>
+   <ol class="small" style="margin:6px 0 12px;padding-left:20px;line-height:1.6"><li>Se o nome da peça tiver uma <b>palavra de regra</b>, vai para a área daquela regra.</li><li>Dentro da área, escolhe a <b>caixa com mais espaço livre</b> (pela capacidade de cada caixa).</li><li>Sem regra, usa a caixa com mais espaço livre do estoque todo.</li></ol>
+   ${com.length?`<div class="tw"><table><tr><th>Local</th><th>Palavras</th></tr>${com.map(id=>`<tr><td><b>${esc(codigoTxt(id))}</b><br><span class="small mut">${esc(locPath(id))}</span></td><td class="small">${esc(regrasDe(S.locais[id]).join(', '))}</td></tr>`).join('')}</table></div>`
+     :'<div class="empty" style="padding:14px">Nenhuma regra ainda. Toque no ✏️ de um galpão, prateleira ou caixa e escreva as palavras (ex.: <b>farol, lanterna, retrovisor</b>).</div>'}
+   <label class="f">Testar: nome de uma peça<input id="rtst" placeholder="ex.: Farol dianteiro direito"></label>
+   <div class="small" id="rres" style="margin-top:8px;min-height:20px"></div>`);
+  $('#rtst').oninput=e=>{ const n=e.target.value.trim(); if(!n){ $('#rres').textContent=''; return; } const r=regraPara(n), cx=melhorCaixa(r?r.l.id:'');
+    $('#rres').innerHTML=cx?`📍 Vai para <b>${esc(codigoTxt(cx.id))}</b> — ${esc(locPath(cx.id))}${r?` <span class="mut">(regra: “${esc(r.w)}”)</span>`:' <span class="mut">(sem regra: caixa com mais espaço)</span>'}`:'Nenhuma caixa com espaço.'; };
 }
 const NIVEIS=['Galpão/Pátio','Prateleira','Nível','Caixa'];
 function depth(id){ let d=0,c=S.locais[id]; while(c&&c.pai){ d++; c=S.locais[c.pai]; } return d; }
@@ -700,10 +777,16 @@ function novoLocal(pai){ const d=pai?depth(pai)+1:0; const tipo=NIVEIS[Math.min(
   $('#cc').onclick=fecha; setTimeout(()=>$('#ln')?.select(),40);
   $('#ok').onclick=async()=>{ const nome=$('#ln').value.trim(); if(!nome)return; await api('/locais',{method:'POST',body:{nome,pai:pai||null,quantidade:$('#lq').value,capacidade:$('#lcap').value}}); if(pai)S.ui.open.add(pai); fecha(); toast('Criado'); locais(); };
 }
-function renomear(id){ const l=S.locais[id]; modal(`<h3>Editar local</h3><label class="f">Nome<input id="ln" value="${esc(l.nome)}"></label>
+function renomear(id){ const l=S.locais[id]; const auto=(()=>{ const sv=l.sigla; l.sigla=''; const x=siglaDe(id); l.sigla=sv; return x; })();
+  modal(`<h3>Editar local</h3><p class="small mut">${esc(locPath(id))}</p>
+   <label class="f">Nome<input id="ln" value="${esc(l.nome)}"></label>
+   <label class="f">Sigla na etiqueta (opcional — automático: <b>${esc(auto)}</b>)<input id="lsg" maxlength="12" value="${esc(l.sigla||'')}" placeholder="${esc(auto)}"></label>
    <label class="f">Capacidade (peças, opcional — vazio = sem limite)<input id="lcap" type="number" min="1" value="${l.capacidade||''}"></label>
+   <label class="f">Regras de localização automática — palavras separadas por vírgula<textarea id="lrg" rows="2" placeholder="ex.: farol, lanterna, retrovisor">${esc(l.regras||'')}</textarea></label>
+   <p class="small mut">Peças com essas palavras no nome serão guardadas aqui (ou na caixa com mais espaço dentro deste local).</p>
    <div class="top" style="margin-top:12px"><button class="btn p" id="ok">Salvar</button><button class="btn" id="cc">Cancelar</button></div>`);
-  $('#cc').onclick=fecha; $('#ok').onclick=async()=>{ const v=$('#ln').value.trim(); if(v){ await api('/locais/'+id,{method:'PATCH',body:{nome:v,capacidade:$('#lcap').value}}); fecha(); locais(); } }; }
+  $('#cc').onclick=fecha; $('#ok').onclick=async()=>{ const v=$('#ln').value.trim(); if(!v)return;
+    await api('/locais/'+id,{method:'PATCH',body:{nome:v,capacidade:$('#lcap').value,sigla:$('#lsg').value,regras:$('#lrg').value}}); fecha(); toast('Local salvo'); locais(); }; }
 async function excluirLocal(id){ try{ await api('/locais/'+id,{method:'DELETE'}); toast('Excluído'); locais(); }catch(e){ toast(e.message); } }
 
 // ---------- Etiquetas ----------
@@ -718,7 +801,7 @@ function itemPeca(p){
   linhas.push('Cod:'+c);
   return { tipo:'peca', rotulo:cod(p.codigo)+' · '+p.nome, qr:'P:'+c, loja:LOJA, titulo:veic||p.nome, linhas, rodape:veic?p.nome:'' };
 }
-function itemLocal(id){ const cam=locPath(id).split(' › '); const ult=cam.pop(); return { tipo:'local', rotulo:locPath(id), qr:'L:'+id, acima:cam.join(' > '), grande:ult }; }
+function itemLocal(id){ const [cima,baixo]=codigoLocal(id); return { tipo:'local', rotulo:codigoTxt(id)+' — '+locPath(id), qr:'L:'+id, acima:cima, grande:baixo }; }
 async function etiquetas(){
   await carregaLocais(); const { pecas }=await api('/pecas?todas=1'); S.pecas=pecas;
   const ui=S.ui; ui.etqTipo=ui.etqTipo||'pecas'; ui.etqOrd=ui.etqOrd||'nome'; ui.etqMos=ui.etqMos||'ativos'; ui.etqQ=ui.etqQ||'';
@@ -794,7 +877,7 @@ function carregaPDF(){ if(window.jspdf)return Promise.resolve();
   if(!pdfPromessa)pdfPromessa=new Promise((ok,err)=>{ const sc=document.createElement('script'); sc.src='/jspdf.umd.min.js'; sc.onload=ok; sc.onerror=()=>{ pdfPromessa=null; err(new Error('não carregou o gerador de PDF')); }; document.head.appendChild(sc); });
   return pdfPromessa; }
 const PT=0.3528; // 1 ponto em mm
-const pdfTxt=x=>String(x??'').replace(/›/g,'>').replace(/[^\x20-\x7E -ÿ]/g,'').trim();
+const pdfTxt=x=>String(x??'').replace(/›/g,'>').replace(/[–—]/g,'-').replace(/[^\x20-\x7E -ÿ]/g,'').trim();
 async function gerarPDF(itens,copias){
   await carregaPDF();
   const W=Math.max(20,parseFloat(S.ui.etqW)||100), H=Math.max(15,parseFloat(S.ui.etqH)||50), ori=W>=H?'landscape':'portrait';
@@ -818,9 +901,9 @@ function blocoTexto(doc,partes,x,w,H,pad){
       doc.setFont('helvetica',pt.bold?'bold':'normal'); doc.setFontSize(fs);
       let ls=doc.splitTextToSize(t,w); const mx=pt.max||2;
       if(ls.length>mx){ estourou=true; if(ultimo){ ls=ls.slice(0,mx); ls[mx-1]=ls[mx-1].replace(/\s*\S{0,3}$/,'')+'...'; } }
-      for(const l of ls){ lin.push({l,fs,b:pt.bold}); alt+=fs*PT*1.2; } }
+      for(const l of ls){ lin.push({l,fs,b:pt.bold,c:pt.centro}); alt+=fs*PT*1.2; } }
     if((alt<=H-2*pad&&!estourou)||ultimo){ let y=Math.max(pad,(H-alt)/2);
-      for(const L of lin){ doc.setFont('helvetica',L.b?'bold':'normal'); doc.setFontSize(L.fs); doc.text(L.l,x,y+L.fs*PT*0.92); y+=L.fs*PT*1.2; }
+      for(const L of lin){ doc.setFont('helvetica',L.b?'bold':'normal'); doc.setFontSize(L.fs); if(L.c)doc.text(L.l,x+w/2,y+L.fs*PT*0.92,{align:'center'}); else doc.text(L.l,x,y+L.fs*PT*0.92); y+=L.fs*PT*1.2; }
       return; }
   }
 }
@@ -839,7 +922,7 @@ function desenhaLocal(doc,it,W,H){
   const pad=Math.min(W,H)*0.06, q=Math.min(H-2*pad,W*0.42);
   qrPDF(doc,it.qr,pad,(H-q)/2,q);
   const x=pad+q+pad*1.5, k=H/50;
-  blocoTexto(doc,[{t:it.acima,size:13*k,bold:true,max:2},{t:it.grande,size:32*k,bold:true,max:2}],x,W-x-pad,H,pad);
+  blocoTexto(doc,[{t:it.acima,size:26*k,bold:true,max:1,centro:true},{t:it.grande,size:30*k,bold:true,max:1,centro:true}],x,W-x-pad,H,pad);
 }
 
 // ---------- Vendas ----------

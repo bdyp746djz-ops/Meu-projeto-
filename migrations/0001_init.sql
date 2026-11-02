@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS locais (
   nome       TEXT NOT NULL,
   pai        TEXT,                                 -- id do local pai; NULL = raiz
   capacidade INTEGER,                              -- quantas peças cabem (NULL = sem limite)
+  sigla      TEXT,                                 -- sigla curta na etiqueta (ex.: 17E, CX1); vazio = automática
+  regras     TEXT,                                 -- palavras p/ localização automática (ex.: farol, lanterna)
   criado_em  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_locais_pai ON locais(pai);
