@@ -84,6 +84,10 @@ export default {
     }
     return res;
   },
+  // a cada 2 min: confere os vídeos que o Google está gerando (mesmo com o app fechado)
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(veoAtualiza(env).catch(e => console.log('veo', e && e.message)));
+  },
 };
 
 async function api(request, env, url) {
@@ -147,10 +151,16 @@ async function api(request, env, url) {
 
   if (p === '/api/painel' && m === 'GET') return painel(env);
   // vídeos com IA (gerados no PC)
-  if (p === '/api/videos' && m === 'POST') return criaVideo(request, env);
+  if (p === '/api/videos' && m === 'POST') {
+    const b = await request.json().catch(() => ({}));
+    return b.motor === 'veo' ? veoNovo(env, b, user) : novoVideo(env, b);
+  }
   if (p === '/api/videos' && m === 'GET') return listaVideos(url, env);
   mt = p.match(/^\/api\/videos\/([\w-]+)\/repetir$/);
   if (mt && m === 'POST') return repeteVideo(mt[1], env);
+  // vídeo com IA do Google (Veo, pela API do Gemini)
+  if (p === '/api/veo' && m === 'GET') return json(veoResumo(await veoCfg(env)));
+  if (p === '/api/veo' && m === 'POST') return veoSalva(request, env, user);
   if (p === '/api/agente/status' && m === 'GET') return json(await agenteResumo(env));
   if (p === '/api/ia/comandos' && m === 'GET') return json(await comandosIA(env));
   if (p === '/api/ia/foto' && m === 'POST') return criaFotoIA(request, env);
@@ -1089,7 +1099,7 @@ async function garanteVideos(env) {
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS videos (id TEXT PRIMARY KEY, peca_id TEXT NOT NULL, status TEXT NOT NULL, prompt TEXT,
     foto_key TEXT, video_key TEXT, erro TEXT, progresso TEXT, modelo TEXT, criado_em INTEGER NOT NULL, atualizado_em INTEGER, tipo TEXT DEFAULT 'video', detalhe TEXT)`).run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_videos_peca ON videos(peca_id)').run();
-  for (const c of ["tipo TEXT DEFAULT 'video'", 'detalhe TEXT']) { try { await env.DB.prepare('ALTER TABLE videos ADD COLUMN ' + c).run(); } catch { /* já existe */ } }
+  for (const c of ["tipo TEXT DEFAULT 'video'", 'detalhe TEXT', 'motor TEXT', 'op TEXT']) { try { await env.DB.prepare('ALTER TABLE videos ADD COLUMN ' + c).run(); } catch { /* já existe */ } }
   videosOk = true;
 }
 const hexAleatorio = n => [...crypto.getRandomValues(new Uint8Array(n))].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -1136,8 +1146,8 @@ async function agenteApi(p, m, request, env, url) {
     await setCfg(env, 'agente_info', JSON.stringify({ gpu: String(info.gpu || '').slice(0, 80), vram: Number(info.vram) || null, modelo: String(info.modelo || '').slice(0, 20), versao: String(info.versao || '').slice(0, 20), aviso: String(info.aviso || '').slice(0, 240) || null }));
     if (info.pausado) return json({ job: null });   // PC com problema (ex.: Windows bloqueando a IA): não entrega pedidos
     // pedido parado há mais de 3 h (PC desligou no meio) volta pra fila
-    await env.DB.prepare("UPDATE videos SET status='fila' WHERE status='gerando' AND atualizado_em < ?").bind(now() - 3 * 3600e3).run();
-    const v = await env.DB.prepare("SELECT * FROM videos v WHERE status='fila' AND NOT (COALESCE(v.tipo,'video')='video' AND EXISTS (SELECT 1 FROM videos f WHERE f.peca_id=v.peca_id AND f.tipo='foto' AND f.status IN ('fila','gerando'))) ORDER BY criado_em LIMIT 1").first();
+    await env.DB.prepare("UPDATE videos SET status='fila' WHERE status='gerando' AND COALESCE(motor,'pc')='pc' AND atualizado_em < ?").bind(now() - 3 * 3600e3).run();
+    const v = await env.DB.prepare("SELECT * FROM videos v WHERE status='fila' AND COALESCE(v.motor,'pc')='pc' AND NOT (COALESCE(v.tipo,'video')='video' AND EXISTS (SELECT 1 FROM videos f WHERE f.peca_id=v.peca_id AND f.tipo='foto' AND f.status IN ('fila','gerando'))) ORDER BY criado_em LIMIT 1").first();
     if (!v) return json({ job: null });
     if (v.tipo !== 'foto' && !/\/ia-/.test(v.foto_key || '')) {   // a foto foi melhorada no PC depois do pedido: o vídeo usa ela
       const pc = await env.DB.prepare('SELECT fotos FROM pecas WHERE id=?').bind(v.peca_id).first();
@@ -1202,9 +1212,6 @@ async function agenteApi(p, m, request, env, url) {
     return json({ ok: true });
   }
   return bad('rota do gerador não encontrada', 404);
-}
-async function criaVideo(request, env) {
-  return novoVideo(env, await request.json().catch(() => ({})));
 }
 async function novoVideo(env, b) {
   await garanteVideos(env);
@@ -1276,8 +1283,11 @@ async function fotosOriginais(pecaId, request, env, url) {
     else {
       const jf = await (await novaFotoIA(env, { peca_id: row.id, opcoes: { ...(b.opcoes || {}), ml: !!(b.ml && row.ml_id) } })).json();
       r.foto = jf.erro ? 'erro: ' + jf.erro : (jf.n || 1) + (jf.n > 1 ? ' fotos na fila' : ' foto na fila');
-      const jv = await (await novoVideo(env, { peca_id: row.id })).json();
-      r.video = jv.erro ? (/já tem/.test(jv.erro) ? 'já tinha um na fila' : 'erro: ' + jv.erro) : 'na fila';
+      if ((await veoCfg(env)).chave) r.video = 'peça o vídeo do Google quando as fotos ficarem prontas';
+      else {
+        const jv = await (await novoVideo(env, { peca_id: row.id })).json();
+        r.video = jv.erro ? (/já tem/.test(jv.erro) ? 'já tinha um na fila' : 'erro: ' + jv.erro) : 'na fila';
+      }
     }
   }
   return json(r);
@@ -1291,14 +1301,197 @@ async function mlTrocaFotos(env, mlId, keys, origem) {
     return 'ok';
   } catch (e) { return 'erro: ' + String(e.message || e).slice(0, 200); }
 }
+// ---------- vídeo com IA do Google (Veo, o mesmo modelo de vídeo do Gemini) ----------
+// a chave é da API do Gemini (Google AI Studio, com cobrança ativa). Cada vídeo é cobrado por segundo na conta Google.
+const VEO_SEG = 8;
+const VEO_NIVEIS = {   // US$ por segundo (720p, 1080p) — aproximado; confira na página de preços do Google
+  lite: { nome: 'Lite', usd: [0.05, 0.08], padrao: ['veo-3.1-lite-generate-preview'] },
+  fast: { nome: 'Fast', usd: [0.10, 0.12], padrao: ['veo-3.1-fast-generate-preview', 'veo-3.0-fast-generate-001'] },
+  standard: { nome: 'Standard', usd: [0.40, 0.40], padrao: ['veo-3.1-generate-preview', 'veo-3.0-generate-001'] },
+};
+const geminiBase = env => (env.GEMINI_API_BASE || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
+async function veoCfg(env) {
+  const nv = await getCfg(env, 'veo_nivel');
+  let modelos = {}; try { modelos = JSON.parse((await getCfg(env, 'veo_modelos')) || '{}'); } catch { /* sem lista */ }
+  return { chave: (await getCfg(env, 'veo_chave')) || '', nivel: VEO_NIVEIS[nv] ? nv : 'fast',
+    resolucao: (await getCfg(env, 'veo_res')) === '1080p' ? '1080p' : '720p', modelos };
+}
+function veoResumo(c) {
+  const n = VEO_NIVEIS[c.nivel], usd = Math.round(n.usd[c.resolucao === '1080p' ? 1 : 0] * VEO_SEG * 100) / 100;
+  return { configurado: !!c.chave, final: c.chave ? c.chave.slice(-4) : null, nivel: c.nivel, nivelNome: n.nome, resolucao: c.resolucao,
+    segundos: VEO_SEG, usd, modelo: c.modelos[c.nivel] || n.padrao[0],
+    precos: Object.fromEntries(Object.entries(VEO_NIVEIS).map(([k, v]) => [k, v.usd.map(x => Math.round(x * VEO_SEG * 100) / 100)])) };
+}
+async function geminiReq(env, chave, metodo, caminho, corpo) {
+  const r = await fetch(geminiBase(env) + caminho, { method: metodo, headers: { 'x-goog-api-key': chave, 'content-type': 'application/json' },
+    body: corpo ? JSON.stringify(corpo) : undefined });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error((d.error && d.error.message) || ('HTTP ' + r.status)); e.status = r.status; throw e; }
+  return d;
+}
+// modelos Veo que a chave pode usar: escolhe o mais novo de cada nível
+async function veoDescobre(env, chave) {
+  const nomes = []; let pg = '';
+  for (let i = 0; i < 6; i++) {
+    const d = await geminiReq(env, chave, 'GET', '/models?pageSize=200' + (pg ? '&pageToken=' + encodeURIComponent(pg) : ''));
+    for (const m of d.models || []) if (/veo/i.test(m.name || '')) nomes.push(String(m.name).replace(/^models\//, ''));
+    pg = d.nextPageToken; if (!pg) break;
+  }
+  const ver = n => { const m = n.match(/veo-(\d+)(?:\.(\d+))?/); return m ? Number(m[1]) * 100 + Number(m[2] || 0) : 0; };
+  const melhor = f => nomes.filter(f).sort((a, b) => ver(b) - ver(a) || (/preview/.test(a) - /preview/.test(b)))[0];
+  const r = { lite: melhor(n => /lite/.test(n)), fast: melhor(n => /fast/.test(n)), standard: melhor(n => !/fast|lite/.test(n)) };
+  return { nomes, modelos: Object.fromEntries(Object.entries(r).filter(([, v]) => v)) };
+}
+async function veoSalva(request, env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  const b = await request.json().catch(() => ({}));
+  if (b.remover) { await setCfg(env, 'veo_chave', ''); return json(veoResumo(await veoCfg(env))); }
+  if (b.nivel && VEO_NIVEIS[b.nivel]) await setCfg(env, 'veo_nivel', b.nivel);
+  if (b.resolucao) await setCfg(env, 'veo_res', b.resolucao === '1080p' ? '1080p' : '720p');
+  const chave = String(b.chave || '').trim() || (b.testar ? (await veoCfg(env)).chave : '');
+  let aviso = null;
+  if (chave) {
+    let d;
+    try { d = await veoDescobre(env, chave); }
+    catch (e) { return bad('o Google não aceitou a chave: ' + e.message); }
+    if (!d.nomes.length) aviso = 'a chave foi aceita, mas o Google não listou nenhum modelo de vídeo (Veo) para ela — confira se a cobrança está ativa no Google AI Studio';
+    await setCfg(env, 'veo_chave', chave);
+    await setCfg(env, 'veo_modelos', JSON.stringify(d.modelos));
+  }
+  return json({ ...veoResumo(await veoCfg(env)), aviso });
+}
+// o seu script (Comandos da IA → vídeo) ajustado para 8 s, que é o máximo do Veo num vídeo só
+function ajustaVeo(t) {
+  return String(t).replace(/\b10[- ]second/gi, VEO_SEG + '-second').replace(/\b10 ?s(egundos)?\b/gi, VEO_SEG + ' seconds')
+    .replace(/FRAME 1 TO FRAME 300/gi, 'THE FIRST FRAME TO THE LAST FRAME').replace(/\b300 frames\b/gi, 'all frames');
+}
+async function promptVeo(p, env) {
+  const tpl = (await getCfg(env, 'ia_cmd_video')) || CMD_PADRAO.video;
+  return ajustaVeo(tpl.split('{peca}').join(descPeca(p))) + '\n\nProduct: ' + descPeca(p);
+}
+const b64bytes = s => Uint8Array.from(atob(s), ch => ch.charCodeAt(0));
+function bytesB64(u8) { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }
+async function veoNovo(env, b, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador pede vídeo do Google (é cobrado)', 403);
+  const c = await veoCfg(env);
+  if (!c.chave) return bad('cadastre a chave da API do Gemini em Anúncios ML → Vídeo com IA do Google');
+  await garanteVideos(env);
+  const row = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(b.peca_id || '').first();
+  if (!row) return bad('peça não encontrada', 404);
+  const ja = await env.DB.prepare("SELECT id FROM videos WHERE peca_id=? AND status IN ('fila','gerando') AND COALESCE(tipo,'video')='video'").bind(row.id).first();
+  if (ja) return bad('já tem um vídeo dessa peça sendo gerado', 409);
+  const m = String(b.imagem || '').match(/^(?:data:(image\/(?:jpeg|png|webp));base64,)?([A-Za-z0-9+/]+={0,2})$/);
+  if (!m || m[2].length < 2000) return bad('a imagem da peça não chegou');
+  if (m[2].length > 15e6) return bad('imagem grande demais');
+  const id = uid(), key = `videos/${row.id}/veo-entrada-${id}.jpg`;
+  await env.FOTOS.put(key, b64bytes(m[2]), { httpMetadata: { contentType: m[1] || 'image/jpeg' } });
+  await env.DB.prepare("INSERT INTO videos (id,peca_id,status,prompt,foto_key,criado_em,atualizado_em,tipo,motor) VALUES (?,?,?,?,?,?,?,'video','veo')")
+    .bind(id, row.id, 'gerando', await promptVeo(parsePeca(row), env), key, now(), now()).run();
+  const r = await veoEnvia(env, id);
+  return r.erro ? bad(r.erro) : json({ ok: true, id, modelo: r.modelo });
+}
+// manda pro Google; se ele recusar algum detalhe do pedido, ajusta e tenta de novo
+async function veoEnvia(env, id) {
+  const v = await env.DB.prepare('SELECT * FROM videos WHERE id=?').bind(id).first();
+  const falha = async msg => { await env.DB.prepare("UPDATE videos SET status='erro', erro=?, progresso=NULL, atualizado_em=? WHERE id=?").bind(msg.slice(0, 480), now(), id).run(); return { erro: msg }; };
+  if (!v) return { erro: 'pedido não encontrado' };
+  const c = await veoCfg(env);
+  if (!c.chave) return falha('cadastre a chave da API do Gemini');
+  const obj = await env.FOTOS.get(v.foto_key);
+  if (!obj) return falha('a imagem do pedido sumiu do armazenamento');
+  const img = bytesB64(new Uint8Array(await obj.arrayBuffer())), mime = (obj.httpMetadata && obj.httpMetadata.contentType) || 'image/jpeg';
+  const modelos = [...new Set([c.modelos[c.nivel], ...VEO_NIVEIS[c.nivel].padrao, ...VEO_NIVEIS.fast.padrao].filter(Boolean))];
+  const pec = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(v.peca_id).first();
+  const curto = ajustaVeo(RESUMO_VIDEO) + '\n\nProduct: ' + (pec ? descPeca(parsePeca(pec)) : '');
+  const st = { mi: 0, prompt: v.prompt || curto, img: 'bytes', res: c.resolucao, dur: 'num', neg: true };
+  let ultimo = '';
+  for (let tent = 0; tent < 10 && st.mi < modelos.length; tent++) {
+    const inst = { prompt: st.prompt, image: st.img === 'bytes' ? { bytesBase64Encoded: img, mimeType: mime } : { inlineData: { mimeType: mime, data: img } } };
+    const par = { aspectRatio: '9:16' };
+    if (st.dur) par.durationSeconds = st.dur === 'num' ? VEO_SEG : String(VEO_SEG);
+    if (st.res) par.resolution = st.res;
+    if (st.neg) par.negativePrompt = NEG_VIDEO;
+    try {
+      const d = await geminiReq(env, c.chave, 'POST', '/models/' + modelos[st.mi] + ':predictLongRunning', { instances: [inst], parameters: par });
+      if (!d.name) throw new Error('o Google não devolveu o número do pedido');
+      const det = `Google ${modelos[st.mi]} · ${VEO_SEG} s · ${st.res || 'padrão'} · ≈ US$ ${veoResumo({ ...c, resolucao: st.res || '720p' }).usd.toFixed(2).replace('.', ',')}`;
+      await env.DB.prepare("UPDATE videos SET op=?, modelo=?, detalhe=?, progresso=?, atualizado_em=? WHERE id=?")
+        .bind(d.name, modelos[st.mi], det, 'o Google está gerando o vídeo (leva de 1 a 4 min)', now(), id).run();
+      return { ok: true, modelo: modelos[st.mi] };
+    } catch (e) {
+      const t = String(e.message || ''); ultimo = t;
+      // primeiro os ajustes do pedido (o Google diz qual campo não aceitou); só depois troca de modelo
+      if (/resolution/i.test(t) && st.res) { st.res = st.res === '1080p' ? '720p' : null; continue; }
+      if (/durationSeconds|duration/i.test(t) && st.dur) { st.dur = st.dur === 'num' ? 'str' : null; continue; }
+      if (/negativePrompt|negative/i.test(t) && st.neg) { st.neg = false; continue; }
+      if (/bytesBase64Encoded|inlineData|Unknown name "image"/i.test(t) && st.img === 'bytes') { st.img = 'inline'; continue; }
+      if (/prompt/i.test(t) && /long|length|token|limit|exceed/i.test(t) && st.prompt !== curto) { st.prompt = curto; continue; }
+      if (e.status === 404 || /not found|not supported for predictLongRunning|model.{0,40}(not (found|supported|available)|unavailable|does not exist)/i.test(t)) { st.mi++; continue; }
+      break;
+    }
+  }
+  let msg = 'o Google recusou o pedido: ' + (ultimo || 'nenhum modelo de vídeo disponível para a chave');
+  if (/billing|quota|exhausted|429|permission|PERMISSION_DENIED|paid/i.test(ultimo)) msg += ' — confira se a cobrança está ativa no Google AI Studio';
+  return falha(msg);
+}
+// confere os pedidos no Google; quando fica pronto, baixa o vídeo pro armazenamento do sistema
+async function veoAtualiza(env, pecaId) {
+  await garanteVideos(env);
+  const c = await veoCfg(env);
+  if (!c.chave) return;
+  const r = await env.DB.prepare("SELECT * FROM videos WHERE motor='veo' AND status='gerando' AND op IS NOT NULL AND atualizado_em < ?" + (pecaId ? ' AND peca_id=?' : '') + ' ORDER BY criado_em LIMIT 4')
+    .bind(...(pecaId ? [now() - 8000, pecaId] : [now() - 8000])).all();
+  for (const v of r.results) {
+    // "pega" o pedido (evita dois avisos baixarem o mesmo vídeo ao mesmo tempo)
+    const pega = await env.DB.prepare("UPDATE videos SET atualizado_em=? WHERE id=? AND status='gerando' AND atualizado_em=?").bind(now(), v.id, v.atualizado_em).run();
+    if (!pega.meta || pega.meta.changes !== 1) continue;
+    const erro = msg => env.DB.prepare("UPDATE videos SET status='erro', erro=?, progresso=NULL, atualizado_em=? WHERE id=?").bind(msg.slice(0, 480), now(), v.id).run();
+    try {
+      const d = await geminiReq(env, c.chave, 'GET', '/' + String(v.op).replace(/^\/+/, ''));
+      if (!d.done) {
+        const min = Math.floor((now() - v.criado_em) / 60e3);
+        if (min >= 25) { await erro('o Google não terminou o vídeo em 25 minutos — toque em Tentar de novo'); continue; }
+        await env.DB.prepare('UPDATE videos SET progresso=? WHERE id=?').bind('o Google está gerando o vídeo' + (min ? ` (${min} min)` : ''), v.id).run();
+        continue;
+      }
+      if (d.error) { await erro('o Google não conseguiu gerar: ' + (d.error.message || 'erro')); continue; }
+      const resp = d.response || {}, gv = resp.generateVideoResponse || resp;
+      const amostras = gv.generatedSamples || gv.generatedVideos || gv.videos || [];
+      const vid = amostras[0] && (amostras[0].video || amostras[0]);
+      if (!vid || (!vid.uri && !vid.bytesBase64Encoded)) {
+        const motivo = (gv.raiMediaFilteredReasons || []).join(' ') || 'o Google não devolveu o vídeo';
+        await erro('o Google bloqueou o vídeo: ' + motivo); continue;
+      }
+      let bytes;
+      if (vid.bytesBase64Encoded) bytes = b64bytes(vid.bytesBase64Encoded);
+      else {
+        const rv = await fetch(vid.uri, { headers: { 'x-goog-api-key': c.chave } });
+        if (!rv.ok) throw new Error('não consegui baixar o vídeo do Google (HTTP ' + rv.status + ')');
+        bytes = new Uint8Array(await rv.arrayBuffer());
+      }
+      const key = `videos/${v.peca_id}/veo-${v.id}.mp4`;
+      await env.FOTOS.put(key, bytes, { httpMetadata: { contentType: 'video/mp4' } });
+      await env.DB.prepare("UPDATE videos SET status='pronto', video_key=?, erro=NULL, progresso=NULL, atualizado_em=? WHERE id=?").bind(key, now(), v.id).run();
+    } catch (e) {
+      if (now() - v.criado_em > 25 * 60e3) await erro(String(e.message || e));   // erro passageiro: tenta de novo no próximo aviso
+    }
+  }
+}
 async function listaVideos(url, env) {
   await garanteVideos(env);
-  const r = await env.DB.prepare("SELECT id,status,video_key,erro,progresso,modelo,criado_em,atualizado_em,COALESCE(tipo,'video') tipo,detalhe FROM videos WHERE peca_id=? ORDER BY criado_em DESC LIMIT 40").bind(url.searchParams.get('peca') || '').all();
+  await veoAtualiza(env, url.searchParams.get('peca') || '').catch(() => {});
+  const r = await env.DB.prepare("SELECT id,status,video_key,erro,progresso,modelo,criado_em,atualizado_em,COALESCE(tipo,'video') tipo,detalhe,motor FROM videos WHERE peca_id=? ORDER BY criado_em DESC LIMIT 40").bind(url.searchParams.get('peca') || '').all();
   const fila = (await env.DB.prepare("SELECT COUNT(*) n FROM videos WHERE status='fila'").first()).n;
-  return json({ videos: r.results, fila, agente: await agenteResumo(env) });
+  return json({ videos: r.results, fila, agente: await agenteResumo(env), veo: veoResumo(await veoCfg(env)) });
 }
 async function repeteVideo(id, env) {
   await garanteVideos(env);
+  const rv = await env.DB.prepare('SELECT motor FROM videos WHERE id=?').bind(id).first();
+  if (rv && rv.motor === 'veo') {
+    await env.DB.prepare("UPDATE videos SET status='gerando', erro=NULL, op=NULL, progresso=NULL, atualizado_em=? WHERE id=? AND status IN ('erro','gerando')").bind(now(), id).run();
+    const r = await veoEnvia(env, id);
+    return r.erro ? bad(r.erro) : json({ ok: true });
+  }
   await env.DB.prepare("UPDATE videos SET status='fila', erro=NULL, progresso=NULL, atualizado_em=? WHERE id=? AND status IN ('erro','gerando')").bind(now(), id).run();
   return json({ ok: true });
 }

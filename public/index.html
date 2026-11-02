@@ -893,7 +893,7 @@ async function caixaVideo(p){
   if(!$('#vidinfo'))return;
   const fj=d.videos.filter(x=>x.tipo==='foto'), fpends=fj.filter(x=>x.status==='fila'||x.status==='gerando'), fpend=fpends.find(x=>x.status==='gerando')||fpends[0], fok=fj.find(x=>x.status==='pronto'), ferr=fj[0]&&fj[0].status==='erro'?fj[0]:null;
   d.videos=d.videos.filter(x=>x.tipo!=='foto');
-  const v=d.videos[0], ag=d.agente||{}, pc=ag.configurado?(ag.online?`🟢 PC conectado${ag.gpu?' ('+esc(ag.gpu)+')':''}`:`🔴 PC desligado ou gerador fechado (visto ${quandoFoi(ag.visto)})`):'⚪ Gerador ainda não instalado no PC';
+  const veo=d.veo||{}, v=d.videos[0], ag=d.agente||{}, pc=ag.configurado?(ag.online?`🟢 PC conectado${ag.gpu?' ('+esc(ag.gpu)+')':''}`:`🔴 PC desligado ou gerador fechado (visto ${quandoFoi(ag.visto)})`):'⚪ Gerador ainda não instalado no PC';
   let h=`<div style="margin-bottom:6px">${pc}</div>`;
   const fts=p.fotos||[], nEdit=fts.filter(k=>/\/ia-/.test(k)).length, jaEd=new Set(fts.map(origemEd).filter(Boolean));
   const semEd=fts.filter(k=>!/\/(ia|arte)-/.test(k)&&!jaEd.has(k)).length;
@@ -902,15 +902,26 @@ async function caixaVideo(p){
   else if(ferr)h+=`<div style="margin-bottom:8px;color:var(--red)">📷 A melhoria da foto deu erro: ${esc(ferr.erro||'')} <button class="btn sm" data-vr="${ferr.id}">Tentar de novo</button></div>`;
   else if(fok&&Date.now()-fok.atualizado_em<3*864e5)h+=`<div style="margin-bottom:8px">✅ <b>Foto melhorada no PC</b>${fok.detalhe?' — '+esc(fok.detalhe):''}</div>`;
   const pronto=d.videos.find(x=>x.status==='pronto');
-  if(v&&(v.status==='fila'||v.status==='gerando')) h+=`<div><span class="spin-s"></span><b>${ST_VID[v.status]}</b>${v.status==='fila'&&fpend?' — começa quando a foto ficar pronta':''}${v.progresso?' — '+esc(v.progresso):''}${v.status==='fila'&&d.fila>1?' · '+d.fila+' na fila':''}</div>${!ag.online?'<div class="small" style="color:var(--amber);margin-top:4px">Ligue o PC e abra o "Gerador de video Rafa" na Área de Trabalho.</div>':''}`;
+  if(v&&(v.status==='fila'||v.status==='gerando')) h+=`<div><span class="spin-s"></span><b>${v.motor==='veo'?'🎬 Vídeo com IA do Google':ST_VID[v.status]}</b>${v.status==='fila'&&fpend?' — começa quando a foto ficar pronta':''}${v.progresso?' — '+esc(v.progresso):''}${v.status==='fila'&&d.fila>1?' · '+d.fila+' na fila':''}</div>${!ag.online&&v.motor!=='veo'?'<div class="small" style="color:var(--amber);margin-top:4px">Ligue o PC e abra o "Gerador de video Rafa" na Área de Trabalho.</div>':''}`;
   else if(v&&v.status==='erro') h+=`<div style="color:var(--red)">⚠️ ${esc(v.erro||'erro')}</div><div class="mlact"><button class="btn sm" data-vr="${v.id}">Tentar de novo</button></div>`;
+  if(pronto&&pronto.detalhe&&pronto.motor==='veo') h+=`<div class="small mut" style="margin-top:6px">${esc(pronto.detalhe)}</div>`;
   if(pronto) h+=`<video controls playsinline preload="metadata" src="/api/video/${esc(pronto.video_key)}#t=0.1" style="width:100%;max-height:420px;background:#000;border-radius:6px;margin-top:8px"></video>
     <div class="mlact"><a class="btn sm" href="/api/video/${esc(pronto.video_key)}" download="video-${cod(p.codigo).replace('#','')}.mp4"><span class="material-icons" style="font-size:16px;vertical-align:-3px">download</span> Baixar (pra postar como Clip no app do ML)</a></div>`;
-  if(!v||v.status==='pronto'||v.status==='erro') h+=`<div class="mlact"><button class="btn sm p" id="vgera" ${ag.configurado&&(p.fotos||[]).length?'':'disabled'}>🎬 ${pronto?'Gerar outro vídeo':'Gerar vídeo com IA'}</button></div>
+  if((!v||v.status==='pronto'||v.status==='erro')&&veo.configurado) h+=`<div class="mlact"><button class="btn sm p" id="vveo" ${(p.fotos||[]).length&&!fpend&&S.user&&S.user.papel==='admin'?'':'disabled'}>🎬 ${pronto?'Gerar outro vídeo':'Gerar vídeo'} com IA do Google · ≈ US$ ${veo.usd.toFixed(2).replace('.',',')}</button></div>
+    <div class="small mut" style="margin-top:4px">${fpend?'⏳ Espere as fotos ficarem prontas: o vídeo usa a foto editada. ':''}Vídeo vertical de ${veo.segundos} s feito pelo Veo (o mesmo do Gemini) com a sua foto editada e o seu script (Comandos da IA → vídeo). Cobrado na sua conta Google.</div>`;
+  else if(!v||v.status==='pronto'||v.status==='erro') h+=`<div class="mlact"><button class="btn sm p" id="vgera" ${ag.configurado&&(p.fotos||[]).length?'':'disabled'}>🎬 ${pronto?'Gerar outro vídeo':'Gerar vídeo com IA'}</button></div>
     ${!ag.configurado?'<div class="small mut" style="margin-top:4px">Instale o gerador no PC em <b>Anúncios ML → Gerador de vídeo</b>.</div>':''}
     <div class="small mut" style="margin-top:4px">${ag.modelo==='cinema'?'Vídeo de 10 s feito com a foto real da peça (câmera se aproximando e luz de estúdio): a peça não muda.':'Usa a 1ª foto (a de fundo branco). Confira o vídeo antes de usar: a IA pode mudar detalhes da peça.'}</div>`;
   el.innerHTML=h;
   if($('#vgera'))$('#vgera').onclick=async()=>{ try{ await api('/videos',{method:'POST',body:{peca_id:p.id}}); toast('Pedido enviado pro PC'); caixaVideo(p); }catch(e){ toast(e.message); } };
+  if($('#vveo'))$('#vveo').onclick=async()=>{
+    const fts2=p.fotos||[], ed=fts2.find(k=>/\/ia-/.test(k)), foto=ed||fts2.find(k=>!/\/arte-/.test(k));
+    if(!foto)return toast('A peça precisa de foto');
+    if(!confirm(`Gerar o vídeo com a IA do Google (Veo ${veo.nivelNome}, ${veo.segundos} s, ${veo.resolucao})?\n\nCusta cerca de US$ ${veo.usd.toFixed(2).replace('.',',')}, cobrado na sua conta Google.${ed?'':'\n\n⚠️ A foto ainda não foi editada (fundo branco). O vídeo fica melhor se você editar as fotos antes.'}`))return;
+    const b=$('#vveo'); b.disabled=true; b.textContent='Preparando a foto…';
+    try{ const imagem=await imagem916('/api/foto/'+foto, veo.resolucao==='1080p'?1920:1280);
+      await api('/videos',{method:'POST',body:{peca_id:p.id,motor:'veo',imagem}}); toast('🎬 Pedido enviado pro Google — leva de 1 a 4 min'); caixaVideo(p);
+    }catch(e){ toast(e.message); caixaVideo(p); } };
   if($('#vtodas'))$('#vtodas').onclick=async()=>{ try{ const c=await cmdIA();
       const r=await api('/ia/foto',{method:'POST',body:{peca_id:p.id,opcoes:{...leComandoFoto(c.foto).op,ml:!!p.ml_id}}});
       toast(r.ja?'Essas fotos já estão na fila do PC':`🖥️ ${r.n>1?r.n+' fotos enviadas':'Foto enviada'} pro PC${p.ml_id?' — o anúncio recebe quando todas ficarem prontas':''}`); caixaVideo(p); }catch(e){ toast(e.message); } };
@@ -925,6 +936,28 @@ async function caixaVideo(p){
     }catch(e){ toast(e.message); } };
   el.querySelectorAll('[data-vr]').forEach(b=>b.onclick=async()=>{ await api('/videos/'+b.dataset.vr+'/repetir',{method:'POST'}); caixaVideo(p); });
   if((v&&(v.status==='fila'||v.status==='gerando'))||fpend)window._vidT=setTimeout(async()=>{ if(fpend){ try{ const {peca}=await api('/pecas/'+p.id); if(peca&&JSON.stringify(peca.fotos)!==JSON.stringify(p.fotos)){ Object.assign(p,peca); const i=S.pecas.findIndex(x=>x.id===p.id); if(i>=0)S.pecas[i]=p; if($('#vidbox'))return abrePeca(p.id); } }catch(_){ } } caixaVideo(p); },8000);
+}
+// vídeo com IA do Google (Veo) — chave da API do Gemini
+async function cartaoVeo(){
+  const el=$('#veocard'); if(!el)return; let c={}; try{ c=await api('/veo'); }catch(_){ }
+  if(!$('#veocard'))return; const admin=S.user&&S.user.papel==='admin', br=n=>'US$ '+Number(n||0).toFixed(2).replace('.',',');
+  el.innerHTML=`<div class="card" style="max-width:960px;margin:0 auto 12px"><div class="top" style="margin:0"><b>🎬 Vídeo com IA do Google (Veo — o mesmo do Gemini)</b>
+    <span class="small">${c.configurado?'🟢 chave salva ···'+esc(c.final||''):'⚪ sem chave'}</span></div>
+    <div class="small mut" style="margin:6px 0">Gera o vídeo vertical de ${c.segundos||8} s com a foto editada da peça e o seu script (✍️ Comandos da IA → vídeo). Cada vídeo é cobrado na sua conta Google, por segundo. A assinatura do app Gemini <b>não</b> vale para isso: precisa de uma chave da API.</div>
+    ${admin?`<details ${c.configurado?'':'open'} style="margin-top:6px"><summary class="small"><b>${c.configurado?'Trocar chave / qualidade':'Como configurar'}</b></summary>
+      <ol class="small" style="margin:6px 0 8px 18px;padding:0"><li>No computador, entre em <b>aistudio.google.com</b> com sua conta Google.</li><li>Clique em <b>Get API key</b> → <b>Create API key</b> e copie a chave.</li><li>No mesmo lugar, ative a <b>cobrança (Billing)</b> do projeto — sem isso o Google não gera vídeo.</li><li>Cole a chave abaixo e salve.</li></ol>
+      <div class="form"><label class="f">Chave da API do Gemini<input id="veok" type="password" autocomplete="off" placeholder="${c.configurado?'deixe vazio para manter a atual':'cole a chave aqui'}"></label>
+      <label class="f">Qualidade<select id="veon">${['lite','fast','standard'].map(k=>`<option value="${k}" ${c.nivel===k?'selected':''}>${{lite:'Lite (mais barato)',fast:'Fast (recomendado)',standard:'Standard (melhor)'}[k]} — ${br((c.precos||{})[k]?c.precos[k][c.resolucao==='1080p'?1:0]:0)} por vídeo</option>`).join('')}</select></label>
+      <label class="f">Resolução<select id="veor"><option value="720p" ${c.resolucao!=='1080p'?'selected':''}>720p</option><option value="1080p" ${c.resolucao==='1080p'?'selected':''}>1080p</option></select></label></div>
+      <div class="mlact"><button class="btn sm p" id="veos">Salvar</button>${c.configurado?'<button class="btn sm" id="veot">Testar chave</button><button class="btn sm" id="veox" style="color:var(--red)">Remover chave</button>':''}</div>
+      <div class="small mut" id="veomsg">${c.configurado?'Modelo em uso: '+esc(c.modelo||'')+' · '+br(c.usd)+' por vídeo (aprox.)':''}</div></details>`:'<div class="small mut">Só o administrador configura.</div>'}</div>`;
+  if(!admin)return;
+  const salva=async corpo=>{ const m=$('#veomsg'); if(m)m.textContent='Conferindo com o Google…';
+    try{ const r=await api('/veo',{method:'POST',body:corpo}); toast(r.aviso?'⚠️ '+r.aviso:'✅ Salvo'); await cartaoVeo(); if(r.aviso&&$('#veomsg'))$('#veomsg').textContent='⚠️ '+r.aviso; }
+    catch(e){ if($('#veomsg'))$('#veomsg').textContent='⚠️ '+e.message; toast(e.message); } };
+  $('#veos').onclick=()=>salva({chave:$('#veok').value.trim()||undefined,nivel:$('#veon').value,resolucao:$('#veor').value});
+  if($('#veot'))$('#veot').onclick=()=>salva({testar:true});
+  if($('#veox'))$('#veox').onclick=()=>{ if(confirm('Remover a chave do Google? O botão de vídeo com IA do Google some até você salvar outra.'))salva({remover:true}); };
 }
 // painel do gerador de vídeo (Anúncios ML)
 async function cartaoGerador(){
@@ -1147,6 +1180,9 @@ function carregaORT(){ return ortProm||(ortProm=new Promise((ok,er)=>{ if(window
   s.onload=()=>ok(window.ort); s.onerror=()=>{ ortProm=null; er(new Error('não consegui carregar a IA de recorte')); }; document.head.appendChild(s); })); }
 function sessaoFundo(){ if(!sesProm){ sesProm=(async()=>{ const ort=await carregaORT(); ort.env.wasm.wasmPaths='/ia/'; ort.env.wasm.numThreads=1;
   return ort.InferenceSession.create('/ia/u2netp.onnx',{executionProviders:['wasm'],graphOptimizationLevel:'all'}); })(); sesProm.catch(()=>{ sesProm=null; }); } return sesProm; }
+async function imagem916(src,alto){ const im=await carregaImg(src), H=alto||1280, W=Math.round(H*9/16), c=document.createElement('canvas'); c.width=W; c.height=H;
+  const x=c.getContext('2d'); x.fillStyle='#fff'; x.fillRect(0,0,W,H); const s=Math.min(W*0.94/im.naturalWidth,H*0.62/im.naturalHeight), w=im.naturalWidth*s, h=im.naturalHeight*s;
+  x.imageSmoothingQuality='high'; x.drawImage(im,(W-w)/2,(H-h)/2,w,h); return c.toDataURL('image/jpeg',0.92); }
 async function carregaImg(src){ const im=new Image(); im.crossOrigin='anonymous'; im.src=src; await im.decode(); return im; }
 // máscara 320x320 (U²-Net): quanto cada ponto é "peça" (0..255 no alfa)
 async function mascaraPeca(img){
@@ -1477,6 +1513,7 @@ async function integracoes(){
      </div></div>
    ${flash}${ml.conectado?'':cartaoML(ml,admin)}
    <div class="dp-mini" id="mresumo"></div>
+   <div id="veocard" style="padding:0 12px"></div>
    <div id="vidcard" style="padding:0 12px"></div>
    <div class="dp-lista" id="mlista"></div>`;
   $('#mmos').value=ui.mlMos;
@@ -1503,7 +1540,7 @@ async function integracoes(){
   $('#mq').oninput=e=>{ ui.mlQ=e.target.value; desenha(); };
   $('#mmos').onchange=e=>{ ui.mlMos=e.target.value; desenha(); };
   $('#mcfg').onclick=()=>{ modal(cartaoML(ml,admin)); ligaML(ml,integracoes); };
-  cartaoGerador();
+  cartaoVeo(); cartaoGerador();
   ligaML(ml,integracoes);
   desenha();
 }

@@ -21,3 +21,7 @@ not_found_handling = "single-page-application"
 
 # O SESSION_SECRET NÃO vai aqui. Defina como secret:
 #   wrangler secret put SESSION_SECRET
+
+# a cada 2 min confere os vídeos que o Google (Veo) está gerando
+[triggers]
+crons = ["*/2 * * * *"]
