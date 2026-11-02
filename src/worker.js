@@ -450,7 +450,7 @@ async function listaPecas(url, env) {
   else if (status === 'semlocal') cond.push('(local_id IS NULL OR local_id NOT IN (SELECT id FROM locais))');
   else if (status === 'parado') { cond.push('qtd>0 AND criado_em < ?'); binds.push(now() - 90 * 864e5); }
   const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
-  const r = await env.DB.prepare(`SELECT * FROM pecas ${where} ORDER BY criado_em DESC LIMIT 500`).bind(...binds).all();
+  const r = await env.DB.prepare(`SELECT * FROM pecas ${where} ORDER BY criado_em DESC LIMIT ${url.searchParams.get('todas') ? 20000 : 500}`).bind(...binds).all();
   return json({ pecas: r.results.map(parsePeca) });
 }
 async function getPeca(id, env) {

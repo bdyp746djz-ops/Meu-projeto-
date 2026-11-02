@@ -38,6 +38,12 @@ textarea:focus{outline:0;border-color:var(--pri);box-shadow:0 0 0 1px var(--pri)
 .tb-search{flex:1;max-width:710px;padding:0 16px 0 84px}
 .tb-search input{background:#fff;border:0;border-radius:2px;padding:11px 16px;color:var(--ink)}
 .tb-search input:focus{box-shadow:0 0 0 2px rgba(255,255,255,.55)}
+.tb-btn{margin-left:auto;margin-right:14px;background:none;border:0;color:#fff;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;cursor:pointer;flex-shrink:0}
+.tb-btn:hover{background:rgba(255,255,255,.14)}
+.tb-btn .material-icons{font-size:26px}
+.scanbox{position:relative;background:#000;border-radius:var(--rad);overflow:hidden;height:min(78vw,380px);margin:10px 0}
+.scanbox video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.scanmira{position:absolute;left:50%;top:50%;width:62%;height:62%;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.95);border-radius:12px;box-shadow:0 0 0 999px rgba(0,0,0,.35)}
 /* shell */
 .app{display:flex;min-height:calc(100vh - var(--tb))}
 nav.side{width:235px;background:#fff;border-right:1px solid var(--line);padding:12px 0;flex-shrink:0;position:sticky;top:var(--tb);align-self:flex-start;height:calc(100vh - var(--tb));overflow-y:auto}
@@ -57,7 +63,8 @@ nav.bottom{display:none}
  :root{--tb:56px}
  .tb-brand{width:auto;padding:0 12px 0 14px}
  .tb-brand b{font-size:16px}.tb-brand small{font-size:8px}
- .tb-search{padding:0 12px 0 0}
+ .tb-search{padding:0 4px 0 0}
+ .tb-btn{margin-right:6px}
  .tb-search input{padding:9px 12px}
  nav.side{display:none}main{padding:14px 12px 96px}
  nav.bottom{display:flex;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--line);z-index:20;box-shadow:0 -2px 6px rgba(0,0,0,.08);padding-bottom:env(safe-area-inset-bottom)}
@@ -161,7 +168,7 @@ async function api(path, opts={}){
 
 const S = { user:null, view:'painel', pecas:[], locais:{}, ui:{ q:'', loc:'', status:'todos', periodo:'mes', editId:null, fotos:[], etqTipo:'pecas', etqW:100, etqH:50, etqSel:new Set(), open:new Set(), selMode:false, sel:new Set() } };
 // [view, ícone Material, nome no menu, nome curto (celular)]
-const VIEWS = [['painel','home','Início','Início'],['etiquetas','label','Etiquetas','Etiquetas'],['nova','view_list','Cadastro de Peças','Cadastrar'],['estoque','search','Consulta de Peças','Consulta'],['locais','place','Localização','Locais'],['mover','swap_horiz','Movimentar','Mover'],['vendas','shopping_cart','Vendas','Vendas'],['integracoes','store','Anúncios ML','ML']];
+const VIEWS = [['painel','home','Início','Início'],['etiquetas','label','Etiquetas','Etiquetas'],['download','file_download','Download Estoque','Download'],['nova','view_list','Cadastro de Peças','Cadastrar'],['estoque','search','Consulta de Peças','Consulta'],['locais','place','Localização','Locais'],['mover','swap_horiz','Movimentar','Mover'],['vendas','shopping_cart','Vendas','Vendas'],['integracoes','store','Anúncios ML','ML']];
 
 // ---------- boot / auth ----------
 async function boot(){
@@ -203,6 +210,7 @@ function shell(){
   $('#root').innerHTML = `<header class="topbar">
       <div class="tb-brand" id="tbhome"><b>RAFA</b><small>busca peças</small></div>
       <div class="tb-search"><input id="gbusca" type="search" placeholder="Busca..." autocomplete="off"></div>
+      <button class="tb-btn" id="scanbtn" title="Escanear etiqueta (QR)"><span class="material-icons">qr_code_scanner</span></button>
     </header>
     <div class="app">
       <nav class="side"><div id="nav"></div>
@@ -212,14 +220,15 @@ function shell(){
     <nav class="bottom" id="navb"></nav>`;
   $('#sair').onclick=async()=>{ await api('/logout',{method:'POST'}); location.reload(); };
   $('#tbhome').onclick=()=>go('painel');
+  $('#scanbtn').onclick=escanear;
   $('#gbusca').onkeydown=e=>{ if(e.key==='Enter'){ S.ui.q=e.target.value.trim(); S.ui.status='todos'; S.ui.loc=''; e.target.blur(); go('estoque'); } };
   renderNav(); go(location.hash.indexOf('integracoes')>=0 ? 'integracoes' : S.view);
 }
 function renderNav(){
   const link=curto=>([k,i,l,c])=>`<a data-v="${k}" class="${k===S.view?'on':''}"><span class="i material-icons">${i}</span>${curto?c:l}</a>`;
   $('#nav').innerHTML=VIEWS.map(link(false)).join('');
-  $('#navb').innerHTML=VIEWS.filter(v=>v[0]!=='nova').map(link(true)).join('');
-  document.querySelectorAll('[data-v]').forEach(a=>a.onclick=()=>go(a.dataset.v));
+  $('#navb').innerHTML=VIEWS.filter(v=>v[0]!=='nova'&&v[0]!=='download').map(link(true)).join('');
+  document.querySelectorAll('[data-v]').forEach(a=>a.onclick=()=>a.dataset.v==='download'?baixarEstoque():go(a.dataset.v));
 }
 async function go(v){ S.view=v; if(v!=='nova'){ S.ui.editId=null; S.ui.fotos=[]; } renderNav(); window.scrollTo(0,0);
   const f={painel,estoque,nova,locais,mover,etiquetas,vendas,integracoes}[v]; $('#main').innerHTML='<p class="mut">carregando…</p>'; try{ await f(); }catch(e){ $('#main').innerHTML='<div class="empty">Erro: '+esc(e.message)+'</div>'; } }
@@ -259,6 +268,7 @@ async function estoque(){
   await carregaLocais();
   const chips=[['todos','Todas'],['disp','Disponíveis'],['zerado','Esgotadas'],['semanuncio','Sem anúncio'],['semlocal','Sem local'],['parado','+90 dias']];
   $('#main').innerHTML=`<div class="top"><h2>Consulta de Peças</h2>
+    <button class="btn sm" id="dlbtn" title="Baixar planilha do estoque">⬇️ Download</button>
     <button class="btn sm" id="selbtn">${S.ui.selMode?'✖ Cancelar':'☑️ Selecionar'}</button>
     <a class="btn p" data-v="nova">+ Nova peça</a></div>
     <div class="q" style="margin-bottom:10px"><div class="withmic"><input id="gq" placeholder="Buscar nome, código, part number ou veículo…" value="${esc(S.ui.q)}"><button type="button" class="mic" title="Ditar por voz">🎤</button></div></div>
@@ -267,6 +277,7 @@ async function estoque(){
       ${chips.map(([k,l])=>`<button class="chip ${S.ui.status===k?'on':''}" data-c="${k}">${l}</button>`).join('')}
     </div><div id="lista"><p class="mut">carregando…</p></div>`;
   $('[data-v="nova"]').onclick=()=>go('nova');
+  $('#dlbtn').onclick=baixarEstoque;
   $('#selbtn').onclick=()=>{ S.ui.selMode=!S.ui.selMode; S.ui.sel=new Set(); const b=document.getElementById('bulkbar'); if(b)b.remove(); estoque(); };
   $('#gq').oninput=e=>{ S.ui.q=e.target.value.trim(); clearTimeout(window._t); window._t=setTimeout(listaEstoque,250); };
   $('#floc').onchange=e=>{ S.ui.loc=e.target.value; listaEstoque(); };
@@ -746,6 +757,60 @@ function renderConfRes(){ const el=$('#cres'); if(!el)return; const esp=MV.confE
 }
 
 // ---------- modal ----------
+// ---------- Download do estoque (planilha CSV que abre no Excel) ----------
+async function baixarEstoque(){
+  try{
+    toast('Gerando planilha…');
+    await carregaLocais();
+    const { pecas }=await api('/pecas?todas=1');
+    const cols=[['Código',p=>cod(p.codigo)],['Peça',p=>p.nome],['Marca',p=>p.marca],['Modelo',p=>p.modelo],['Ano',p=>p.ano],['Part number',p=>p.pn],['Condição',p=>p.cond],['Sucata de origem',p=>p.veiculo],['Preço',p=>String(Number(p.preco)||0).replace('.',',')],['Quantidade',p=>p.qtd],['Localização',p=>p.local_id&&S.locais[p.local_id]?locPath(p.local_id):''],['Mercado Livre',p=>p.ml?'Sim':'Não'],['Link ML',p=>p.ml_link],['Observações',p=>p.obs]];
+    const cel=v=>{ v=v==null?'':String(v); if(/^[=+\-@]/.test(v)&&isNaN(Number(v.replace(',','.'))))v="'"+v; return /[";\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+    const linhas=[cols.map(c=>c[0]).join(';'),...pecas.map(p=>cols.map(([,f])=>cel(f(p))).join(';'))];
+    const blob=new Blob(['﻿'+linhas.join('\r\n')],{type:'text/csv;charset=utf-8'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='estoque-rafa-busca-pecas-'+new Date().toISOString().slice(0,10)+'.csv';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+    toast(pecas.length+' peça(s) na planilha');
+  }catch(e){ toast('Erro: '+e.message); }
+}
+
+// ---------- Leitor de QR pela câmera ----------
+let jsqrPromessa=null;
+function carregaJsQR(){ if(window.jsQR)return Promise.resolve();
+  if(!jsqrPromessa)jsqrPromessa=new Promise((ok,err)=>{ const sc=document.createElement('script'); sc.src='/jsQR.js'; sc.onload=ok; sc.onerror=()=>{ jsqrPromessa=null; err(new Error('não carregou o leitor')); }; document.head.appendChild(sc); });
+  return jsqrPromessa; }
+async function escanear(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) return toast('Este navegador não libera a câmera');
+  modal(`<h3>Escanear etiqueta</h3><p class="small mut">Aponte a câmera para o QR da peça ou da caixa.</p>
+    <div class="scanbox"><video id="scv" playsinline muted autoplay></video><div class="scanmira"></div></div>
+    <p class="small mut" id="scmsg">Abrindo a câmera…</p>`);
+  let stream;
+  try{ await carregaJsQR(); stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false}); }
+  catch(e){ const m=$('#scmsg'); if(m)m.textContent='Não consegui abrir a câmera: '+(e.name==='NotAllowedError'?'permissão negada — libere a câmera para este site nas configurações do navegador':e.message); return; }
+  const v=$('#scv'); if(!v){ stream.getTracks().forEach(t=>t.stop()); return; }
+  v.srcObject=stream; await v.play().catch(()=>{});
+  $('#scmsg').textContent='Procurando QR…';
+  const cv=document.createElement('canvas'), cx=cv.getContext('2d',{willReadFrequently:true});
+  const para=()=>stream.getTracks().forEach(t=>t.stop());
+  const loop=()=>{
+    if(!document.body.contains(v)){ para(); return; }
+    if(v.readyState>=2&&v.videoWidth){
+      const w=Math.min(640,v.videoWidth), h=Math.round(v.videoHeight*w/v.videoWidth); cv.width=w; cv.height=h; cx.drawImage(v,0,0,w,h);
+      const r=jsQR(cx.getImageData(0,0,w,h).data,w,h,{inversionAttempts:'dontInvert'});
+      if(r&&r.data){ para(); if(navigator.vibrate)navigator.vibrate(80); fecha(); tratarCodigo(r.data.trim()); return; }
+    }
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+}
+// P:000123 = peça · L:<id> = localização · outro texto = busca
+async function tratarCodigo(t){
+  let m=t.match(/^P:?0*(\d+)$/i);
+  if(m){ try{ const { peca }=await api('/peca-codigo/'+parseInt(m[1],10)); await carregaLocais(); if(!S.pecas.find(x=>x.id===peca.id))S.pecas.push(peca); abrePeca(peca.id); }catch(e){ toast('Peça '+t+' não encontrada'); } return; }
+  m=t.match(/^L:(.+)$/i);
+  if(m){ await carregaLocais(); if(!S.locais[m[1]])return toast('Localização não encontrada'); S.ui.loc=m[1]; S.ui.q=''; S.ui.status='todos'; await go('estoque'); toast('📍 '+locPath(m[1])); return; }
+  S.ui.q=t; S.ui.status='todos'; S.ui.loc=''; go('estoque');
+}
+
 function modal(html){ $('#modal').innerHTML=`<div class="modal" id="ov"><div class="box"><button class="x" id="xb">×</button>${html}</div></div>`;
   $('#ov').onclick=e=>{ if(e.target.id==='ov')fecha(); }; $('#xb').onclick=fecha; }
 function fecha(){ $('#modal').innerHTML=''; }
