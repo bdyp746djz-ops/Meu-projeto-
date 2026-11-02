@@ -492,17 +492,32 @@ async function mlItemAcao(pecaId, request, env, user) {
   let corpo;
   if (acao === 'pausar') corpo = { status: 'paused' };
   else if (acao === 'retomar') { if (q <= 0) return bad('a peça está sem estoque: ajuste a quantidade antes de reativar'); corpo = { status: 'active' }; }
-  else if (acao === 'sincronizar') corpo = q > 0 ? { price: Number(p.preco) || 0, available_quantity: q } : { status: 'paused' };
-  else if (acao === 'finalizar') corpo = { status: 'closed' };
+  else if (acao === 'sincronizar') corpo = q > 0 ? { price: Number(p.preco) || 0, available_quantity: q } : null;
+  else if (acao === 'finalizar') {
+    // PROTEÇÃO: o sistema nunca finaliza anúncio que já teve venda (perderia o histórico/reputação do anúncio)
+    let it;
+    try { it = await mlReq(token, 'GET', '/items/' + encodeURIComponent(p.ml_id) + '?attributes=id,status,sold_quantity'); }
+    catch (e) { return bad('não consegui conferir as vendas do anúncio — nada foi feito (' + e.message + ')'); }
+    if (it.sold_quantity == null) return bad('não consegui confirmar que o anúncio não tem vendas — por segurança, nada foi feito', 409);
+    if (Number(it.sold_quantity) > 0) return bad('🔒 este anúncio tem ' + it.sold_quantity + ' venda(s): o sistema não finaliza anúncio com vendas. Se precisar tirar do ar, use Pausar.', 409);
+    corpo = { status: 'closed' };
+  }
   else return bad('ação inválida');
   try {
     // o ML aceita melhor estoque e status em pedidos separados
     if (acao === 'retomar') await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), { available_quantity: q });
-    const d = await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), corpo);
+    const d = corpo ? await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), corpo) : await mlSemEstoque(token, p.ml_id);
     const st = d.status || corpo.status || 'active';
     await env.DB.prepare('UPDATE pecas SET ml_status=?, ml=?, atualizado_em=? WHERE id=?').bind(st, st === 'closed' ? 0 : 1, now(), p.id).run();
     return json({ ok: true, status: st });
   } catch (e) { return bad('o Mercado Livre recusou: ' + e.message); }
+}
+// sem estoque: zera a quantidade (o ML deixa "pausado por falta de estoque" e reativa sozinho
+// quando o estoque volta, sem perder vendas nem posição); só pausa se o ML não aceitar zero.
+// Nunca finaliza.
+async function mlSemEstoque(token, mlId) {
+  try { return await mlReq(token, 'PUT', '/items/' + encodeURIComponent(mlId), { available_quantity: 0 }); }
+  catch { return await mlReq(token, 'PUT', '/items/' + encodeURIComponent(mlId), { status: 'paused' }); }
 }
 // depois de venda/cancelamento: sem estoque → pausa o anúncio; com estoque → atualiza a quantidade (e reativa se foi pausado pela venda)
 async function mlAposEstoque(env, pecaId) {
@@ -514,13 +529,13 @@ async function mlAposEstoque(env, pecaId) {
     if (!token) return null;
     const q = Number(p.qtd) || 0;
     if (q <= 0) {
-      await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), { status: 'paused' });
+      await mlSemEstoque(token, p.ml_id);
       await env.DB.prepare("UPDATE pecas SET ml_status='paused_venda' WHERE id=?").bind(p.id).run();
       return 'pausado';
     }
     let d = await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), { available_quantity: q });
     const reativa = p.ml_status === 'paused_venda';
-    if (reativa) d = await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), { status: 'active' });
+    if (reativa && d.status !== 'active') d = await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), { status: 'active' });
     await env.DB.prepare('UPDATE pecas SET ml_status=? WHERE id=?').bind(d.status || (reativa ? 'active' : p.ml_status) || 'active', p.id).run();
     return reativa ? 'reativado' : 'atualizado';
   } catch (e) { return 'erro: ' + e.message; }

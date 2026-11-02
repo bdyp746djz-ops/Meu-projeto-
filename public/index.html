@@ -715,7 +715,8 @@ async function caixaAnuncio(p){
     const b=(k,t,ic,cl)=>`<button class="btn sm ${cl||''}" data-ma="${k}"><span class="material-icons" style="font-size:16px;vertical-align:-3px">${ic}</span> ${t}</button>`;
     $('#mlact').innerHTML=(link?`<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener"><span class="material-icons" style="font-size:16px;vertical-align:-3px">open_in_new</span> Ver</a>`+b('copiar','Copiar link','content_copy'):'')
       +(st==='active'?b('pausar','Pausar','pause'):'')+(st&&st.startsWith('paused')?b('retomar','Retomar','play_arrow'):'')
-      +(st!=='closed'?b('sincronizar','Atualizar preço e estoque','sync')+b('finalizar','Finalizar','stop_circle','red'):'')+b('desvincular','Desvincular','link_off');
+      +(st!=='closed'?b('sincronizar','Atualizar preço e estoque','sync')+(it&&it.vendidos===0?b('finalizar','Finalizar','stop_circle','red'):''):'')+b('desvincular','Desvincular','link_off')
+      +(it&&it.vendidos>0?`<span class="small mut" style="align-self:center">🔒 ${it.vendidos} venda(s): protegido contra finalizar</span>`:'');
     document.querySelectorAll('[data-ma]').forEach(x=>x.onclick=()=>acaoAnuncio(p,x.dataset.ma,link)); };
   pinta(null);
   try{ const { item }=await api('/ml/item/'+p.id); if(item){ p.ml_status=item.status; if(item.link)p.ml_link=item.link; } if($('#mlbox'))pinta(item); }
@@ -723,7 +724,7 @@ async function caixaAnuncio(p){
 }
 async function acaoAnuncio(p,acao,link){
   if(acao==='copiar'){ try{ await navigator.clipboard.writeText(link); toast('Link copiado'); }catch(_){ prompt('Copie o link:',link); } return; }
-  const pergunta={finalizar:'Finalizar o anúncio no Mercado Livre? Ele sai do ar de vez.',desvincular:'Tirar o vínculo deste anúncio com a peça? (o anúncio continua no ML)',sincronizar:`Atualizar no ML o preço (${brl(p.preco)}) e o estoque (${p.qtd}) desta peça?`}[acao];
+  const pergunta={finalizar:'Finalizar o anúncio no Mercado Livre? Ele sai do ar DE VEZ e não volta. (Anúncio com vendas o sistema nunca finaliza.)',desvincular:'Tirar o vínculo deste anúncio com a peça? (o anúncio continua no ML)',sincronizar:`Atualizar no ML o preço (${brl(p.preco)}) e o estoque (${p.qtd}) desta peça?`}[acao];
   if(pergunta&&!confirm(pergunta))return;
   try{ const r=await api('/ml/item/'+p.id,{method:'POST',body:{acao}});
     toast({pausar:'Anúncio pausado',retomar:'Anúncio reativado',sincronizar:'Preço e estoque atualizados no ML',finalizar:'Anúncio finalizado',desvincular:'Vínculo removido'}[acao]);
