@@ -161,6 +161,7 @@ async function api(request, env, url) {
   // vídeo com IA do Google (Veo, pela API do Gemini)
   if (p === '/api/veo' && m === 'GET') return json(veoResumo(await veoCfg(env)));
   if (p === '/api/veo' && m === 'POST') return veoSalva(request, env, user);
+  if (p === '/api/gemini/foto' && m === 'POST') return gmFoto(request, env, user, url);
   if (p === '/api/agente/status' && m === 'GET') return json(await agenteResumo(env));
   if (p === '/api/ia/comandos' && m === 'GET') return json(await comandosIA(env));
   if (p === '/api/ia/foto' && m === 'POST') return criaFotoIA(request, env);
@@ -1099,7 +1100,7 @@ async function garanteVideos(env) {
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS videos (id TEXT PRIMARY KEY, peca_id TEXT NOT NULL, status TEXT NOT NULL, prompt TEXT,
     foto_key TEXT, video_key TEXT, erro TEXT, progresso TEXT, modelo TEXT, criado_em INTEGER NOT NULL, atualizado_em INTEGER, tipo TEXT DEFAULT 'video', detalhe TEXT)`).run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_videos_peca ON videos(peca_id)').run();
-  for (const c of ["tipo TEXT DEFAULT 'video'", 'detalhe TEXT', 'motor TEXT', 'op TEXT']) { try { await env.DB.prepare('ALTER TABLE videos ADD COLUMN ' + c).run(); } catch { /* já existe */ } }
+  for (const c of ["tipo TEXT DEFAULT 'video'", 'detalhe TEXT', 'motor TEXT', 'op TEXT', 'op_chave TEXT']) { try { await env.DB.prepare('ALTER TABLE videos ADD COLUMN ' + c).run(); } catch { /* já existe */ } }
   videosOk = true;
 }
 const hexAleatorio = n => [...crypto.getRandomValues(new Uint8Array(n))].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -1180,7 +1181,7 @@ async function agenteApi(p, m, request, env, url) {
       let fs = []; try { fs = JSON.parse((pc && pc.fotos) || '[]'); } catch { /* vazio */ }
       const primeiraOrig = fs.find(k => !/\/(ia|arte)-/.test(k));
       // a versão do PC substitui: as feitas no celular e a edição antiga (sem vínculo) da 1ª foto
-      fs = fs.filter(k => !/\/ia-/.test(k) || (/\/ia-pc-/.test(k) && (origemDaEdicao(k) || orig !== primeiraOrig)));
+      fs = fs.filter(k => !/\/ia-/.test(k) || origemDaEdicao(k) || (/\/ia-pc-/.test(k) && orig !== primeiraOrig));
       const iOrig = fs.indexOf(orig), iVelha = daOriginal ? fs.findIndex(k => origemDaEdicao(k) === orig) : -1;
       if (iOrig >= 0) fs[iOrig] = key; else if (iVelha >= 0) fs[iVelha] = key; else fs.unshift(key);
       fs = fs.filter((k, i) => fs.indexOf(k) === i);
@@ -1255,9 +1256,9 @@ async function novaFotoIA(env, b) {
   }
   return json({ ok: true, id: ids[0], ids, n: ids.length });
 }
-// foto editada no PC guarda no nome de qual original ela veio: pecas/<peça>/ia-pc-<código>--<arquivo original>
+// foto editada (no PC ou pelo Gemini) guarda no nome de qual original veio: pecas/<peça>/ia-pc-<código>--<arquivo original> (ou ia-gm-)
 function origemDaEdicao(k) {
-  const m = String(k || '').match(/^(pecas\/[^/]+\/)ia-pc-\w+--(.+)$/);
+  const m = String(k || '').match(/^(pecas\/[^/]+\/)ia-(?:pc|gm)-\w+--(.+)$/);
   return m ? m[1] + m[2] : null;
 }
 // tira as fotos editadas (ia-*) e deixa as originais; opcional: atualiza o anúncio do ML
@@ -1283,7 +1284,7 @@ async function fotosOriginais(pecaId, request, env, url) {
     else {
       const jf = await (await novaFotoIA(env, { peca_id: row.id, opcoes: { ...(b.opcoes || {}), ml: !!(b.ml && row.ml_id) } })).json();
       r.foto = jf.erro ? 'erro: ' + jf.erro : (jf.n || 1) + (jf.n > 1 ? ' fotos na fila' : ' foto na fila');
-      if ((await veoCfg(env)).chave) r.video = 'peça o vídeo do Google quando as fotos ficarem prontas';
+      if ((await veoCfg(env)).chaves.length) r.video = 'peça o vídeo do Google quando as fotos ficarem prontas';
       else {
         const jv = await (await novoVideo(env, { peca_id: row.id })).json();
         r.video = jv.erro ? (/já tem/.test(jv.erro) ? 'já tinha um na fila' : 'erro: ' + jv.erro) : 'na fila';
@@ -1301,26 +1302,68 @@ async function mlTrocaFotos(env, mlId, keys, origem) {
     return 'ok';
   } catch (e) { return 'erro: ' + String(e.message || e).slice(0, 200); }
 }
-// ---------- vídeo com IA do Google (Veo, o mesmo modelo de vídeo do Gemini) ----------
-// a chave é da API do Gemini (Google AI Studio, com cobrança ativa). Cada vídeo é cobrado por segundo na conta Google.
+// ---------- IA do Google (Gemini): vídeo (Veo) e edição de fotos (Nano Banana) ----------
+// chaves da API do Gemini (Google AI Studio, com cobrança ativa). Com várias chaves: usa a 1ª; se o Google
+// disser que o saldo ou a cota dela acabou, pausa essa chave por um tempo e passa para a próxima.
 const VEO_SEG = 8;
 const VEO_NIVEIS = {   // US$ por segundo (720p, 1080p) — aproximado; confira na página de preços do Google
   lite: { nome: 'Lite', usd: [0.05, 0.08], padrao: ['veo-3.1-lite-generate-preview'] },
   fast: { nome: 'Fast', usd: [0.10, 0.12], padrao: ['veo-3.1-fast-generate-preview', 'veo-3.0-fast-generate-001'] },
   standard: { nome: 'Standard', usd: [0.40, 0.40], padrao: ['veo-3.1-generate-preview', 'veo-3.0-generate-001'] },
 };
+const IMG_NIVEIS = {   // US$ por foto (1K) — aproximado
+  lite: { nome: 'Lite', usd: 0.034, padrao: ['gemini-3.1-flash-lite-image-preview', 'gemini-3.1-flash-lite-image'] },
+  flash: { nome: 'Flash (Nano Banana 2)', usd: 0.067, padrao: ['gemini-3.1-flash-image-preview', 'gemini-3.1-flash-image', 'gemini-2.5-flash-image'] },
+  pro: { nome: 'Pro (Nano Banana Pro)', usd: 0.134, padrao: ['gemini-3-pro-image-preview', 'gemini-3-pro-image'] },
+};
 const geminiBase = env => (env.GEMINI_API_BASE || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
+const usd2 = n => n.toFixed(2).replace('.', ',');
+async function gmChaves(env) {
+  let l = []; try { l = JSON.parse((await getCfg(env, 'gm_chaves')) || '[]'); } catch { /* vazio */ }
+  if (!l.length) {   // chave única da versão anterior vira a 1ª da lista
+    const v = await getCfg(env, 'veo_chave');
+    if (v) {
+      let mv = {}; try { mv = JSON.parse((await getCfg(env, 'veo_modelos')) || '{}'); } catch { /* sem lista */ }
+      l = [{ id: hexAleatorio(4), nome: 'Chave 1', chave: v, veo: mv, img: {} }];
+      await setCfg(env, 'gm_chaves', JSON.stringify(l)); await setCfg(env, 'veo_chave', '');
+    }
+  }
+  return l;
+}
+const gmSalvaChaves = (env, l) => setCfg(env, 'gm_chaves', JSON.stringify(l));
+// ordem de uso: as liberadas (na ordem da lista) e depois as pausadas (a que libera antes primeiro)
+function gmOrdem(l) { const t = now(); return [...l.filter(k => !(k.pausa > t)), ...l.filter(k => k.pausa > t).sort((a, b) => a.pausa - b.pausa)]; }
+// erro que é da chave (saldo, cota, chave inválida): pausa a chave e tenta a próxima
+function gmEsgotou(e) {
+  const t = String(e.message || '');
+  if (e.status === 401 || /API key not valid|API_KEY_INVALID|key expired|API key expired/i.test(t)) return { ms: 24 * 3600e3, motivo: 'chave recusada' };
+  if (/billing|prepay|credit|insufficient|payment|balance|FAILED_PRECONDITION/i.test(t)) return { ms: 6 * 3600e3, motivo: 'sem saldo ou cobrança' };
+  if (e.status === 429 || /RESOURCE_EXHAUSTED|quota|rate limit|exceeded/i.test(t)) return { ms: 20 * 60e3, motivo: 'cota esgotada' };
+  if (e.status === 403 || /PERMISSION_DENIED/i.test(t)) return { ms: 3600e3, motivo: 'sem permissão' };
+  return null;
+}
+async function gmPausa(env, id, c) {
+  const l = await gmChaves(env), k = l.find(x => x.id === id);
+  if (k) { k.pausa = now() + c.ms; k.motivo = c.motivo; await gmSalvaChaves(env, l); }
+}
+async function gmLibera(env, id) {
+  const l = await gmChaves(env), k = l.find(x => x.id === id);
+  if (k && k.pausa) { k.pausa = 0; k.motivo = null; await gmSalvaChaves(env, l); }
+}
 async function veoCfg(env) {
-  const nv = await getCfg(env, 'veo_nivel');
-  let modelos = {}; try { modelos = JSON.parse((await getCfg(env, 'veo_modelos')) || '{}'); } catch { /* sem lista */ }
-  return { chave: (await getCfg(env, 'veo_chave')) || '', nivel: VEO_NIVEIS[nv] ? nv : 'fast',
-    resolucao: (await getCfg(env, 'veo_res')) === '1080p' ? '1080p' : '720p', modelos };
+  const nv = await getCfg(env, 'veo_nivel'), ni = await getCfg(env, 'img_nivel');
+  return { chaves: await gmChaves(env), nivel: VEO_NIVEIS[nv] ? nv : 'fast', imgNivel: IMG_NIVEIS[ni] ? ni : 'flash',
+    resolucao: (await getCfg(env, 'veo_res')) === '1080p' ? '1080p' : '720p' };
 }
 function veoResumo(c) {
-  const n = VEO_NIVEIS[c.nivel], usd = Math.round(n.usd[c.resolucao === '1080p' ? 1 : 0] * VEO_SEG * 100) / 100;
-  return { configurado: !!c.chave, final: c.chave ? c.chave.slice(-4) : null, nivel: c.nivel, nivelNome: n.nome, resolucao: c.resolucao,
-    segundos: VEO_SEG, usd, modelo: c.modelos[c.nivel] || n.padrao[0],
-    precos: Object.fromEntries(Object.entries(VEO_NIVEIS).map(([k, v]) => [k, v.usd.map(x => Math.round(x * VEO_SEG * 100) / 100)])) };
+  const n = VEO_NIVEIS[c.nivel], usd = Math.round(n.usd[c.resolucao === '1080p' ? 1 : 0] * VEO_SEG * 100) / 100, t = now(), k0 = c.chaves[0] || {};
+  return { configurado: c.chaves.length > 0, nivel: c.nivel, nivelNome: n.nome, resolucao: c.resolucao, segundos: VEO_SEG, usd,
+    modelo: (k0.veo || {})[c.nivel] || n.padrao[0],
+    precos: Object.fromEntries(Object.entries(VEO_NIVEIS).map(([k, v]) => [k, v.usd.map(x => Math.round(x * VEO_SEG * 100) / 100)])),
+    imgNivel: c.imgNivel, imgNome: IMG_NIVEIS[c.imgNivel].nome, imgUsd: IMG_NIVEIS[c.imgNivel].usd,
+    imgModelo: (k0.img || {})[c.imgNivel] || IMG_NIVEIS[c.imgNivel].padrao[0],
+    imgPrecos: Object.fromEntries(Object.entries(IMG_NIVEIS).map(([k, v]) => [k, v.usd])),
+    chaves: c.chaves.map(k => ({ id: k.id, nome: k.nome, final: String(k.chave || '').slice(-4), pausada: k.pausa > t ? k.pausa : null, motivo: k.pausa > t ? k.motivo : null })) };
 }
 async function geminiReq(env, chave, metodo, caminho, corpo) {
   const r = await fetch(geminiBase(env) + caminho, { method: metodo, headers: { 'x-goog-api-key': chave, 'content-type': 'application/json' },
@@ -1329,34 +1372,46 @@ async function geminiReq(env, chave, metodo, caminho, corpo) {
   if (!r.ok) { const e = new Error((d.error && d.error.message) || ('HTTP ' + r.status)); e.status = r.status; throw e; }
   return d;
 }
-// modelos Veo que a chave pode usar: escolhe o mais novo de cada nível
-async function veoDescobre(env, chave) {
+// modelos que a chave pode usar: o mais novo de cada nível (vídeo e foto)
+async function gmDescobre(env, chave) {
   const nomes = []; let pg = '';
   for (let i = 0; i < 6; i++) {
     const d = await geminiReq(env, chave, 'GET', '/models?pageSize=200' + (pg ? '&pageToken=' + encodeURIComponent(pg) : ''));
-    for (const m of d.models || []) if (/veo/i.test(m.name || '')) nomes.push(String(m.name).replace(/^models\//, ''));
+    for (const m of d.models || []) nomes.push(String(m.name || '').replace(/^models\//, ''));
     pg = d.nextPageToken; if (!pg) break;
   }
-  const ver = n => { const m = n.match(/veo-(\d+)(?:\.(\d+))?/); return m ? Number(m[1]) * 100 + Number(m[2] || 0) : 0; };
+  const ver = n => { const m = n.match(/(?:veo|gemini)-(\d+)(?:\.(\d+))?/); return m ? Number(m[1]) * 100 + Number(m[2] || 0) : 0; };
   const melhor = f => nomes.filter(f).sort((a, b) => ver(b) - ver(a) || (/preview/.test(a) - /preview/.test(b)))[0];
-  const r = { lite: melhor(n => /lite/.test(n)), fast: melhor(n => /fast/.test(n)), standard: melhor(n => !/fast|lite/.test(n)) };
-  return { nomes, modelos: Object.fromEntries(Object.entries(r).filter(([, v]) => v)) };
+  const so = o => Object.fromEntries(Object.entries(o).filter(([, v]) => v));
+  const veo = n => /veo/i.test(n), img = n => /^gemini-.*image/i.test(n) && !/imagen/i.test(n);
+  return { nomes: nomes.filter(n => veo(n) || img(n)),
+    veo: so({ lite: melhor(n => veo(n) && /lite/.test(n)), fast: melhor(n => veo(n) && /fast/.test(n)), standard: melhor(n => veo(n) && !/fast|lite/.test(n)) }),
+    img: so({ lite: melhor(n => img(n) && /lite/.test(n)), flash: melhor(n => img(n) && /flash/.test(n) && !/lite/.test(n)), pro: melhor(n => img(n) && /pro/.test(n)) }) };
 }
 async function veoSalva(request, env, user) {
   if (user.papel !== 'admin') return bad('somente o administrador', 403);
   const b = await request.json().catch(() => ({}));
-  if (b.remover) { await setCfg(env, 'veo_chave', ''); return json(veoResumo(await veoCfg(env))); }
+  let l = await gmChaves(env), aviso = null;
   if (b.nivel && VEO_NIVEIS[b.nivel]) await setCfg(env, 'veo_nivel', b.nivel);
+  if (b.img_nivel && IMG_NIVEIS[b.img_nivel]) await setCfg(env, 'img_nivel', b.img_nivel);
   if (b.resolucao) await setCfg(env, 'veo_res', b.resolucao === '1080p' ? '1080p' : '720p');
-  const chave = String(b.chave || '').trim() || (b.testar ? (await veoCfg(env)).chave : '');
-  let aviso = null;
-  if (chave) {
-    let d;
-    try { d = await veoDescobre(env, chave); }
-    catch (e) { return bad('o Google não aceitou a chave: ' + e.message); }
-    if (!d.nomes.length) aviso = 'a chave foi aceita, mas o Google não listou nenhum modelo de vídeo (Veo) para ela — confira se a cobrança está ativa no Google AI Studio';
-    await setCfg(env, 'veo_chave', chave);
-    await setCfg(env, 'veo_modelos', JSON.stringify(d.modelos));
+  if (b.remover) { l = l.filter(k => k.id !== b.remover); await gmSalvaChaves(env, l); }
+  if (b.subir) { const i = l.findIndex(k => k.id === b.subir); if (i > 0) { [l[i - 1], l[i]] = [l[i], l[i - 1]]; await gmSalvaChaves(env, l); } }
+  const nova = String(b.chave || '').trim();
+  if (nova) {
+    if (l.some(k => k.chave === nova)) return bad('essa chave já está cadastrada');
+    let d; try { d = await gmDescobre(env, nova); } catch (e) { return bad('o Google não aceitou a chave: ' + e.message); }
+    if (!d.nomes.length) aviso = 'a chave foi aceita, mas o Google não listou modelos de vídeo nem de foto para ela — confira se a cobrança está ativa no Google AI Studio';
+    l.push({ id: hexAleatorio(4), nome: String(b.nome || '').trim().slice(0, 40) || 'Chave ' + (l.length + 1), chave: nova, veo: d.veo, img: d.img });
+    await gmSalvaChaves(env, l);
+  }
+  if (b.testar) {
+    const k = l.find(x => x.id === b.testar);
+    if (k) {
+      let d; try { d = await gmDescobre(env, k.chave); } catch (e) { return bad(k.nome + ': o Google não aceitou a chave: ' + e.message); }
+      Object.assign(k, { veo: d.veo, img: d.img, pausa: 0, motivo: null }); await gmSalvaChaves(env, l);
+      if (!d.nomes.length) aviso = k.nome + ': o Google não listou modelos de vídeo nem de foto — confira a cobrança';
+    }
   }
   return json({ ...veoResumo(await veoCfg(env)), aviso });
 }
@@ -1374,7 +1429,7 @@ function bytesB64(u8) { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) 
 async function veoNovo(env, b, user) {
   if (user.papel !== 'admin') return bad('somente o administrador pede vídeo do Google (é cobrado)', 403);
   const c = await veoCfg(env);
-  if (!c.chave) return bad('cadastre a chave da API do Gemini em Anúncios ML → Vídeo com IA do Google');
+  if (!c.chaves.length) return bad('cadastre uma chave da API do Gemini em Anúncios ML → IA do Google');
   await garanteVideos(env);
   const row = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(b.peca_id || '').first();
   if (!row) return bad('peça não encontrada', 404);
@@ -1390,55 +1445,64 @@ async function veoNovo(env, b, user) {
   const r = await veoEnvia(env, id);
   return r.erro ? bad(r.erro) : json({ ok: true, id, modelo: r.modelo });
 }
-// manda pro Google; se ele recusar algum detalhe do pedido, ajusta e tenta de novo
+// manda pro Google; se ele recusar algum detalhe do pedido, ajusta e tenta de novo; se for a chave, passa pra próxima
 async function veoEnvia(env, id) {
   const v = await env.DB.prepare('SELECT * FROM videos WHERE id=?').bind(id).first();
   const falha = async msg => { await env.DB.prepare("UPDATE videos SET status='erro', erro=?, progresso=NULL, atualizado_em=? WHERE id=?").bind(msg.slice(0, 480), now(), id).run(); return { erro: msg }; };
   if (!v) return { erro: 'pedido não encontrado' };
   const c = await veoCfg(env);
-  if (!c.chave) return falha('cadastre a chave da API do Gemini');
+  if (!c.chaves.length) return falha('cadastre uma chave da API do Gemini');
   const obj = await env.FOTOS.get(v.foto_key);
   if (!obj) return falha('a imagem do pedido sumiu do armazenamento');
   const img = bytesB64(new Uint8Array(await obj.arrayBuffer())), mime = (obj.httpMetadata && obj.httpMetadata.contentType) || 'image/jpeg';
-  const modelos = [...new Set([c.modelos[c.nivel], ...VEO_NIVEIS[c.nivel].padrao, ...VEO_NIVEIS.fast.padrao].filter(Boolean))];
   const pec = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(v.peca_id).first();
   const curto = ajustaVeo(RESUMO_VIDEO) + '\n\nProduct: ' + (pec ? descPeca(parsePeca(pec)) : '');
-  const st = { mi: 0, prompt: v.prompt || curto, img: 'bytes', res: c.resolucao, dur: 'num', neg: true };
-  let ultimo = '';
-  for (let tent = 0; tent < 10 && st.mi < modelos.length; tent++) {
-    const inst = { prompt: st.prompt, image: st.img === 'bytes' ? { bytesBase64Encoded: img, mimeType: mime } : { inlineData: { mimeType: mime, data: img } } };
-    const par = { aspectRatio: '9:16' };
-    if (st.dur) par.durationSeconds = st.dur === 'num' ? VEO_SEG : String(VEO_SEG);
-    if (st.res) par.resolution = st.res;
-    if (st.neg) par.negativePrompt = NEG_VIDEO;
-    try {
-      const d = await geminiReq(env, c.chave, 'POST', '/models/' + modelos[st.mi] + ':predictLongRunning', { instances: [inst], parameters: par });
-      if (!d.name) throw new Error('o Google não devolveu o número do pedido');
-      const det = `Google ${modelos[st.mi]} · ${VEO_SEG} s · ${st.res || 'padrão'} · ≈ US$ ${veoResumo({ ...c, resolucao: st.res || '720p' }).usd.toFixed(2).replace('.', ',')}`;
-      await env.DB.prepare("UPDATE videos SET op=?, modelo=?, detalhe=?, progresso=?, atualizado_em=? WHERE id=?")
-        .bind(d.name, modelos[st.mi], det, 'o Google está gerando o vídeo (leva de 1 a 4 min)', now(), id).run();
-      return { ok: true, modelo: modelos[st.mi] };
-    } catch (e) {
-      const t = String(e.message || ''); ultimo = t;
-      // primeiro os ajustes do pedido (o Google diz qual campo não aceitou); só depois troca de modelo
-      if (/resolution/i.test(t) && st.res) { st.res = st.res === '1080p' ? '720p' : null; continue; }
-      if (/durationSeconds|duration/i.test(t) && st.dur) { st.dur = st.dur === 'num' ? 'str' : null; continue; }
-      if (/negativePrompt|negative/i.test(t) && st.neg) { st.neg = false; continue; }
-      if (/bytesBase64Encoded|inlineData|Unknown name "image"/i.test(t) && st.img === 'bytes') { st.img = 'inline'; continue; }
-      if (/prompt/i.test(t) && /long|length|token|limit|exceed/i.test(t) && st.prompt !== curto) { st.prompt = curto; continue; }
-      if (e.status === 404 || /not found|not supported for predictLongRunning|model.{0,40}(not (found|supported|available)|unavailable|does not exist)/i.test(t)) { st.mi++; continue; }
-      break;
+  let ultimo = ''; const pulos = [];
+  for (const k of gmOrdem(c.chaves)) {
+    const modelos = [...new Set([(k.veo || {})[c.nivel], ...VEO_NIVEIS[c.nivel].padrao, ...VEO_NIVEIS.fast.padrao].filter(Boolean))];
+    const st = { mi: 0, prompt: v.prompt || curto, img: 'bytes', res: c.resolucao, dur: 'num', neg: true };
+    let outraChave = false;
+    for (let tent = 0; tent < 10; tent++) {
+      if (st.mi >= modelos.length) { outraChave = true; break; }   // essa chave não tem nenhum modelo de vídeo
+      const inst = { prompt: st.prompt, image: st.img === 'bytes' ? { bytesBase64Encoded: img, mimeType: mime } : { inlineData: { mimeType: mime, data: img } } };
+      const par = { aspectRatio: '9:16' };
+      if (st.dur) par.durationSeconds = st.dur === 'num' ? VEO_SEG : String(VEO_SEG);
+      if (st.res) par.resolution = st.res;
+      if (st.neg) par.negativePrompt = NEG_VIDEO;
+      try {
+        const d = await geminiReq(env, k.chave, 'POST', '/models/' + modelos[st.mi] + ':predictLongRunning', { instances: [inst], parameters: par });
+        if (!d.name) throw new Error('o Google não devolveu o número do pedido');
+        const det = `Google ${modelos[st.mi]} · ${VEO_SEG} s · ${st.res || 'padrão'} · ≈ US$ ${usd2(veoResumo({ ...c, resolucao: st.res || '720p' }).usd)} · ${k.nome}`;
+        await env.DB.prepare("UPDATE videos SET op=?, op_chave=?, modelo=?, detalhe=?, progresso=?, atualizado_em=? WHERE id=?")
+          .bind(d.name, k.id, modelos[st.mi], det, 'o Google está gerando o vídeo (leva de 1 a 4 min)', now(), id).run();
+        if (k.pausa) await gmLibera(env, k.id);
+        return { ok: true, modelo: modelos[st.mi] };
+      } catch (e) {
+        const t = String(e.message || ''); ultimo = k.nome + ': ' + t;
+        const esg = gmEsgotou(e);
+        if (esg) { await gmPausa(env, k.id, esg); pulos.push(k.nome + ' (' + esg.motivo + ')'); outraChave = true; break; }
+        // ajustes do pedido (o Google diz qual campo não aceitou); só depois troca de modelo
+        if (/resolution/i.test(t) && st.res) { st.res = st.res === '1080p' ? '720p' : null; continue; }
+        if (/durationSeconds|duration/i.test(t) && st.dur) { st.dur = st.dur === 'num' ? 'str' : null; continue; }
+        if (/negativePrompt|negative/i.test(t) && st.neg) { st.neg = false; continue; }
+        if (/bytesBase64Encoded|inlineData|Unknown name "image"/i.test(t) && st.img === 'bytes') { st.img = 'inline'; continue; }
+        if (/prompt/i.test(t) && /long|length|token|limit|exceed/i.test(t) && st.prompt !== curto) { st.prompt = curto; continue; }
+        if (e.status === 404 || /not found|not supported for predictLongRunning|model.{0,40}(not (found|supported|available)|unavailable|does not exist)/i.test(t)) { st.mi++; continue; }
+        break;
+      }
     }
+    if (!outraChave) break;   // o problema é o pedido, não a chave: outra chave daria o mesmo erro
   }
-  let msg = 'o Google recusou o pedido: ' + (ultimo || 'nenhum modelo de vídeo disponível para a chave');
-  if (/billing|quota|exhausted|429|permission|PERMISSION_DENIED|paid/i.test(ultimo)) msg += ' — confira se a cobrança está ativa no Google AI Studio';
+  let msg = pulos.length && pulos.length >= c.chaves.length ? 'todas as chaves do Gemini estão sem saldo ou cota: ' + pulos.join(', ')
+    : 'o Google recusou o pedido: ' + (ultimo || 'nenhum modelo de vídeo disponível');
+  if (/billing|quota|exhausted|429|permission|PERMISSION_DENIED|paid/i.test(ultimo)) msg += ' — confira a cobrança no Google AI Studio';
   return falha(msg);
 }
 // confere os pedidos no Google; quando fica pronto, baixa o vídeo pro armazenamento do sistema
 async function veoAtualiza(env, pecaId) {
   await garanteVideos(env);
   const c = await veoCfg(env);
-  if (!c.chave) return;
+  if (!c.chaves.length) return;
   const r = await env.DB.prepare("SELECT * FROM videos WHERE motor='veo' AND status='gerando' AND op IS NOT NULL AND atualizado_em < ?" + (pecaId ? ' AND peca_id=?' : '') + ' ORDER BY criado_em LIMIT 4')
     .bind(...(pecaId ? [now() - 8000, pecaId] : [now() - 8000])).all();
   for (const v of r.results) {
@@ -1446,8 +1510,10 @@ async function veoAtualiza(env, pecaId) {
     const pega = await env.DB.prepare("UPDATE videos SET atualizado_em=? WHERE id=? AND status='gerando' AND atualizado_em=?").bind(now(), v.id, v.atualizado_em).run();
     if (!pega.meta || pega.meta.changes !== 1) continue;
     const erro = msg => env.DB.prepare("UPDATE videos SET status='erro', erro=?, progresso=NULL, atualizado_em=? WHERE id=?").bind(msg.slice(0, 480), now(), v.id).run();
+    const k = c.chaves.find(x => x.id === v.op_chave) || (!v.op_chave && c.chaves[0]);   // o pedido só pode ser conferido com a mesma chave
+    if (!k) { await erro('a chave do Gemini usada nesse vídeo foi removida — toque em Tentar de novo'); continue; }
     try {
-      const d = await geminiReq(env, c.chave, 'GET', '/' + String(v.op).replace(/^\/+/, ''));
+      const d = await geminiReq(env, k.chave, 'GET', '/' + String(v.op).replace(/^\/+/, ''));
       if (!d.done) {
         const min = Math.floor((now() - v.criado_em) / 60e3);
         if (min >= 25) { await erro('o Google não terminou o vídeo em 25 minutos — toque em Tentar de novo'); continue; }
@@ -1465,7 +1531,7 @@ async function veoAtualiza(env, pecaId) {
       let bytes;
       if (vid.bytesBase64Encoded) bytes = b64bytes(vid.bytesBase64Encoded);
       else {
-        const rv = await fetch(vid.uri, { headers: { 'x-goog-api-key': c.chave } });
+        const rv = await fetch(vid.uri, { headers: { 'x-goog-api-key': k.chave } });
         if (!rv.ok) throw new Error('não consegui baixar o vídeo do Google (HTTP ' + rv.status + ')');
         bytes = new Uint8Array(await rv.arrayBuffer());
       }
@@ -1476,6 +1542,73 @@ async function veoAtualiza(env, pecaId) {
       if (now() - v.criado_em > 25 * 60e3) await erro(String(e.message || e));   // erro passageiro: tenta de novo no próximo aviso
     }
   }
+}
+// ---------- foto editada pelo Gemini (Nano Banana) com o seu comando de foto ----------
+const PRESERVA_GM = 'IMPORTANT: edit THIS exact photo. Keep the product 100% identical to the photo: same shape, proportions, holes, connectors, clips, labels, printed text and numbers (do not rewrite or invent letters). Do not add, remove or redraw parts. Return one square photo of the product only.';
+async function gmFoto(request, env, user, url) {
+  if (user.papel !== 'admin') return bad('somente o administrador edita foto com o Gemini (é cobrado)', 403);
+  const b = await request.json().catch(() => ({}));
+  const c = await veoCfg(env);
+  if (!c.chaves.length) return bad('cadastre uma chave da API do Gemini em Anúncios ML → IA do Google');
+  const row = await env.DB.prepare('SELECT id,fotos,ml_id FROM pecas WHERE id=?').bind(b.peca_id || '').first();
+  if (!row) return bad('peça não encontrada', 404);
+  let fs = []; try { fs = JSON.parse(row.fotos || '[]'); } catch { /* sem fotos */ }
+  const orig = String(b.foto_key || '');
+  if (/\/(ia|arte)-/.test(orig) || !(fs.includes(orig) || fs.some(k => origemDaEdicao(k) === orig))) return bad('escolha uma foto original da peça');
+  const obj = await env.FOTOS.get(orig);
+  if (!obj) return bad('a foto original sumiu do armazenamento');
+  const img = bytesB64(new Uint8Array(await obj.arrayBuffer())), mime = (obj.httpMetadata && obj.httpMetadata.contentType) || 'image/jpeg';
+  const prompt = ((await getCfg(env, 'ia_cmd_foto')) || CMD_PADRAO.foto) + '\n\n' + PRESERVA_GM;
+  let ultimo = '', saida = null, usada = null, modeloUsado = null; const pulos = [];
+  for (const k of gmOrdem(c.chaves)) {
+    const modelos = [...new Set([(k.img || {})[c.imgNivel], ...IMG_NIVEIS[c.imgNivel].padrao, ...IMG_NIVEIS.flash.padrao].filter(Boolean))];
+    const st = { mi: 0, cfg: true, mod: ['IMAGE'] };
+    let outraChave = false;
+    for (let tent = 0; tent < 10; tent++) {
+      if (st.mi >= modelos.length) { outraChave = true; break; }
+      const gc = { responseModalities: st.mod };
+      if (st.cfg) gc.imageConfig = { aspectRatio: '1:1' };
+      try {
+        const d = await geminiReq(env, k.chave, 'POST', '/models/' + modelos[st.mi] + ':generateContent',
+          { contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: mime, data: img } }] }], generationConfig: gc });
+        const cand = (d.candidates || [])[0] || {}, partes = (cand.content && cand.content.parts) || [];
+        const p = partes.find(x => (x.inlineData || x.inline_data) && /^image\//.test((x.inlineData || x.inline_data).mimeType || (x.inlineData || x.inline_data).mime_type || ''));
+        if (!p) {
+          const txt = partes.map(x => x.text).filter(Boolean).join(' ').slice(0, 160);
+          ultimo = 'o Gemini não devolveu a foto' + (cand.finishReason ? ' (' + cand.finishReason + ')' : '') + (txt ? ': ' + txt : '');
+          break;
+        }
+        saida = p.inlineData || p.inline_data; usada = k; modeloUsado = modelos[st.mi];
+        break;
+      } catch (e) {
+        const t = String(e.message || ''); ultimo = k.nome + ': ' + t;
+        const esg = gmEsgotou(e);
+        if (esg) { await gmPausa(env, k.id, esg); pulos.push(k.nome + ' (' + esg.motivo + ')'); outraChave = true; break; }
+        if (/imageConfig|aspectRatio|aspect_ratio/i.test(t) && st.cfg) { st.cfg = false; continue; }
+        if (/responseModalities|response_modalities|modalit/i.test(t) && st.mod.length === 1) { st.mod = ['TEXT', 'IMAGE']; continue; }
+        if (e.status === 404 || /not found|not supported for generateContent|model.{0,40}(not (found|supported|available)|unavailable|does not exist)/i.test(t)) { st.mi++; continue; }
+        break;
+      }
+    }
+    if (saida || !outraChave) break;
+  }
+  if (!saida) return bad(pulos.length && pulos.length >= c.chaves.length ? 'todas as chaves do Gemini estão sem saldo ou cota: ' + pulos.join(', ') : (ultimo.startsWith('o Gemini') ? ultimo : 'o Google recusou: ' + ultimo));
+  if (usada.pausa) await gmLibera(env, usada.id);
+  const tipo = saida.mimeType || saida.mime_type || 'image/png';
+  const key = `pecas/${row.id}/ia-gm-${uid().slice(0, 8)}--` + orig.split('/').pop().replace(/[^\w.-]/g, '');
+  await env.FOTOS.put(key, b64bytes(saida.data), { httpMetadata: { contentType: tipo } });
+  // entra no lugar da original (ou da edição anterior dela), relendo a lista (outra foto pode ter mudado no meio)
+  const atual = await env.DB.prepare('SELECT fotos FROM pecas WHERE id=?').bind(row.id).first();
+  try { fs = JSON.parse((atual && atual.fotos) || '[]'); } catch { /* mantém */ }
+  const primeiraOrig = fs.find(k => !/\/(ia|arte)-/.test(k));
+  fs = fs.filter(k => !/\/ia-/.test(k) || origemDaEdicao(k) || (/\/ia-pc-/.test(k) && orig !== primeiraOrig));
+  const iOrig = fs.indexOf(orig), iVelha = fs.findIndex(k => origemDaEdicao(k) === orig);
+  if (iOrig >= 0) fs[iOrig] = key; else if (iVelha >= 0) fs[iVelha] = key; else fs.unshift(key);
+  fs = fs.filter((k, i) => fs.indexOf(k) === i).slice(0, 12);
+  await env.DB.prepare('UPDATE pecas SET fotos=?, atualizado_em=? WHERE id=?').bind(JSON.stringify(fs), now(), row.id).run();
+  const r = { ok: true, key, fotos: fs, modelo: modeloUsado, chave: usada.nome, usd: IMG_NIVEIS[c.imgNivel].usd };
+  if (b.ml && b.ultima && row.ml_id) r.ml = await mlTrocaFotos(env, row.ml_id, fs, url.origin);
+  return json(r);
 }
 async function listaVideos(url, env) {
   await garanteVideos(env);

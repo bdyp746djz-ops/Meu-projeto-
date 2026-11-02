@@ -642,7 +642,7 @@ function abrePeca(id){
      <button class="btn" id="da">📣 Anúncio</button>${p.ml_id&&p.ml_status!=='closed'?'':'<button class="btn p" id="dml">🛒 Publicar no ML</button>'}<button class="btn" id="de">✏️ Editar</button>
      <button class="btn" id="dpm">💲 Preço de mercado</button><button class="btn" id="dia">✨ Fotos com IA</button><button class="btn" id="detq">🏷️ Etiqueta</button><button class="btn" id="ddup">🔁 Duplicar</button>
      <button class="btn" id="dx" style="color:var(--red)">Excluir</button></div>
-   <div class="mlbox" id="vidbox"><b>🎬 Vídeo e 📷 foto com IA (no PC)</b><div class="small mut" id="vidinfo" style="margin-top:6px">Carregando…</div></div>
+   <div class="mlbox" id="vidbox"><b>🎬 Vídeo e 📷 fotos com IA</b><div class="small" id="gmst" style="margin-top:4px"></div><div class="small mut" id="vidinfo" style="margin-top:6px">Carregando…</div></div>
    ${p.ml_id?`<div class="mlbox" id="mlbox"><div class="top" style="margin:0 0 6px"><b>Anúncio no Mercado Livre</b><span class="tag" id="mlst">${esc(stML(p.ml_status))}</span></div><div class="small mut" id="mlinfo">Consultando o anúncio…</div><div class="mlact" id="mlact"></div></div>`:''}`);
   if(p.ml_id)caixaAnuncio(p);
   if($('#vidbox'))caixaVideo(p);
@@ -885,8 +885,26 @@ async function telaComandos(){
 // vídeo com IA: pede ao gerador do PC, acompanha e mostra o resultado
 const ST_VID={fila:'Na fila — esperando o PC',gerando:'O PC está gerando',pronto:'Pronto',erro:'Deu erro'};
 function quandoFoi(ms){ if(!ms)return 'nunca'; const s=(Date.now()-ms)/1000; return s<90?'agora há pouco':s<3600?Math.round(s/60)+' min atrás':s<86400?Math.round(s/3600)+' h atrás':new Date(ms).toLocaleDateString('pt-BR'); }
+const usdBR=n=>Number(n||0).toFixed(2).replace('.',',');
+async function editaGemini(p,alvo,veo){
+  if(!alvo.length)return toast('Nenhuma foto original para editar');
+  if(!confirm(`Editar ${alvo.length>1?alvo.length+' fotos':'a foto'} com o Gemini (${veo.imgNome})?\n\nUsa o seu comando de foto (✍️ Comandos da IA → foto). Custa cerca de US$ ${usdBR(veo.imgUsd*alvo.length)}, cobrado na sua conta Google.\nAs originais ficam guardadas (dá para voltar).${p.ml_id?'\nO anúncio do ML recebe as fotos novas no fim.':''}`))return;
+  window._gmRodando=true; const st=()=>$('#gmst'); let ok=0; const erros=[];
+  if($('#vgm'))$('#vgm').disabled=true;
+  for(let i=0;i<alvo.length;i++){
+    if(st())st().innerHTML=`<span class="spin-s"></span><b>🤖 Gemini editando a foto ${i+1} de ${alvo.length}…</b> (não feche esta tela)`;
+    try{ const r=await api('/gemini/foto',{method:'POST',body:{peca_id:p.id,foto_key:alvo[i],ml:!!p.ml_id,ultima:i===alvo.length-1}}); ok++;
+      p.fotos=r.fotos; if(r.ml&&r.ml!=='ok')erros.push('ML: '+r.ml); }
+    catch(e){ erros.push('foto '+(i+1)+': '+e.message); if(/todas as chaves/.test(e.message))break; }
+  }
+  if(ok&&p.ml_id&&erros.length){ try{ await api('/ml/item/'+p.id,{method:'POST',body:{acao:'fotos'}}); }catch(_){ } }   // a última falhou: manda o que deu certo
+  window._gmRodando=false;
+  try{ const {peca}=await api('/pecas/'+p.id); Object.assign(p,peca); const i=S.pecas.findIndex(x=>x.id===p.id); if(i>=0)S.pecas[i]=p; }catch(_){ }
+  toast(`🤖 ${ok} de ${alvo.length} foto(s) editada(s) pelo Gemini`+(erros.length?' · ⚠️ '+erros.join(' · '):'')+(ok&&p.ml_id&&!erros.length?' · anúncio do ML atualizado':''));
+  if($('#vidbox'))abrePeca(p.id); else if(S.view==='ficha')fichaPeca();
+}
 // foto editada no PC guarda de qual original veio: pecas/<peça>/ia-pc-<código>--<arquivo original>
-function origemEd(k){ const m=String(k||'').match(/^(pecas\/[^/]+\/)ia-pc-\w+--(.+)$/); return m?m[1]+m[2]:null; }
+function origemEd(k){ const m=String(k||'').match(/^(pecas\/[^/]+\/)ia-(?:pc|gm)-\w+--(.+)$/); return m?m[1]+m[2]:null; }
 async function caixaVideo(p){
   const el=$('#vidinfo'); if(!el)return; clearTimeout(window._vidT);
   let d; try{ d=await api('/videos?peca='+p.id); }catch(e){ el.innerHTML='⚠️ '+esc(e.message); return; }
@@ -897,6 +915,8 @@ async function caixaVideo(p){
   let h=`<div style="margin-bottom:6px">${pc}</div>`;
   const fts=p.fotos||[], nEdit=fts.filter(k=>/\/ia-/.test(k)).length, jaEd=new Set(fts.map(origemEd).filter(Boolean));
   const semEd=fts.filter(k=>!/\/(ia|arte)-/.test(k)&&!jaEd.has(k)).length;
+  const admin=S.user&&S.user.papel==='admin', origsP=fts.filter(k=>!/\/(ia|arte)-/.test(k)), nGm=semEd||origsP.length;
+  if(veo.configurado&&admin&&nGm&&!fpend&&!window._gmRodando)h+=`<div class="mlact" style="margin:0 0 8px"><button class="btn sm p" id="vgm">🤖 ${semEd?'Editar '+(semEd>1?'as '+semEd+' fotos':'a foto'):'Refazer '+(nGm>1?'as '+nGm+' fotos':'a foto')} com o Gemini · ≈ US$ ${usdBR(veo.imgUsd*nGm)}</button></div>`;
   if(!fpend&&(nEdit||(ag.configurado&&semEd)))h+=`<div class="mlact" style="margin:0 0 8px">${ag.configurado&&semEd?`<button class="btn sm p" id="vtodas">✨ Editar ${semEd>1?'as '+semEd+' fotos':'a foto'} com IA no PC</button>`:''}${nEdit?`<button class="btn sm" id="vorig">↩️ Voltar às fotos originais${ag.configurado?' e refazer com IA':''}</button>`:''}</div>`;
   if(fpend)h+=`<div style="margin-bottom:8px"><span class="spin-s"></span><b>📷 ${fpends.length>1?'Fotos sendo melhoradas no PC — faltam '+fpends.length:'Foto sendo melhorada no PC'}</b>${fpend.progresso?' — '+esc(fpend.progresso):fpend.status==='fila'?' — na fila':''}</div>`;
   else if(ferr)h+=`<div style="margin-bottom:8px;color:var(--red)">📷 A melhoria da foto deu erro: ${esc(ferr.erro||'')} <button class="btn sm" data-vr="${ferr.id}">Tentar de novo</button></div>`;
@@ -914,6 +934,7 @@ async function caixaVideo(p){
     <div class="small mut" style="margin-top:4px">${ag.modelo==='cinema'?'Vídeo de 10 s feito com a foto real da peça (câmera se aproximando e luz de estúdio): a peça não muda.':'Usa a 1ª foto (a de fundo branco). Confira o vídeo antes de usar: a IA pode mudar detalhes da peça.'}</div>`;
   el.innerHTML=h;
   if($('#vgera'))$('#vgera').onclick=async()=>{ try{ await api('/videos',{method:'POST',body:{peca_id:p.id}}); toast('Pedido enviado pro PC'); caixaVideo(p); }catch(e){ toast(e.message); } };
+  if($('#vgm'))$('#vgm').onclick=()=>editaGemini(p,semEd?fts.filter(k=>!/\/(ia|arte)-/.test(k)&&!jaEd.has(k)):origsP,veo);
   if($('#vveo'))$('#vveo').onclick=async()=>{
     const fts2=p.fotos||[], ed=fts2.find(k=>/\/ia-/.test(k)), foto=ed||fts2.find(k=>!/\/arte-/.test(k));
     if(!foto)return toast('A peça precisa de foto');
@@ -937,27 +958,35 @@ async function caixaVideo(p){
   el.querySelectorAll('[data-vr]').forEach(b=>b.onclick=async()=>{ await api('/videos/'+b.dataset.vr+'/repetir',{method:'POST'}); caixaVideo(p); });
   if((v&&(v.status==='fila'||v.status==='gerando'))||fpend)window._vidT=setTimeout(async()=>{ if(fpend){ try{ const {peca}=await api('/pecas/'+p.id); if(peca&&JSON.stringify(peca.fotos)!==JSON.stringify(p.fotos)){ Object.assign(p,peca); const i=S.pecas.findIndex(x=>x.id===p.id); if(i>=0)S.pecas[i]=p; if($('#vidbox'))return abrePeca(p.id); } }catch(_){ } } caixaVideo(p); },8000);
 }
-// vídeo com IA do Google (Veo) — chave da API do Gemini
+// IA do Google (Gemini): chaves da API, vídeo (Veo) e fotos (Nano Banana)
 async function cartaoVeo(){
   const el=$('#veocard'); if(!el)return; let c={}; try{ c=await api('/veo'); }catch(_){ }
-  if(!$('#veocard'))return; const admin=S.user&&S.user.papel==='admin', br=n=>'US$ '+Number(n||0).toFixed(2).replace('.',',');
-  el.innerHTML=`<div class="card" style="max-width:960px;margin:0 auto 12px"><div class="top" style="margin:0"><b>🎬 Vídeo com IA do Google (Veo — o mesmo do Gemini)</b>
-    <span class="small">${c.configurado?'🟢 chave salva ···'+esc(c.final||''):'⚪ sem chave'}</span></div>
-    <div class="small mut" style="margin:6px 0">Gera o vídeo vertical de ${c.segundos||8} s com a foto editada da peça e o seu script (✍️ Comandos da IA → vídeo). Cada vídeo é cobrado na sua conta Google, por segundo. A assinatura do app Gemini <b>não</b> vale para isso: precisa de uma chave da API.</div>
-    ${admin?`<details ${c.configurado?'':'open'} style="margin-top:6px"><summary class="small"><b>${c.configurado?'Trocar chave / qualidade':'Como configurar'}</b></summary>
-      <ol class="small" style="margin:6px 0 8px 18px;padding:0"><li>No computador, entre em <b>aistudio.google.com</b> com sua conta Google.</li><li>Clique em <b>Get API key</b> → <b>Create API key</b> e copie a chave.</li><li>No mesmo lugar, ative a <b>cobrança (Billing)</b> do projeto — sem isso o Google não gera vídeo.</li><li>Cole a chave abaixo e salve.</li></ol>
-      <div class="form"><label class="f">Chave da API do Gemini<input id="veok" type="password" autocomplete="off" placeholder="${c.configurado?'deixe vazio para manter a atual':'cole a chave aqui'}"></label>
-      <label class="f">Qualidade<select id="veon">${['lite','fast','standard'].map(k=>`<option value="${k}" ${c.nivel===k?'selected':''}>${{lite:'Lite (mais barato)',fast:'Fast (recomendado)',standard:'Standard (melhor)'}[k]} — ${br((c.precos||{})[k]?c.precos[k][c.resolucao==='1080p'?1:0]:0)} por vídeo</option>`).join('')}</select></label>
-      <label class="f">Resolução<select id="veor"><option value="720p" ${c.resolucao!=='1080p'?'selected':''}>720p</option><option value="1080p" ${c.resolucao==='1080p'?'selected':''}>1080p</option></select></label></div>
-      <div class="mlact"><button class="btn sm p" id="veos">Salvar</button>${c.configurado?'<button class="btn sm" id="veot">Testar chave</button><button class="btn sm" id="veox" style="color:var(--red)">Remover chave</button>':''}</div>
-      <div class="small mut" id="veomsg">${c.configurado?'Modelo em uso: '+esc(c.modelo||'')+' · '+br(c.usd)+' por vídeo (aprox.)':''}</div></details>`:'<div class="small mut">Só o administrador configura.</div>'}</div>`;
+  if(!$('#veocard'))return; const admin=S.user&&S.user.papel==='admin', ch=c.chaves||[];
+  const hora=ms=>new Date(ms).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  el.innerHTML=`<div class="card" style="max-width:960px;margin:0 auto 12px"><div class="top" style="margin:0"><b>🤖 IA do Google (Gemini) — fotos e vídeos</b>
+    <span class="small">${ch.length?'🟢 '+ch.length+(ch.length>1?' chaves':' chave'):'⚪ sem chave'}</span></div>
+    <div class="small mut" style="margin:6px 0">Edita as fotos (Nano Banana) com o seu comando de foto e gera o vídeo vertical de ${c.segundos||8} s (Veo) com o seu script — os mesmos modelos do app Gemini. Cobrado na sua conta Google. A assinatura do app Gemini <b>não</b> vale aqui: precisa de chave da API.</div>
+    ${admin?`${ch.length?`<div style="margin:8px 0">${ch.map((k,i)=>`<div class="sel small"><span style="flex:1"><b>${i+1}. ${esc(k.nome)}</b> ···${esc(k.final)} · ${k.pausada?`⏸️ ${esc(k.motivo||'pausada')} — volta às ${hora(k.pausada)}`:i===0||ch.slice(0,i).every(x=>x.pausada)?'🟢 em uso':'🟢 reserva'}</span>${i?`<button class="btn sm" data-gsub="${k.id}" title="Usar antes">↑</button>`:''}<button class="btn sm" data-gtest="${k.id}">Testar</button><button class="btn sm" data-grem="${k.id}" style="color:var(--red)">✖</button></div>`).join('')}</div>
+      ${ch.length>1?'<div class="small mut">Usa a 1ª; se o Google disser que o saldo ou a cota dela acabou, passa sozinho para a próxima e volta a tentar a 1ª mais tarde.</div>':''}`:''}
+      <details ${ch.length?'':'open'} style="margin-top:6px"><summary class="small"><b>${ch.length?'+ Adicionar outra chave':'Como configurar'}</b></summary>
+      <ol class="small" style="margin:6px 0 8px 18px;padding:0"><li>No computador, entre em <b>aistudio.google.com</b> com a conta Google.</li><li><b>Get API key</b> → <b>Create API key</b> e copie a chave.</li><li>Ative a <b>cobrança (Billing)</b> do projeto — sem isso o Google não gera.</li><li>Cole abaixo e toque em Adicionar.</li></ol>
+      <div class="form"><label class="f">Nome (opcional)<input id="veonm" maxlength="40" placeholder="ex.: Conta da loja"></label><label class="f">Chave da API do Gemini<input id="veok" type="password" autocomplete="off" placeholder="cole a chave aqui"></label></div>
+      <div class="mlact"><button class="btn sm p" id="veoadd">Adicionar chave</button></div></details>
+      ${ch.length?`<div class="form" style="margin-top:8px"><label class="f">Fotos (por foto)<select id="veoi">${['lite','flash','pro'].map(k=>`<option value="${k}" ${c.imgNivel===k?'selected':''}>${{lite:'Lite (mais barato)',flash:'Flash — Nano Banana 2 (recomendado)',pro:'Pro — Nano Banana Pro (melhor)'}[k]} — US$ ${usdBR((c.imgPrecos||{})[k])}</option>`).join('')}</select></label>
+      <label class="f">Vídeo (por vídeo de ${c.segundos||8} s)<select id="veon">${['lite','fast','standard'].map(k=>`<option value="${k}" ${c.nivel===k?'selected':''}>${{lite:'Lite (mais barato)',fast:'Fast (recomendado)',standard:'Standard (melhor)'}[k]} — US$ ${usdBR(((c.precos||{})[k]||[])[c.resolucao==='1080p'?1:0])}</option>`).join('')}</select></label>
+      <label class="f">Resolução do vídeo<select id="veor"><option value="720p" ${c.resolucao!=='1080p'?'selected':''}>720p</option><option value="1080p" ${c.resolucao==='1080p'?'selected':''}>1080p</option></select></label></div>
+      <div class="mlact"><button class="btn sm" id="veos">Salvar ajustes</button></div>`:''}
+      <div class="small mut" id="veomsg">${ch.length?'Modelos em uso: fotos '+esc(c.imgModelo||'')+' · vídeo '+esc(c.modelo||''):''}</div>`
+    :'<div class="small mut">Só o administrador configura.</div>'}</div>`;
   if(!admin)return;
   const salva=async corpo=>{ const m=$('#veomsg'); if(m)m.textContent='Conferindo com o Google…';
     try{ const r=await api('/veo',{method:'POST',body:corpo}); toast(r.aviso?'⚠️ '+r.aviso:'✅ Salvo'); await cartaoVeo(); if(r.aviso&&$('#veomsg'))$('#veomsg').textContent='⚠️ '+r.aviso; }
     catch(e){ if($('#veomsg'))$('#veomsg').textContent='⚠️ '+e.message; toast(e.message); } };
-  $('#veos').onclick=()=>salva({chave:$('#veok').value.trim()||undefined,nivel:$('#veon').value,resolucao:$('#veor').value});
-  if($('#veot'))$('#veot').onclick=()=>salva({testar:true});
-  if($('#veox'))$('#veox').onclick=()=>{ if(confirm('Remover a chave do Google? O botão de vídeo com IA do Google some até você salvar outra.'))salva({remover:true}); };
+  $('#veoadd').onclick=()=>{ const k=$('#veok').value.trim(); if(!k)return toast('Cole a chave'); salva({chave:k,nome:$('#veonm').value.trim()}); };
+  if($('#veos'))$('#veos').onclick=()=>salva({nivel:$('#veon').value,resolucao:$('#veor').value,img_nivel:$('#veoi').value});
+  el.querySelectorAll('[data-gsub]').forEach(b=>b.onclick=()=>salva({subir:b.dataset.gsub}));
+  el.querySelectorAll('[data-gtest]').forEach(b=>b.onclick=()=>salva({testar:b.dataset.gtest}));
+  el.querySelectorAll('[data-grem]').forEach(b=>b.onclick=()=>{ if(confirm('Remover essa chave do Gemini?'))salva({remover:b.dataset.grem}); });
 }
 // painel do gerador de vídeo (Anúncios ML)
 async function cartaoGerador(){
