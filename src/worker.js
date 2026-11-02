@@ -413,20 +413,31 @@ async function mlPublicar(request, env, url, user) {
   const item = {
     title: titulo, category_id: categoria, price: preco, currency_id: 'BRL',
     available_quantity: Math.max(1, Number(p.qtd) || 1), buying_mode: 'buy_it_now',
-    condition: 'used', listing_type_id: b.tipo || 'gold_special', pictures: fotos, attributes: atributos,
+    condition: condML(p.cond), listing_type_id: b.tipo || 'gold_special', pictures: fotos, attributes: atributos,
     sale_terms: [{ id: 'WARRANTY_TYPE', value_name: 'Garantia do vendedor' }, { id: 'WARRANTY_TIME', value_name: '90 dias' }],
   };
   if (yt) item.video_id = yt[1];
-  let r, d;
-  try {
-    r = await fetch(ML_API + '/items', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: JSON.stringify(item) });
-    d = await r.json().catch(() => ({}));
-  } catch (e) { return bad('falha de rede ao publicar: ' + (e && e.message || e)); }
-  if (!r.ok || !d.id) {
-    let det = d.message || ('HTTP ' + (r ? r.status : '?'));
+  // contas no modelo novo do ML ("User Products") exigem family_name no lugar do title
+  const posta = async corpo => {
+    const r = await fetch(ML_API + '/items', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: JSON.stringify(corpo) });
+    const d = await r.json().catch(() => ({}));
+    let det = d.message || ('HTTP ' + r.status);
     if (Array.isArray(d.cause) && d.cause.length) det += ' — ' + d.cause.map(c => c.message || c.code).filter(Boolean).join('; ');
-    return bad('o Mercado Livre recusou: ' + det);
-  }
+    return { ok: r.ok && !!d.id, d, det };
+  };
+  const comFamilia = () => { const c = { ...item, family_name: titulo }; delete c.title; return c; };
+  let res;
+  try {
+    const up = (await getCfg(env, 'ml_up')) === '1';
+    res = await posta(up ? comFamilia() : item);
+    if (!res.ok && !up && /family_name/i.test(res.det)) {            // 1ª vez: o ML avisou que é o modelo novo
+      res = await posta(comFamilia());
+      if (!res.ok && /\btitle\b/i.test(res.det)) res = await posta({ ...item, family_name: titulo }); // pede os dois
+      if (res.ok) await setCfg(env, 'ml_up', '1');
+    } else if (!res.ok && up && /\btitle\b/i.test(res.det)) res = await posta({ ...item, family_name: titulo });
+  } catch (e) { return bad('falha de rede ao publicar: ' + (e && e.message || e)); }
+  if (!res.ok) return bad('o Mercado Livre recusou: ' + res.det);
+  const d = res.d;
   try {
     await fetch(ML_API + '/items/' + d.id + '/description', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: JSON.stringify({ plain_text: b.desc || base.desc }) });
   } catch { /* descrição é secundária */ }
@@ -434,6 +445,8 @@ async function mlPublicar(request, env, url, user) {
   try { await setCfg(env, mlMemChave(p.nome), JSON.stringify({ id: categoria, caminho: String(b.caminho || '').slice(0, 300) })); } catch { /* memória é secundária */ }
   return json({ ok: true, id: d.id, permalink: d.permalink || null, status: d.status || null });
 }
+// condição do anúncio a partir da condição da peça
+const condML = c => /^nov/.test(norm(c)) ? 'new' : 'used';
 // chamada genérica à API do ML (lança erro com o motivo que o ML devolver)
 async function mlReq(token, metodo, caminho, corpo) {
   const r = await fetch(ML_API + caminho, { method: metodo, headers: { Authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: corpo ? JSON.stringify(corpo) : undefined });
