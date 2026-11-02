@@ -148,6 +148,9 @@ async function api(request, env, url) {
   if (p === '/api/ml/publicar' && m === 'POST') return mlPublicar(request, env, url, user);
   if (p === '/api/ml/categorias' && m === 'GET') return mlBuscaCategorias(url, env);
   if (p === '/api/ml/atributos' && m === 'GET') return mlAtributos(url, env);
+  mt = p.match(/^\/api\/ml\/item\/([\w-]+)$/);
+  if (mt && m === 'GET') return mlItem(mt[1], env);
+  if (mt && m === 'POST') return mlItemAcao(mt[1], request, env, user);
 
   return bad('rota não encontrada', 404);
 }
@@ -380,12 +383,16 @@ async function mlPublicar(request, env, url, user) {
     if (p.marca) atributos.push({ id: 'BRAND', value_name: String(p.marca) });
     if (p.pn) atributos.push({ id: 'PART_NUMBER', value_name: String(p.pn) });
   }
+  const pac = [['SELLER_PACKAGE_HEIGHT', p.alt_cm, 'cm'], ['SELLER_PACKAGE_WIDTH', p.larg_cm, 'cm'], ['SELLER_PACKAGE_LENGTH', p.comp_cm, 'cm'], ['SELLER_PACKAGE_WEIGHT', p.peso_g, 'g']];
+  for (const [aid, v, u] of pac) if (v != null && Number(v) > 0 && !atributos.find(a => a.id === aid)) atributos.push({ id: aid, value_name: Number(v) + ' ' + u });
+  const yt = String(p.video || '').match(/(?:youtu\.be\/|v=|shorts\/|embed\/)([\w-]{11})/);
   const item = {
     title: titulo, category_id: categoria, price: preco, currency_id: 'BRL',
     available_quantity: Math.max(1, Number(p.qtd) || 1), buying_mode: 'buy_it_now',
     condition: 'used', listing_type_id: b.tipo || 'gold_special', pictures: fotos, attributes: atributos,
     sale_terms: [{ id: 'WARRANTY_TYPE', value_name: 'Garantia do vendedor' }, { id: 'WARRANTY_TIME', value_name: '90 dias' }],
   };
+  if (yt) item.video_id = yt[1];
   let r, d;
   try {
     r = await fetch(ML_API + '/items', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: JSON.stringify(item) });
@@ -399,9 +406,87 @@ async function mlPublicar(request, env, url, user) {
   try {
     await fetch(ML_API + '/items/' + d.id + '/description', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: JSON.stringify({ plain_text: b.desc || base.desc }) });
   } catch { /* descrição é secundária */ }
-  try { await env.DB.prepare('UPDATE pecas SET ml=1, ml_id=?, ml_link=? WHERE id=?').bind(String(d.id), d.permalink || '', p.id).run(); } catch { /* marcação é secundária */ }
+  try { await garanteColsPecas(env); await env.DB.prepare('UPDATE pecas SET ml=1, ml_id=?, ml_link=?, ml_status=? WHERE id=?').bind(String(d.id), d.permalink || '', d.status || 'active', p.id).run(); } catch { /* marcação é secundária */ }
   try { await setCfg(env, mlMemChave(p.nome), JSON.stringify({ id: categoria, caminho: String(b.caminho || '').slice(0, 300) })); } catch { /* memória é secundária */ }
   return json({ ok: true, id: d.id, permalink: d.permalink || null, status: d.status || null });
+}
+// chamada genérica à API do ML (lança erro com o motivo que o ML devolver)
+async function mlReq(token, metodo, caminho, corpo) {
+  const r = await fetch(ML_API + caminho, { method: metodo, headers: { Authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: corpo ? JSON.stringify(corpo) : undefined });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    let det = d.message || ('HTTP ' + r.status);
+    if (Array.isArray(d.cause) && d.cause.length) det += ' — ' + d.cause.map(c => c.message || c.code).filter(Boolean).join('; ');
+    throw new Error(det);
+  }
+  return d;
+}
+const ML_ITEM_CAMPOS = 'id,status,sub_status,permalink,price,available_quantity,sold_quantity,listing_type_id,health,date_created';
+// situação do anúncio vinculado à peça
+async function mlItem(pecaId, env) {
+  await garanteColsPecas(env);
+  const p = await env.DB.prepare('SELECT id,ml_id,ml_status FROM pecas WHERE id=?').bind(pecaId).first();
+  if (!p) return bad('peça não encontrada', 404);
+  if (!p.ml_id) return json({ item: null });
+  const token = await mlToken(env);
+  if (!token) return bad('conecte o Mercado Livre primeiro');
+  try {
+    const d = await mlReq(token, 'GET', '/items/' + encodeURIComponent(p.ml_id) + '?attributes=' + ML_ITEM_CAMPOS);
+    const st = (p.ml_status === 'paused_venda' && d.status === 'paused') ? 'paused_venda' : d.status;
+    if (st && st !== p.ml_status) await env.DB.prepare('UPDATE pecas SET ml_status=?, ml_link=COALESCE(?,ml_link) WHERE id=?').bind(st, d.permalink || null, p.id).run();
+    return json({ item: { id: d.id, status: st, sub: d.sub_status || [], link: d.permalink || null, preco: d.price, qtd: d.available_quantity, vendidos: d.sold_quantity || 0, tipo: d.listing_type_id, saude: d.health ?? null, criado: d.date_created || null } });
+  } catch (e) { return bad('não consegui ler o anúncio no Mercado Livre: ' + e.message); }
+}
+// pausar / retomar / sincronizar preço e estoque / finalizar / desvincular
+async function mlItemAcao(pecaId, request, env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  await garanteColsPecas(env);
+  const { acao } = await request.json().catch(() => ({}));
+  const p = await env.DB.prepare('SELECT id,ml_id,qtd,preco FROM pecas WHERE id=?').bind(pecaId).first();
+  if (!p) return bad('peça não encontrada', 404);
+  if (acao === 'desvincular') {
+    await env.DB.prepare('UPDATE pecas SET ml=0, ml_id=NULL, ml_link=NULL, ml_status=NULL, atualizado_em=? WHERE id=?').bind(now(), p.id).run();
+    return json({ ok: true, status: null });
+  }
+  if (!p.ml_id) return bad('esta peça não tem anúncio vinculado');
+  const token = await mlToken(env);
+  if (!token) return bad('conecte o Mercado Livre primeiro');
+  const q = Number(p.qtd) || 0;
+  let corpo;
+  if (acao === 'pausar') corpo = { status: 'paused' };
+  else if (acao === 'retomar') { if (q <= 0) return bad('a peça está sem estoque: ajuste a quantidade antes de reativar'); corpo = { status: 'active' }; }
+  else if (acao === 'sincronizar') corpo = q > 0 ? { price: Number(p.preco) || 0, available_quantity: q } : { status: 'paused' };
+  else if (acao === 'finalizar') corpo = { status: 'closed' };
+  else return bad('ação inválida');
+  try {
+    // o ML aceita melhor estoque e status em pedidos separados
+    if (acao === 'retomar') await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), { available_quantity: q });
+    const d = await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), corpo);
+    const st = d.status || corpo.status || 'active';
+    await env.DB.prepare('UPDATE pecas SET ml_status=?, ml=?, atualizado_em=? WHERE id=?').bind(st, st === 'closed' ? 0 : 1, now(), p.id).run();
+    return json({ ok: true, status: st });
+  } catch (e) { return bad('o Mercado Livre recusou: ' + e.message); }
+}
+// depois de venda/cancelamento: sem estoque → pausa o anúncio; com estoque → atualiza a quantidade (e reativa se foi pausado pela venda)
+async function mlAposEstoque(env, pecaId) {
+  try {
+    await garanteColsPecas(env);
+    const p = await env.DB.prepare('SELECT id,ml_id,ml_status,qtd FROM pecas WHERE id=?').bind(pecaId).first();
+    if (!p || !p.ml_id || p.ml_status === 'closed') return null;
+    const token = await mlToken(env);
+    if (!token) return null;
+    const q = Number(p.qtd) || 0;
+    if (q <= 0) {
+      await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), { status: 'paused' });
+      await env.DB.prepare("UPDATE pecas SET ml_status='paused_venda' WHERE id=?").bind(p.id).run();
+      return 'pausado';
+    }
+    let d = await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), { available_quantity: q });
+    const reativa = p.ml_status === 'paused_venda';
+    if (reativa) d = await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), { status: 'active' });
+    await env.DB.prepare('UPDATE pecas SET ml_status=? WHERE id=?').bind(d.status || (reativa ? 'active' : p.ml_status) || 'active', p.id).run();
+    return reativa ? 'reativado' : 'atualizado';
+  } catch (e) { return 'erro: ' + e.message; }
 }
 async function mlDesconecta(env, user) {
   if (user.papel !== 'admin') return bad('somente o administrador', 403);
@@ -503,6 +588,17 @@ async function excluiLocal(id, env) {
 }
 
 // ---------- peças ----------
+// colunas novas (custo, qualidade, embalagem, vídeo, status do anúncio…), criadas sob demanda no banco existente
+let colsPecasOk = false;
+async function garanteColsPecas(env) {
+  if (colsPecasOk) return;
+  for (const c of ['custo REAL', 'qualidade TEXT', 'seguranca INTEGER DEFAULT 0', 'rastreavel INTEGER DEFAULT 0', 'peso_g INTEGER',
+    'alt_cm REAL', 'larg_cm REAL', 'comp_cm REAL', 'video TEXT', 'etq_em INTEGER', 'ml_status TEXT']) {
+    try { await env.DB.prepare('ALTER TABLE pecas ADD COLUMN ' + c).run(); } catch { /* já existe */ }
+  }
+  colsPecasOk = true;
+}
+const numOuNull = v => (v === '' || v == null || isNaN(Number(v))) ? null : Number(v);
 function parsePeca(row) {
   if (row && typeof row.fotos === 'string') { try { row.fotos = JSON.parse(row.fotos); } catch { row.fotos = []; } }
   return row;
@@ -512,6 +608,7 @@ async function proxCodigo(env) {
   return (r.m || 0) + 1;
 }
 async function listaPecas(url, env) {
+  await garanteColsPecas(env);
   const q = (url.searchParams.get('q') || '').trim();
   const local = url.searchParams.get('local') || '';
   const status = url.searchParams.get('status') || '';
@@ -561,18 +658,23 @@ async function sugestoes(url, env) {
   ).bind(...binds).all();
   return json({ sugestoes: r.results });
 }
-const CAMPOS = ['nome', 'marca', 'modelo', 'ano', 'pn', 'cond', 'veiculo', 'preco', 'qtd', 'local_id', 'obs', 'ml', 'ml_id', 'ml_link', 'olx', 'olx_link'];
+const CAMPOS = ['nome', 'marca', 'modelo', 'ano', 'pn', 'cond', 'veiculo', 'preco', 'qtd', 'local_id', 'obs', 'ml', 'ml_id', 'ml_link', 'olx', 'olx_link',
+  'custo', 'qualidade', 'seguranca', 'rastreavel', 'peso_g', 'alt_cm', 'larg_cm', 'comp_cm', 'video'];
 async function criaPeca(request, env, user) {
+  await garanteColsPecas(env);
   const b = await request.json();
   if (!b.nome) return bad('nome é obrigatório');
   const id = uid();
   const codigo = b.codigo ? parseInt(b.codigo) : await proxCodigo(env); // permite manter código do iBR na importação
   await env.DB.prepare(
-    `INSERT INTO pecas (id,codigo,nome,marca,modelo,ano,pn,cond,veiculo,preco,qtd,local_id,obs,busca,fotos,ml,ml_link,olx,olx_link,criado_em,criado_por)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    `INSERT INTO pecas (id,codigo,nome,marca,modelo,ano,pn,cond,veiculo,preco,qtd,local_id,obs,busca,fotos,ml,ml_link,olx,olx_link,criado_em,criado_por,
+       custo,qualidade,seguranca,rastreavel,peso_g,alt_cm,larg_cm,comp_cm,video)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(id, codigo, b.nome, b.marca || null, b.modelo || null, b.ano || null, b.pn || null, b.cond || null,
     b.veiculo || null, Number(b.preco) || 0, parseInt(b.qtd) || 0, b.local_id || null, b.obs || null,
-    buscaDe({ ...b, codigo }), JSON.stringify(b.fotos || []), b.ml ? 1 : 0, b.ml_link || null, b.olx ? 1 : 0, b.olx_link || null, now(), (user && user.id) || null).run();
+    buscaDe({ ...b, codigo }), JSON.stringify(b.fotos || []), b.ml ? 1 : 0, b.ml_link || null, b.olx ? 1 : 0, b.olx_link || null, now(), (user && user.id) || null,
+    numOuNull(b.custo), b.qualidade || null, b.seguranca ? 1 : 0, b.rastreavel ? 1 : 0, numOuNull(b.peso_g), numOuNull(b.alt_cm), numOuNull(b.larg_cm),
+    numOuNull(b.comp_cm), b.video || null).run();
   return getPeca(id, env);
 }
 // edição em massa: muda preço, local ou marcação de anúncio de várias peças de uma vez
@@ -620,6 +722,7 @@ async function produtividade(url, env) {
   return json({ periodo, porFuncionario: r.results });
 }
 async function atualizaPeca(id, request, env) {
+  await garanteColsPecas(env);
   const atual = await env.DB.prepare('SELECT id FROM pecas WHERE id=?').bind(id).first();
   if (!atual) return bad('peça não encontrada', 404);
   const b = await request.json();
@@ -629,7 +732,8 @@ async function atualizaPeca(id, request, env) {
       sets.push(`${c}=?`);
       if (c === 'preco') binds.push(Number(b[c]) || 0);
       else if (c === 'qtd') binds.push(parseInt(b[c]) || 0);
-      else if (c === 'ml' || c === 'olx') binds.push(b[c] ? 1 : 0);
+      else if (c === 'ml' || c === 'olx' || c === 'seguranca' || c === 'rastreavel') binds.push(b[c] ? 1 : 0);
+      else if (['custo', 'peso_g', 'alt_cm', 'larg_cm', 'comp_cm'].includes(c)) binds.push(numOuNull(b[c]));
       else binds.push(b[c] ?? null);
     }
   }
@@ -695,7 +799,8 @@ async function criaVenda(request, env) {
   ).bind(id, peca.id, peca.nome, peca.codigo, qtd, unit, qtd * unit, b.canal || 'Balcão',
     b.cliente || null, b.pagamento || null, b.local_path || null, now()).run();
   await env.DB.prepare('UPDATE pecas SET qtd=qtd-?, atualizado_em=? WHERE id=?').bind(qtd, now(), peca.id).run();
-  return json({ ok: true, id });
+  const ml = await mlAposEstoque(env, peca.id);
+  return json({ ok: true, id, ml });
 }
 async function cancelaVenda(id, env) {
   const v = await env.DB.prepare('SELECT * FROM vendas WHERE id=?').bind(id).first();
@@ -703,7 +808,8 @@ async function cancelaVenda(id, env) {
   if (v.cancelada) return json({ ok: true });
   await env.DB.prepare('UPDATE vendas SET cancelada=1 WHERE id=?').bind(id).run();
   await env.DB.prepare('UPDATE pecas SET qtd=qtd+?, atualizado_em=? WHERE id=?').bind(v.qtd, now(), v.peca_id).run();
-  return json({ ok: true });
+  const ml = await mlAposEstoque(env, v.peca_id);
+  return json({ ok: true, ml });
 }
 
 // ---------- painel ----------

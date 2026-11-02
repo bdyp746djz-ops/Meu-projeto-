@@ -170,6 +170,16 @@ nav.bottom{display:none}
 .rel-tot{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 12px}
 .rel-tot div{flex:1;min-width:120px;background:var(--pri-t);border-radius:var(--rad);padding:8px 12px}
 .rel-tot span{display:block;font-size:12px;color:var(--mut)}.rel-tot b{font-size:18px}
+.chk2{display:flex;gap:20px;flex-wrap:wrap;margin-top:10px}
+.chk2 label{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink);cursor:pointer}
+.chk2 input{width:auto}
+.sec-t{margin-top:14px;padding-top:12px;border-top:1px solid #eee;font-weight:500}
+.thumbs .star{position:absolute;left:4px;bottom:4px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.45);color:#fff;display:grid;place-items:center;font-size:13px;cursor:pointer;line-height:1}
+.thumbs .princ img{outline:3px solid var(--amber);outline-offset:-3px}
+.thumbs .princ .star{background:var(--amber)}
+.mlbox{margin-top:16px;padding:12px 14px;border:1px solid #e0e0e0;border-radius:var(--rad);background:#fafafa}
+.mlact{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.btn.red{color:var(--red)}
 /* componentes */
 .btn{border:1px solid #d0d0d0;background:#fff;border-radius:var(--rad);padding:9px 16px;cursor:pointer;font-weight:500;color:var(--ink);text-decoration:none;display:inline-block;transition:filter .13s,box-shadow .13s,background .13s}
 .btn:hover{background:#f5f5f5}
@@ -445,15 +455,19 @@ function abrePeca(id){
    <table class="small"><tr><th>Veículo</th><td>${esc([p.marca,p.modelo,p.ano].filter(Boolean).join(' '))||'—'}</td></tr>
    <tr><th>Part number</th><td>${esc(p.pn)||'—'}</td></tr><tr><th>Condição</th><td>${esc(p.cond)||'—'}</td></tr>
    <tr><th>Sucata de origem</th><td>${esc(p.veiculo)||'—'}</td></tr>
+   ${p.qualidade||p.custo!=null||p.seguranca||p.rastreavel?`<tr><th>Qualidade / custo</th><td>${p.qualidade?'<span class="tag">Qualidade '+esc(p.qualidade)+'</span> ':''}${p.custo!=null&&p.custo!==''?'Custo '+brl(p.custo)+' ':''}${p.seguranca?'<span class="tag zero">Segurança</span> ':''}${p.rastreavel?'<span class="tag">Rastreável</span>':''}</td></tr>`:''}
+   ${p.peso_g||p.alt_cm||p.larg_cm||p.comp_cm?`<tr><th>Embalagem</th><td>${p.peso_g?esc(p.peso_g)+' g':''}${p.alt_cm||p.larg_cm||p.comp_cm?' · '+[p.alt_cm,p.larg_cm,p.comp_cm].map(v=>v||'?').join(' × ')+' cm':''}</td></tr>`:''}
    <tr><th>Localização</th><td>${p.local_id&&S.locais[p.local_id]?'📍 '+esc(locPath(p.local_id)):'<span class="tag zero">sem localização</span>'}</td></tr>
    ${p.obs?`<tr><th>Obs.</th><td>${esc(p.obs)}</td></tr>`:''}</table>
    <div class="top" style="margin-top:14px;flex-wrap:wrap;gap:8px">
      <button class="btn g" id="dv" ${q>0?'':'disabled'}>💰 Vender</button>
-     <button class="btn" id="da">📣 Anúncio</button><button class="btn p" id="dml">🛒 Publicar no ML</button><button class="btn" id="de">✏️ Editar</button>
+     <button class="btn" id="da">📣 Anúncio</button>${p.ml_id&&p.ml_status!=='closed'?'':'<button class="btn p" id="dml">🛒 Publicar no ML</button>'}<button class="btn" id="de">✏️ Editar</button>
      <button class="btn" id="detq">🏷️ Etiqueta</button><button class="btn" id="ddup">🔁 Duplicar</button>
-     <button class="btn" id="dx" style="color:var(--red)">Excluir</button></div>`);
+     <button class="btn" id="dx" style="color:var(--red)">Excluir</button></div>
+   ${p.ml_id?`<div class="mlbox" id="mlbox"><div class="top" style="margin:0 0 6px"><b>Anúncio no Mercado Livre</b><span class="tag" id="mlst">${esc(stML(p.ml_status))}</span></div><div class="small mut" id="mlinfo">Consultando o anúncio…</div><div class="mlact" id="mlact"></div></div>`:''}`);
+  if(p.ml_id)caixaAnuncio(p);
   $('#dv').onclick=()=>vender(p); $('#da').onclick=()=>anuncio(p); $('#de').onclick=()=>editar(p.id);
-  $('#dml').onclick=()=>publicarML(p);
+  if($('#dml'))$('#dml').onclick=()=>publicarML(p);
   $('#ddup').onclick=()=>duplicar(p);
   $('#detq').onclick=()=>abreGerador([itemPeca(p)]);
   $('#dx').onclick=()=>{ if(confirm('Excluir '+p.nome+'?')) api('/pecas/'+id,{method:'DELETE'}).then(()=>{ fecha(); toast('Peça excluída'); listaEstoque(); }); };
@@ -465,7 +479,9 @@ async function publicarML(p){
   let r; try{ r=await api('/ml/rascunho/'+p.id); }catch(e){ fecha(); return toast(e.message); }
   const d=r.rascunho, st={cats:d.categorias||[],cat:d.categoria,attrs:[],vals:{}};
   const sku=String(p.codigo).padStart(6,'0');
-  const daPeca={BRAND:p.marca,MODEL:p.modelo,PART_NUMBER:p.pn,OEM:p.pn,ORIGINAL_PART_NUMBER:p.pn,SELLER_SKU:sku,VEHICLE_YEAR:p.ano};
+  const cm=v=>v?Number(v)+' cm':'';
+  const daPeca={BRAND:p.marca,MODEL:p.modelo,PART_NUMBER:p.pn,OEM:p.pn,ORIGINAL_PART_NUMBER:p.pn,SELLER_SKU:sku,VEHICLE_YEAR:p.ano,
+    SELLER_PACKAGE_HEIGHT:cm(p.alt_cm),SELLER_PACKAGE_WIDTH:cm(p.larg_cm),SELLER_PACKAGE_LENGTH:cm(p.comp_cm),SELLER_PACKAGE_WEIGHT:p.peso_g?Number(p.peso_g)+' g':''};
   modal(`<h3>Publicar no Mercado Livre</h3>
    <label class="f">Título (máx. 60)<input id="mtit" maxlength="60" value="${esc(d.titulo)}"></label>
    <div class="form"><label class="f">Preço (R$)<input id="mpre" type="number" step="0.01" min="0" value="${esc(d.preco)}"></label>
@@ -475,7 +491,7 @@ async function publicarML(p){
      <div class="mlbusca"><input id="mcq" placeholder="Não é nenhuma? Busque outra (ex.: farol, módulo de injeção)"><button class="btn sm" id="mcb" type="button">Buscar</button></div></div>
    <div class="mlsec"><b>Ficha técnica</b> <span class="small mut">— * = obrigatório no Mercado Livre</span><div id="mattrs"><p class="small mut">Escolha a categoria.</p></div></div>
    <label class="f">Descrição<textarea id="mdesc" rows="5" style="width:100%">${esc(d.desc)}</textarea></label>
-   <p class="small mut">${d.fotos.length} foto(s) · Condição: usado · Garantia do vendedor: 90 dias</p>
+   <p class="small mut">${d.fotos.length} foto(s) · Condição: usado · Garantia do vendedor: 90 dias${p.peso_g&&p.alt_cm&&p.larg_cm&&p.comp_cm?' · Embalagem: '+p.peso_g+' g, '+p.alt_cm+'×'+p.larg_cm+'×'+p.comp_cm+' cm':' · <b style="color:var(--amber)">sem dados da embalagem</b> (o ML pode pedir pro frete)'}${p.video?' · com vídeo':''}</p>
    <div class="card small" style="background:#fff7e6;box-shadow:none;margin:8px 0">⚠️ Ao publicar, o anúncio fica <b>ativo no Mercado Livre</b>. Confira os dados; depois dá pra pausar ou excluir pela sua conta do ML.</div>
    <div class="top" style="margin-top:12px"><button class="btn p" id="mok">🛒 Publicar de verdade</button><button class="btn" id="mcc">Cancelar</button></div>`);
   const valorDe=a=>{ if(a.id in st.vals)return st.vals[a.id]; const c=st.cats.find(x=>x.id===st.cat)||{}; const pv=(c.previstos||{})[a.id];
@@ -530,9 +546,35 @@ async function publicarML(p){
     }catch(e){ btn.disabled=false; btn.textContent='🛒 Publicar de verdade'; toast(e.message); }
   };
 }
+const ML_ST={active:'Ativo',paused:'Pausado',paused_venda:'Pausado (sem estoque)',closed:'Finalizado',under_review:'Em revisão',inactive:'Inativo'};
+const stML=s=>ML_ST[s]||(s?s:'Publicado');
+async function caixaAnuncio(p){
+  const pinta=it=>{ const st=it?it.status:p.ml_status, link=(it&&it.link)||p.ml_link;
+    if($('#mlst')){ $('#mlst').textContent=stML(st); $('#mlst').className='tag '+(st==='active'?'ml':st==='closed'?'zero':''); }
+    if($('#mlinfo'))$('#mlinfo').innerHTML=it?`${esc(p.ml_id)} · ${brl(it.preco)} · ${it.qtd} disponível(is) · ${it.vendidos} vendido(s) no ML${it.sub&&it.sub.length?' · '+esc(it.sub.join(', ')):''}`:esc(p.ml_id);
+    const b=(k,t,ic,cl)=>`<button class="btn sm ${cl||''}" data-ma="${k}"><span class="material-icons" style="font-size:16px;vertical-align:-3px">${ic}</span> ${t}</button>`;
+    $('#mlact').innerHTML=(link?`<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener"><span class="material-icons" style="font-size:16px;vertical-align:-3px">open_in_new</span> Ver</a>`+b('copiar','Copiar link','content_copy'):'')
+      +(st==='active'?b('pausar','Pausar','pause'):'')+(st&&st.startsWith('paused')?b('retomar','Retomar','play_arrow'):'')
+      +(st!=='closed'?b('sincronizar','Atualizar preço e estoque','sync')+b('finalizar','Finalizar','stop_circle','red'):'')+b('desvincular','Desvincular','link_off');
+    document.querySelectorAll('[data-ma]').forEach(x=>x.onclick=()=>acaoAnuncio(p,x.dataset.ma,link)); };
+  pinta(null);
+  try{ const { item }=await api('/ml/item/'+p.id); if(item){ p.ml_status=item.status; if(item.link)p.ml_link=item.link; } if($('#mlbox'))pinta(item); }
+  catch(e){ if($('#mlinfo'))$('#mlinfo').textContent='⚠️ '+e.message; }
+}
+async function acaoAnuncio(p,acao,link){
+  if(acao==='copiar'){ try{ await navigator.clipboard.writeText(link); toast('Link copiado'); }catch(_){ prompt('Copie o link:',link); } return; }
+  const pergunta={finalizar:'Finalizar o anúncio no Mercado Livre? Ele sai do ar de vez.',desvincular:'Tirar o vínculo deste anúncio com a peça? (o anúncio continua no ML)',sincronizar:`Atualizar no ML o preço (${brl(p.preco)}) e o estoque (${p.qtd}) desta peça?`}[acao];
+  if(pergunta&&!confirm(pergunta))return;
+  try{ const r=await api('/ml/item/'+p.id,{method:'POST',body:{acao}});
+    toast({pausar:'Anúncio pausado',retomar:'Anúncio reativado',sincronizar:'Preço e estoque atualizados no ML',finalizar:'Anúncio finalizado',desvincular:'Vínculo removido'}[acao]);
+    if(acao==='desvincular'){ p.ml=0; p.ml_id=null; p.ml_link=null; p.ml_status=null; abrePeca(p.id); return; }
+    p.ml_status=r.status; if(r.status==='closed')p.ml=0; caixaAnuncio(p);
+  }catch(e){ toast(e.message); }
+}
 function editar(id){ fecha(); S.ui.editId=id; const p=S.pecas.find(x=>x.id===id); S.ui.fotos=[...(p.fotos||[]).map(k=>({key:k}))]; go('nova'); }
 async function duplicar(p){
-  const body={ nome:p.nome,marca:p.marca,modelo:p.modelo,ano:p.ano,pn:p.pn,cond:p.cond,veiculo:p.veiculo,preco:p.preco,qtd:1,local_id:p.local_id,obs:p.obs,fotos:p.fotos||[] };
+  const body={ nome:p.nome,marca:p.marca,modelo:p.modelo,ano:p.ano,pn:p.pn,cond:p.cond,veiculo:p.veiculo,preco:p.preco,qtd:1,local_id:p.local_id,obs:p.obs,fotos:p.fotos||[],
+    custo:p.custo,qualidade:p.qualidade,seguranca:p.seguranca,rastreavel:p.rastreavel,peso_g:p.peso_g,alt_cm:p.alt_cm,larg_cm:p.larg_cm,comp_cm:p.comp_cm,video:p.video };
   try{ const r=await api('/pecas',{method:'POST',body}); fecha(); toast('Peça duplicada: '+cod(r.peca.codigo)); if(S.view==='estoque')listaEstoque(); }
   catch(e){ toast('Erro: '+e.message); }
 }
@@ -553,10 +595,19 @@ async function nova(){
     <label class="f">Sucata de origem<input name="veiculo" value="${esc(p.veiculo)}"></label>
     <label class="f">Preço (R$) *<input name="preco" type="number" step="0.01" min="0" required value="${p.preco??''}"></label>
     <label class="f">Quantidade *<input name="qtd" type="number" min="0" required value="${p.qtd??1}"></label>
+    <label class="f">Custo (R$)<input name="custo" type="number" step="0.01" min="0" value="${p.custo??''}" placeholder="quanto pagou (opcional)"></label>
+    <label class="f">Qualidade<select name="qualidade"><option value="">—</option>${['A','B','C'].map(q=>`<option ${p.qualidade===q?'selected':''}>${q}</option>`).join('')}</select></label>
+    <div class="f full chk2"><label><input type="checkbox" name="seguranca" ${p.seguranca?'checked':''}> Item de segurança <span class="mut">(airbag, freio, cinto…)</span></label><label><input type="checkbox" name="rastreavel" ${p.rastreavel?'checked':''}> Item rastreável</label></div>
+    <div class="full sec-t">Embalagem <span class="small mut">— o Mercado Livre usa pra calcular o frete</span></div>
+    <label class="f">Peso (g)<input name="peso_g" type="number" min="0" step="1" value="${p.peso_g??''}" placeholder="ex.: 850"></label>
+    <label class="f">Altura (cm)<input name="alt_cm" type="number" min="0" step="0.1" value="${p.alt_cm??''}"></label>
+    <label class="f">Largura (cm)<input name="larg_cm" type="number" min="0" step="0.1" value="${p.larg_cm??''}"></label>
+    <label class="f">Comprimento (cm)<input name="comp_cm" type="number" min="0" step="0.1" value="${p.comp_cm??''}"></label>
     <label class="f full">Localização<select name="local_id"><option value="">— sem localização —</option>${locOptions(p.local_id)}</select>
       <button type="button" class="btn sm" id="sugloc" style="margin-top:6px;align-self:flex-start">🎯 Sugerir caixa com espaço</button><span class="small" id="locdica" style="display:block;margin-top:6px"></span></label>
     <label class="f full">Observações<div class="withmic ta"><textarea name="obs" rows="2">${esc(p.obs)}</textarea><button type="button" class="mic" title="Ditar por voz">🎤</button></div></label>
-    <div class="full"><div class="small mut" style="font-weight:600;margin-bottom:6px">Fotos (até 4)</div>
+    <label class="f full">Vídeo da peça (link do YouTube, opcional)<input name="video" value="${esc(p.video||'')}" placeholder="https://www.youtube.com/watch?v=..."></label>
+    <div class="full"><div class="small mut" style="font-weight:600;margin-bottom:6px">Fotos (até 12) — a primeira é a principal; toque na ★ pra trocar</div>
       <div class="thumbs" id="thumbs"></div>
       <label class="btn sm" style="margin-top:8px">📷 Adicionar fotos<input type="file" accept="image/*" multiple id="pfoto" hidden></label></div>
   </div><div class="top" style="margin-top:16px">
@@ -568,7 +619,7 @@ async function nova(){
   if($('#sugloc'))$('#sugloc').onclick=sugereCaixa;
   { const fn=$('#pf').elements.nome; fn.addEventListener('change',autoLocal); fn.addEventListener('blur',autoLocal); }
   bindSugestoes(); bindMics();
-  $('#pfoto').onchange=async e=>{ for(const f of [...e.target.files]){ if(S.ui.fotos.length>=4)break; try{ S.ui.fotos.push({blob:await shrink(f)}); }catch{} } e.target.value=''; drawThumbs(); };
+  $('#pfoto').onchange=async e=>{ for(const f of [...e.target.files]){ if(S.ui.fotos.length>=12)break; try{ S.ui.fotos.push({blob:await shrink(f)}); }catch{} } e.target.value=''; drawThumbs(); };
   $('#pf').onsubmit=salvaPeca;
 }
 // sugestões enquanto digita o nome ou o part number (catálogo próprio; ML entra na Etapa 2)
@@ -616,8 +667,9 @@ function dicaLocal(cx,r){ const el=$('#locdica'); if(el)el.innerHTML=`📍 <b>${
 // localização inteligente: ao terminar de digitar o nome, se o local estiver vazio, escolhe pela regra
 function autoLocal(){ const f=$('#pf'); if(!f||f.elements.local_id.value)return; const r=regraPara(f.elements.nome.value); if(!r)return;
   const cx=melhorCaixa(r.l.id); if(cx){ f.elements.local_id.value=cx.id; dicaLocal(cx,r); } }
-function drawThumbs(){ const t=$('#thumbs'); if(!t)return; t.innerHTML=S.ui.fotos.map((f,i)=>`<div><img src="${f.key?'/api/foto/'+f.key:URL.createObjectURL(f.blob)}"><button type="button" data-i="${i}">×</button></div>`).join('');
-  t.querySelectorAll('button').forEach(b=>b.onclick=()=>{ S.ui.fotos.splice(+b.dataset.i,1); drawThumbs(); }); }
+function drawThumbs(){ const t=$('#thumbs'); if(!t)return; t.innerHTML=S.ui.fotos.map((f,i)=>`<div class="${i?'':'princ'}"><img src="${f.key?'/api/foto/'+f.key:URL.createObjectURL(f.blob)}"><button type="button" data-i="${i}">×</button><span class="star" data-p="${i}" title="${i?'Usar como principal':'Foto principal'}">★</span></div>`).join('');
+  t.querySelectorAll('button[data-i]').forEach(b=>b.onclick=()=>{ S.ui.fotos.splice(+b.dataset.i,1); drawThumbs(); });
+  t.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{ const i=+b.dataset.p; if(!i)return; const [f]=S.ui.fotos.splice(i,1); S.ui.fotos.unshift(f); drawThumbs(); }); }
 function shrink(file){ return new Promise((res,rej)=>{ const img=new Image(),u=URL.createObjectURL(file);
   img.onload=()=>{ const M=900,r=Math.min(1,M/Math.max(img.width,img.height)); const c=document.createElement('canvas'); c.width=img.width*r|0; c.height=img.height*r|0; c.getContext('2d').drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(u); c.toBlob(b=>res(b),'image/jpeg',0.72); };
   img.onerror=()=>{ URL.revokeObjectURL(u); rej(); }; img.src=u; }); }
@@ -626,12 +678,15 @@ async function salvaPeca(e){
   const fd=Object.fromEntries(new FormData(e.target).entries());
   if(!fd.local_id){ const r=regraPara(fd.nome); const cx=r?melhorCaixa(r.l.id):null; if(cx){ fd.local_id=cx.id; toast('📍 Guardar em '+codigoTxt(cx.id)+' — '+locPath(cx.id)); } }
   const keysExistentes=S.ui.fotos.filter(f=>f.key).map(f=>f.key);
-  const body={ nome:fd.nome.trim(),marca:fd.marca.trim(),modelo:fd.modelo.trim(),ano:fd.ano.trim(),pn:fd.pn.trim(),cond:fd.cond,veiculo:fd.veiculo.trim(),preco:fd.preco,qtd:fd.qtd,local_id:fd.local_id,obs:fd.obs.trim(),fotos:keysExistentes };
+  const body={ nome:fd.nome.trim(),marca:fd.marca.trim(),modelo:fd.modelo.trim(),ano:fd.ano.trim(),pn:fd.pn.trim(),cond:fd.cond,veiculo:fd.veiculo.trim(),preco:fd.preco,qtd:fd.qtd,local_id:fd.local_id,obs:fd.obs.trim(),fotos:keysExistentes,
+    custo:fd.custo,qualidade:fd.qualidade,seguranca:!!fd.seguranca,rastreavel:!!fd.rastreavel,peso_g:fd.peso_g,alt_cm:fd.alt_cm,larg_cm:fd.larg_cm,comp_cm:fd.comp_cm,video:(fd.video||'').trim() };
   try{
     let peca; const editando=!!S.ui.editId;
     if(editando) peca=(await api('/pecas/'+S.ui.editId,{method:'PATCH',body})).peca;
     else peca=(await api('/pecas',{method:'POST',body})).peca;
-    for(const f of S.ui.fotos){ if(f.blob) await fetch('/api/pecas/'+peca.id+'/foto',{method:'POST',headers:{'content-type':'image/jpeg'},body:f.blob}); }
+    if(S.ui.fotos.some(f=>f.blob)){ const ordem=[];
+      for(const f of S.ui.fotos){ if(f.key){ ordem.push(f.key); continue; } const r=await fetch('/api/pecas/'+peca.id+'/foto',{method:'POST',headers:{'content-type':'image/jpeg'},body:f.blob}); const j=await r.json().catch(()=>({})); if(j.key)ordem.push(j.key); }
+      await api('/pecas/'+peca.id,{method:'PATCH',body:{fotos:ordem}}); }
     toast(editando?'Peça atualizada':'Peça '+cod(peca.codigo)+' cadastrada');
     const manter=!editando && $('#outra') && $('#outra').checked;
     S.ui.editId=null; S.ui.fotos=[];
@@ -651,8 +706,9 @@ function vender(p){
    <div class="top" style="margin-top:14px"><button class="btn g" id="ok">Confirmar venda</button><button class="btn" id="cc">Cancelar</button></div>`);
   $('#cc').onclick=()=>abrePeca(p.id);
   $('#ok').onclick=async()=>{ try{
-    await api('/vendas',{method:'POST',body:{peca_id:p.id,qtd:$('#vq').value,unit:$('#vp').value,canal:$('#vc').value,cliente:$('#vcl').value,pagamento:$('#vpg').value,local_path:p.local_id?locPath(p.local_id):''}});
-    fecha(); toast('Venda registrada! Retirar em '+(p.local_id?locPath(p.local_id):'—')); listaEstoque&&listaEstoque();
+    const rv=await api('/vendas',{method:'POST',body:{peca_id:p.id,qtd:$('#vq').value,unit:$('#vp').value,canal:$('#vc').value,cliente:$('#vcl').value,pagamento:$('#vpg').value,local_path:p.local_id?locPath(p.local_id):''}});
+    fecha(); toast('Venda registrada! Retirar em '+(p.local_id?locPath(p.local_id):'—')+(rv.ml==='pausado'?' · anúncio do ML pausado (sem estoque)':rv.ml==='atualizado'?' · estoque do ML atualizado':rv.ml&&rv.ml.startsWith('erro')?' · ⚠️ não consegui atualizar o ML':''));
+    if(S.view==='estoque')listaEstoque();
   }catch(err){ toast('Erro: '+err.message); } };
 }
 
@@ -727,7 +783,7 @@ async function integracoes(){
     $('#mlista').innerHTML=l.map(p=>{
       const v=([(p.marca||'').toUpperCase(),p.modelo].filter(Boolean).join(' ')+(p.ano?' - '+p.ano:'')).trim();
       const sub=[brl(p.preco),(Number(p.qtd)||0)+' un','Cod: '+String(p.codigo).padStart(6,'0'),v].filter(Boolean).join(' | ');
-      const st=p.ml?`<span class="dp-pub on">● Publicada${p.ml_id?' · '+esc(p.ml_id):''}</span>`:'<span class="dp-pub">○ Não publicada</span>';
+      const st=p.ml?`<span class="dp-pub on">● ${esc(p.ml_status?stML(p.ml_status):'Publicada')}${p.ml_id?' · '+esc(p.ml_id):''}</span>`:'<span class="dp-pub">○ Não publicada</span>';
       const acao=p.ml&&p.ml_link?`<a class="dp-act" href="${esc(p.ml_link)}" target="_blank" rel="noopener" data-stop="1"><span class="material-icons">open_in_new</span>VER ANÚNCIO</a>`
         :p.ml?'<span class="dp-act mut">MARCADA</span>'
         :`<button class="dp-gerar" data-pub="${p.id}" ${ml.conectado?'':'disabled title="Conecte o Mercado Livre primeiro"'}><span class="material-icons">publish</span>PUBLICAR</button>`;

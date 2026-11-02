@@ -45,7 +45,18 @@ CREATE TABLE IF NOT EXISTS pecas (
   olx_link      TEXT,
   criado_em     INTEGER NOT NULL,
   atualizado_em INTEGER,
-  criado_por    TEXT                              -- id do usuário que cadastrou
+  criado_por    TEXT,                             -- id do usuário que cadastrou
+  custo         REAL,                             -- quanto pagou (opcional)
+  qualidade     TEXT,                             -- A / B / C
+  seguranca     INTEGER DEFAULT 0,                -- item de segurança (airbag, freio...)
+  rastreavel    INTEGER DEFAULT 0,
+  peso_g        INTEGER,                          -- embalagem (frete do ML)
+  alt_cm        REAL,
+  larg_cm       REAL,
+  comp_cm       REAL,
+  video         TEXT,                             -- link do YouTube
+  etq_em        INTEGER,                          -- quando a etiqueta foi impressa
+  ml_status     TEXT                              -- status do anúncio no ML
 );
 CREATE INDEX IF NOT EXISTS idx_pecas_codigo ON pecas(codigo);
 CREATE INDEX IF NOT EXISTS idx_pecas_pn     ON pecas(pn);
