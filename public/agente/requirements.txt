@@ -1,0 +1,12 @@
+diffusers>=0.35.1
+transformers>=4.51.3
+accelerate>=1.1.1
+sentencepiece
+protobuf
+ftfy
+imageio>=2.34
+imageio-ffmpeg>=0.5
+pillow
+numpy
+huggingface_hub>=0.30
+safetensors

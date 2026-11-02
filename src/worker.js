@@ -100,6 +100,9 @@ async function api(request, env, url) {
   if (p === '/api/ml/callback' && m === 'GET') return mlCallback(env, url);
   // foto pública: o Mercado Livre precisa baixar a imagem para montar o anúncio
   { const mf = p.match(/^\/api\/foto\/(.+)$/); if (mf && m === 'GET') return serveFoto(decodeURIComponent(mf[1]), env); }
+  // vídeo público (com Range, o iPhone exige) e o gerador de vídeo do PC (entra com a chave dele, sem cookie)
+  { const mv = p.match(/^\/api\/video\/(videos\/[\w\-\/.]+)$/); if (mv && (m === 'GET' || m === 'HEAD')) return serveVideo(mv[1], request, env); }
+  if (p.startsWith('/api/agente/') && !['/api/agente/instalador', '/api/agente/status', '/api/agente/chave'].includes(p)) return agenteApi(p, m, request, env, url);
 
   // autenticação
   const userId = await leSessao(cookies(request).sess, secret);
@@ -143,6 +146,14 @@ async function api(request, env, url) {
   if (mt && m === 'POST') return cancelaVenda(mt[1], env);
 
   if (p === '/api/painel' && m === 'GET') return painel(env);
+  // vídeos com IA (gerados no PC)
+  if (p === '/api/videos' && m === 'POST') return criaVideo(request, env);
+  if (p === '/api/videos' && m === 'GET') return listaVideos(url, env);
+  mt = p.match(/^\/api\/videos\/([\w-]+)\/repetir$/);
+  if (mt && m === 'POST') return repeteVideo(mt[1], env);
+  if (p === '/api/agente/status' && m === 'GET') return json(await agenteResumo(env));
+  if (p === '/api/agente/instalador' && m === 'GET') return agenteInstalador(env, url, user);
+  if (p === '/api/agente/chave' && m === 'POST') return agenteNovaChave(env, user);
   if (p === '/api/ml/expedicao' && m === 'GET') return mlExpedicao(env);
   mt = p.match(/^\/api\/ml\/etiqueta-envio\/(\d+)$/);
   if (mt && m === 'GET') return mlEtiquetaEnvio(mt[1], env);
@@ -1016,6 +1027,203 @@ async function serveFoto(key, env) {
     headers: { 'content-type': obj.httpMetadata?.contentType || 'image/jpeg', 'cache-control': 'public, max-age=31536000' },
   });
 }
+
+// ---------- vídeo com IA gerado no PC do usuário ----------
+let videosOk = false;
+async function garanteVideos(env) {
+  if (videosOk) return;
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS videos (id TEXT PRIMARY KEY, peca_id TEXT NOT NULL, status TEXT NOT NULL, prompt TEXT,
+    foto_key TEXT, video_key TEXT, erro TEXT, progresso TEXT, modelo TEXT, criado_em INTEGER NOT NULL, atualizado_em INTEGER)`).run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_videos_peca ON videos(peca_id)').run();
+  videosOk = true;
+}
+const hexAleatorio = n => [...crypto.getRandomValues(new Uint8Array(n))].map(b => b.toString(16).padStart(2, '0')).join('');
+async function agenteAutorizado(request, env) {
+  const h = request.headers.get('authorization') || '', t = h.startsWith('Bearer ') ? h.slice(7).trim() : '';
+  const ok = await getCfg(env, 'agente_token');
+  if (!t || !ok || t.length !== ok.length) return false;
+  let d = 0; for (let i = 0; i < t.length; i++) d |= t.charCodeAt(i) ^ ok.charCodeAt(i);
+  return d === 0;
+}
+const NEG_VIDEO = 'morphing, deformation, melting, changing shape, extra parts, missing parts, text, watermark, logo, hands, people, blurry, low quality, distorted, cartoon';
+function promptVideo(p) {
+  const veic = [p.marca, p.modelo, p.ano].filter(Boolean).join(' ');
+  return `Professional product video of a used automotive part: ${p.nome}${veic ? ' (' + veic + ')' : ''}. The part stays still on a clean pure white studio background while the camera slowly orbits a little around it and gently zooms in. Soft studio lighting, sharp focus, realistic metal and plastic textures. The part's shape, connectors, holes and every detail stay exactly the same.`;
+}
+async function agenteResumo(env) {
+  const visto = Number((await getCfg(env, 'agente_visto')) || 0);
+  let info = {}; try { info = JSON.parse((await getCfg(env, 'agente_info')) || '{}'); } catch { /* sem info */ }
+  return { configurado: !!(await getCfg(env, 'agente_token')), visto: visto || null, online: !!visto && now() - visto < 90e3, ...info };
+}
+async function agenteApi(p, m, request, env, url) {
+  if (!(await agenteAutorizado(request, env))) return bad('chave do gerador inválida', 401);
+  await garanteVideos(env);
+  if (p === '/api/agente/proximo' && m === 'POST') {
+    const info = await request.json().catch(() => ({}));
+    await setCfg(env, 'agente_visto', String(now()));
+    await setCfg(env, 'agente_info', JSON.stringify({ gpu: String(info.gpu || '').slice(0, 80), vram: Number(info.vram) || null, modelo: String(info.modelo || '').slice(0, 20), versao: String(info.versao || '').slice(0, 20) }));
+    // pedido parado há mais de 3 h (PC desligou no meio) volta pra fila
+    await env.DB.prepare("UPDATE videos SET status='fila' WHERE status='gerando' AND atualizado_em < ?").bind(now() - 3 * 3600e3).run();
+    const v = await env.DB.prepare("SELECT * FROM videos WHERE status='fila' ORDER BY criado_em LIMIT 1").first();
+    if (!v) return json({ job: null });
+    await env.DB.prepare("UPDATE videos SET status='gerando', progresso='o PC começou a gerar', atualizado_em=? WHERE id=?").bind(now(), v.id).run();
+    return json({ job: { id: v.id, foto_url: url.origin + '/api/foto/' + v.foto_key, prompt: v.prompt, negativo: NEG_VIDEO } });
+  }
+  let mt = p.match(/^\/api\/agente\/progresso\/([\w-]+)$/);
+  if (mt && m === 'POST') {
+    const b = await request.json().catch(() => ({}));
+    await setCfg(env, 'agente_visto', String(now()));
+    await env.DB.prepare("UPDATE videos SET progresso=?, atualizado_em=? WHERE id=? AND status='gerando'").bind(String(b.texto || '').slice(0, 200) || null, now(), mt[1]).run();
+    return json({ ok: true });
+  }
+  mt = p.match(/^\/api\/agente\/video\/([\w-]+)$/);
+  if (mt && m === 'POST') {
+    const v = await env.DB.prepare('SELECT id,peca_id FROM videos WHERE id=?').bind(mt[1]).first();
+    if (!v) return bad('pedido não encontrado', 404);
+    if (!(request.headers.get('content-type') || '').startsWith('video/')) return bad('envie um vídeo mp4');
+    const key = `videos/${v.peca_id}/${uid()}.mp4`;
+    await env.FOTOS.put(key, request.body, { httpMetadata: { contentType: 'video/mp4' } });
+    await env.DB.prepare("UPDATE videos SET status='pronto', video_key=?, modelo=?, erro=NULL, progresso=NULL, atualizado_em=? WHERE id=?")
+      .bind(key, (request.headers.get('x-modelo') || '').slice(0, 20) || null, now(), v.id).run();
+    await setCfg(env, 'agente_visto', String(now()));
+    return json({ ok: true, key });
+  }
+  mt = p.match(/^\/api\/agente\/erro\/([\w-]+)$/);
+  if (mt && m === 'POST') {
+    const b = await request.json().catch(() => ({}));
+    await env.DB.prepare("UPDATE videos SET status='erro', erro=?, progresso=NULL, atualizado_em=? WHERE id=?").bind(String(b.erro || 'erro desconhecido').slice(0, 500), now(), mt[1]).run();
+    return json({ ok: true });
+  }
+  return bad('rota do gerador não encontrada', 404);
+}
+async function criaVideo(request, env) {
+  await garanteVideos(env);
+  const b = await request.json().catch(() => ({}));
+  const row = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(b.peca_id || '').first();
+  if (!row) return bad('peça não encontrada', 404);
+  const pc = parsePeca(row), fotos = pc.fotos || [];
+  const foto = b.foto_key && fotos.includes(b.foto_key) ? b.foto_key : fotos[0];
+  if (!foto) return bad('a peça precisa de pelo menos uma foto');
+  if (!(await getCfg(env, 'agente_token'))) return bad('instale o gerador no PC primeiro (Anúncios ML → Gerador de vídeo)');
+  const ja = await env.DB.prepare("SELECT id FROM videos WHERE peca_id=? AND status IN ('fila','gerando')").bind(pc.id).first();
+  if (ja) return bad('já tem um vídeo dessa peça sendo gerado', 409);
+  const id = uid();
+  await env.DB.prepare('INSERT INTO videos (id,peca_id,status,prompt,foto_key,criado_em,atualizado_em) VALUES (?,?,?,?,?,?,?)')
+    .bind(id, pc.id, 'fila', promptVideo(pc), foto, now(), now()).run();
+  return json({ ok: true, id });
+}
+async function listaVideos(url, env) {
+  await garanteVideos(env);
+  const r = await env.DB.prepare('SELECT id,status,video_key,erro,progresso,modelo,criado_em,atualizado_em FROM videos WHERE peca_id=? ORDER BY criado_em DESC LIMIT 5').bind(url.searchParams.get('peca') || '').all();
+  const fila = (await env.DB.prepare("SELECT COUNT(*) n FROM videos WHERE status='fila'").first()).n;
+  return json({ videos: r.results, fila, agente: await agenteResumo(env) });
+}
+async function repeteVideo(id, env) {
+  await garanteVideos(env);
+  await env.DB.prepare("UPDATE videos SET status='fila', erro=NULL, progresso=NULL, atualizado_em=? WHERE id=? AND status IN ('erro','gerando')").bind(now(), id).run();
+  return json({ ok: true });
+}
+async function agenteNovaChave(env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  await setCfg(env, 'agente_token', hexAleatorio(24));
+  return json({ ok: true });
+}
+async function agenteInstalador(env, url, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  let t = await getCfg(env, 'agente_token');
+  if (!t) { t = hexAleatorio(24); await setCfg(env, 'agente_token', t); }
+  const bat = INSTALADOR_BAT.split('__SERVIDOR__').join(url.origin).split('__TOKEN__').join(t).replace(/\r?\n/g, '\r\n');
+  return new Response(bat, { headers: { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="instalar-gerador-video.bat"', 'cache-control': 'no-store' } });
+}
+async function serveVideo(key, request, env) {
+  const rh = request.headers.get('range');
+  if (rh) {
+    const head = await env.FOTOS.head(key);
+    if (!head) return bad('vídeo não encontrado', 404);
+    const size = head.size, mm = rh.match(/bytes=(\d*)-(\d*)/);
+    let ini = mm && mm[1] ? parseInt(mm[1]) : 0, fim = mm && mm[2] ? parseInt(mm[2]) : size - 1;
+    if (mm && !mm[1] && mm[2]) { ini = Math.max(0, size - parseInt(mm[2])); fim = size - 1; }
+    fim = Math.min(fim, size - 1);
+    if (ini > fim) return new Response(null, { status: 416, headers: { 'content-range': `bytes */${size}` } });
+    const obj = await env.FOTOS.get(key, { range: { offset: ini, length: fim - ini + 1 } });
+    return new Response(obj.body, { status: 206, headers: { 'content-type': 'video/mp4', 'content-range': `bytes ${ini}-${fim}/${size}`, 'content-length': String(fim - ini + 1), 'accept-ranges': 'bytes', 'cache-control': 'public, max-age=31536000' } });
+  }
+  const obj = await env.FOTOS.get(key);
+  if (!obj) return bad('vídeo não encontrado', 404);
+  return new Response(obj.body, { headers: { 'content-type': 'video/mp4', 'content-length': String(obj.size), 'accept-ranges': 'bytes', 'cache-control': 'public, max-age=31536000' } });
+}
+// instalador para Windows (o sistema troca __SERVIDOR__ e __TOKEN__ na hora do download)
+const INSTALADOR_BAT = String.raw`@echo off
+setlocal EnableExtensions
+chcp 65001 >nul
+title Instalando o gerador de video - Rafa Busca Pecas
+set "SERVIDOR=__SERVIDOR__"
+set "TOKEN=__TOKEN__"
+set "PASTA=%USERPROFILE%\RafaGerador"
+echo.
+echo  === Gerador de video com IA - Rafa Busca Pecas ===
+echo  Pasta: %PASTA%
+echo.
+nvidia-smi >nul 2>&1
+if errorlevel 1 (
+  echo  [ERRO] Nao encontrei placa NVIDIA. Atualize o driver em https://www.nvidia.com/pt-br/drivers/
+  pause
+  exit /b 1
+)
+set "CU=cu124"
+nvidia-smi --query-gpu=name --format=csv,noheader | findstr /R /C:"RTX 50[0-9][0-9]" >nul && set "CU=cu128"
+set PY=
+py -3.11 --version >nul 2>&1 && set PY=py -3.11
+if not defined PY python --version 2>nul | findstr /R /C:"3\.1[0-2]\." >nul && set PY=python
+if not defined PY (
+  echo  Instalando o Python 3.11 ...
+  winget install -e --id Python.Python.3.11 --scope user --accept-source-agreements --accept-package-agreements
+)
+if not defined PY if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" set PY="%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+if not defined PY (
+  echo  [ERRO] Nao consegui instalar o Python. Instale o Python 3.11 em https://www.python.org/downloads/
+  echo         marcando "Add python.exe to PATH", e rode este instalador de novo.
+  pause
+  exit /b 1
+)
+if not exist "%PASTA%" mkdir "%PASTA%"
+cd /d "%PASTA%"
+echo  Baixando o programa...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; Invoke-WebRequest -UseBasicParsing '%SERVIDOR%/agente/agente.py' -OutFile 'agente.py'; Invoke-WebRequest -UseBasicParsing '%SERVIDOR%/agente/requirements.txt' -OutFile 'requirements.txt'"
+if errorlevel 1 (
+  echo  [ERRO] Nao consegui baixar o programa. Confira a internet e tente de novo.
+  pause
+  exit /b 1
+)
+> config.json echo {"servidor": "%SERVIDOR%", "token": "%TOKEN%", "modelo": "auto", "passos": 30}
+if not exist "venv\Scripts\python.exe" %PY% -m venv venv
+if not exist "venv\Scripts\python.exe" (
+  echo  [ERRO] Nao consegui criar o ambiente do Python.
+  pause
+  exit /b 1
+)
+echo  Instalando a IA (na primeira vez pode levar de 10 a 30 minutos)...
+"venv\Scripts\python.exe" -m pip install --upgrade pip
+"venv\Scripts\python.exe" -m pip install torch --index-url https://download.pytorch.org/whl/%CU%
+"venv\Scripts\python.exe" -m pip install -r requirements.txt
+if errorlevel 1 (
+  echo  [ERRO] Falhou ao instalar as bibliotecas. Tire um print desta tela e mande pro suporte.
+  pause
+  exit /b 1
+)
+> iniciar.bat echo @echo off
+>> iniciar.bat echo chcp 65001 ^>nul
+>> iniciar.bat echo title Gerador de video - Rafa Busca Pecas
+>> iniciar.bat echo cd /d "%PASTA%"
+>> iniciar.bat echo "venv\Scripts\python.exe" agente.py
+>> iniciar.bat echo pause
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\Gerador de video Rafa.lnk'); $s.TargetPath='%PASTA%\iniciar.bat'; $s.WorkingDirectory='%PASTA%'; $s.Save()"
+echo.
+echo  Instalado! Criei o atalho "Gerador de video Rafa" na Area de Trabalho.
+echo  Deixe a janela do gerador aberta enquanto quiser gerar videos.
+echo.
+call iniciar.bat
+`;
 
 // ---------- vendas ----------
 let colsVendasOk = false;

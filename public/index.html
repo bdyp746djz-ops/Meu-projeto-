@@ -585,8 +585,10 @@ function abrePeca(id){
      <button class="btn" id="da">📣 Anúncio</button>${p.ml_id&&p.ml_status!=='closed'?'':'<button class="btn p" id="dml">🛒 Publicar no ML</button>'}<button class="btn" id="de">✏️ Editar</button>
      <button class="btn" id="dpm">💲 Preço de mercado</button><button class="btn" id="dia">✨ Fotos com IA</button><button class="btn" id="detq">🏷️ Etiqueta</button><button class="btn" id="ddup">🔁 Duplicar</button>
      <button class="btn" id="dx" style="color:var(--red)">Excluir</button></div>
+   <div class="mlbox" id="vidbox"><b>🎬 Vídeo com IA</b><div class="small mut" id="vidinfo" style="margin-top:6px">Carregando…</div></div>
    ${p.ml_id?`<div class="mlbox" id="mlbox"><div class="top" style="margin:0 0 6px"><b>Anúncio no Mercado Livre</b><span class="tag" id="mlst">${esc(stML(p.ml_status))}</span></div><div class="small mut" id="mlinfo">Consultando o anúncio…</div><div class="mlact" id="mlact"></div></div>`:''}`);
   if(p.ml_id)caixaAnuncio(p);
+  if($('#vidbox'))caixaVideo(p);
   $('#dv').onclick=()=>vender(p); $('#da').onclick=()=>anuncio(p); $('#de').onclick=()=>editar(p.id);
   if($('#dml'))$('#dml').onclick=()=>publicarML(p);
   $('#dpm').onclick=()=>precoMercado(p);
@@ -715,6 +717,43 @@ async function fotosIA(p){
       }catch(e){ b.disabled=false; b.textContent='Salvar fotos'; toast(e.message); } };
   };
   pinta();
+}
+// vídeo com IA: pede ao gerador do PC, acompanha e mostra o resultado
+const ST_VID={fila:'Na fila — esperando o PC',gerando:'O PC está gerando',pronto:'Pronto',erro:'Deu erro'};
+function quandoFoi(ms){ if(!ms)return 'nunca'; const s=(Date.now()-ms)/1000; return s<90?'agora há pouco':s<3600?Math.round(s/60)+' min atrás':s<86400?Math.round(s/3600)+' h atrás':new Date(ms).toLocaleDateString('pt-BR'); }
+async function caixaVideo(p){
+  const el=$('#vidinfo'); if(!el)return; clearTimeout(window._vidT);
+  let d; try{ d=await api('/videos?peca='+p.id); }catch(e){ el.innerHTML='⚠️ '+esc(e.message); return; }
+  if(!$('#vidinfo'))return;
+  const v=d.videos[0], ag=d.agente||{}, pc=ag.configurado?(ag.online?`🟢 PC conectado${ag.gpu?' ('+esc(ag.gpu)+')':''}`:`🔴 PC desligado ou gerador fechado (visto ${quandoFoi(ag.visto)})`):'⚪ Gerador ainda não instalado no PC';
+  let h=`<div style="margin-bottom:6px">${pc}</div>`;
+  const pronto=d.videos.find(x=>x.status==='pronto');
+  if(v&&(v.status==='fila'||v.status==='gerando')) h+=`<div><span class="spin-s"></span><b>${ST_VID[v.status]}</b>${v.progresso?' — '+esc(v.progresso):''}${v.status==='fila'&&d.fila>1?' · '+d.fila+' na fila':''}</div>${!ag.online?'<div class="small" style="color:var(--amber);margin-top:4px">Ligue o PC e abra o "Gerador de video Rafa" na Área de Trabalho.</div>':''}`;
+  else if(v&&v.status==='erro') h+=`<div style="color:var(--red)">⚠️ ${esc(v.erro||'erro')}</div><div class="mlact"><button class="btn sm" data-vr="${v.id}">Tentar de novo</button></div>`;
+  if(pronto) h+=`<video controls playsinline preload="metadata" src="/api/video/${esc(pronto.video_key)}#t=0.1" style="width:100%;max-height:420px;background:#000;border-radius:6px;margin-top:8px"></video>
+    <div class="mlact"><a class="btn sm" href="/api/video/${esc(pronto.video_key)}" download="video-${cod(p.codigo).replace('#','')}.mp4"><span class="material-icons" style="font-size:16px;vertical-align:-3px">download</span> Baixar (pra postar como Clip no app do ML)</a></div>`;
+  if(!v||v.status==='pronto'||v.status==='erro') h+=`<div class="mlact"><button class="btn sm p" id="vgera" ${ag.configurado&&(p.fotos||[]).length?'':'disabled'}>🎬 ${pronto?'Gerar outro vídeo':'Gerar vídeo com IA'}</button></div>
+    ${!ag.configurado?'<div class="small mut" style="margin-top:4px">Instale o gerador no PC em <b>Anúncios ML → Gerador de vídeo</b>.</div>':''}
+    <div class="small mut" style="margin-top:4px">Usa a 1ª foto (a de fundo branco). Confira o vídeo antes de usar: a IA pode mudar detalhes da peça.</div>`;
+  el.innerHTML=h;
+  if($('#vgera'))$('#vgera').onclick=async()=>{ try{ await api('/videos',{method:'POST',body:{peca_id:p.id}}); toast('Pedido enviado pro PC'); caixaVideo(p); }catch(e){ toast(e.message); } };
+  el.querySelectorAll('[data-vr]').forEach(b=>b.onclick=async()=>{ await api('/videos/'+b.dataset.vr+'/repetir',{method:'POST'}); caixaVideo(p); });
+  if(v&&(v.status==='fila'||v.status==='gerando'))window._vidT=setTimeout(()=>caixaVideo(p),8000);
+}
+// painel do gerador de vídeo (Anúncios ML)
+async function cartaoGerador(){
+  const el=$('#vidcard'); if(!el)return; let a={};
+  try{ a=await api('/agente/status'); }catch(_){ }
+  if(!$('#vidcard'))return;
+  el.innerHTML=`<div class="card" style="max-width:960px;margin:0 auto 12px"><div class="top" style="margin:0"><b>🎬 Gerador de vídeo com IA (no seu PC)</b>
+    <span class="small">${a.configurado?(a.online?'🟢 conectado'+(a.gpu?' · '+esc(a.gpu)+(a.vram?' '+a.vram+' GB':''):'')+(a.modelo?' · '+(a.modelo==='wan'?'Wan 2.2':'LTX-Video'):''):'🔴 desconectado · visto '+quandoFoi(a.visto)):'⚪ não instalado'}</span></div>
+    <div class="small mut" style="margin:6px 0">Precisa de PC com Windows e placa NVIDIA (ideal 24 GB; funciona a partir de 12 GB). Na 1ª vez o PC baixa a IA (uns 30 GB). Cada vídeo de 5 s leva de 2 a 15 min, sem custo.</div>
+    <div class="mlact"><button class="btn sm p" id="agbx"><span class="material-icons" style="font-size:16px;vertical-align:-3px">download</span> Baixar instalador (abra no PC)</button>${a.configurado?'<button class="btn sm" id="agch">Trocar chave</button>':''}</div></div>`;
+  $('#agbx').onclick=async()=>{ try{ const r=await fetch('/api/agente/instalador'); if(!r.ok)throw new Error((await r.json().catch(()=>({}))).erro||'falhou');
+      const u=URL.createObjectURL(await r.blob()), l=document.createElement('a'); l.href=u; l.download='instalar-gerador-video.bat'; document.body.appendChild(l); l.click(); l.remove(); setTimeout(()=>URL.revokeObjectURL(u),5000);
+      toast('Instalador baixado: no PC, dê dois cliques nele'); cartaoGerador(); }catch(e){ toast(e.message); } };
+  if($('#agch'))$('#agch').onclick=async()=>{ if(!confirm('Trocar a chave? O gerador instalado no PC para de funcionar até você baixar e rodar o instalador de novo.'))return;
+    try{ await api('/agente/chave',{method:'POST'}); toast('Chave trocada. Baixe o instalador de novo no PC.'); cartaoGerador(); }catch(e){ toast(e.message); } };
 }
 // quão pronta a peça está pra virar anúncio
 function prontidao(p){
@@ -1157,6 +1196,7 @@ async function integracoes(){
      </div></div>
    ${flash}${ml.conectado?'':cartaoML(ml,admin)}
    <div class="dp-mini" id="mresumo"></div>
+   ${admin?'<div id="vidcard" style="padding:0 12px"></div>':''}
    <div class="dp-lista" id="mlista"></div>`;
   $('#mmos').value=ui.mlMos;
   const desenha=()=>{
@@ -1182,6 +1222,7 @@ async function integracoes(){
   $('#mq').oninput=e=>{ ui.mlQ=e.target.value; desenha(); };
   $('#mmos').onchange=e=>{ ui.mlMos=e.target.value; desenha(); };
   $('#mcfg').onclick=()=>{ modal(cartaoML(ml,admin)); ligaML(ml,integracoes); };
+  if(admin)cartaoGerador();
   ligaML(ml,integracoes);
   desenha();
 }
