@@ -54,8 +54,8 @@ header.bar{background:var(--red);color:#fff;display:none;align-items:center;gap:
 .pc.sel{outline:3px solid var(--red);outline-offset:-2px}
 .selck{position:absolute;left:7px;top:7px;z-index:3;width:24px;height:24px;border-radius:6px;background:#fff;border:2px solid var(--red);color:var(--red);display:grid;place-items:center;font-weight:800;font-size:14px}
 .bulkbar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:#1d1f23;color:#fff;border-radius:12px;padding:10px 14px;display:flex;gap:8px;align-items:center;z-index:40;box-shadow:0 4px 16px rgba(0,0,0,.28);flex-wrap:wrap;max-width:94vw}
-.pc .ph{position:relative;aspect-ratio:4/3;background:linear-gradient(135deg,#eef1f4,#e3e7ec);display:grid;place-items:center;color:#9aa1ab;font-size:30px}
-.pc .ph img{width:100%;height:100%;object-fit:cover}
+.pc .ph{position:relative;height:150px;background:linear-gradient(135deg,#eef1f4,#e3e7ec);display:grid;place-items:center;color:#9aa1ab;font-size:30px;overflow:hidden}
+.pc .ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .pc .ph .loc{position:absolute;left:6px;right:6px;bottom:6px;background:rgba(21,101,192,.94);color:#fff;font-size:10.5px;font-weight:700;border-radius:7px;padding:4px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pc .ph .loc.none{background:rgba(198,40,40,.94)}
 .pc .b{padding:9px 10px;display:flex;flex-direction:column;gap:5px}
