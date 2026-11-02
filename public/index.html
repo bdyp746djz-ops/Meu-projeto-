@@ -108,11 +108,24 @@ nav.bottom{display:none}
 .dp-rod{display:flex;justify-content:center;gap:30px;border-top:1px solid #eee;margin-top:10px;padding:14px 0 2px}
 .dp-tb{display:inline-flex;align-items:center;gap:5px;background:none;border:0;color:#424242;font-size:14px;letter-spacing:.03em;cursor:pointer;padding:6px}
 .dp-tb .material-icons{font-size:17px}
+.dp-azul{background:var(--pri)}
+.dp-gerar:disabled{background:#bdbdbd;cursor:not-allowed;box-shadow:none}
+.dp-st{display:inline-flex;align-items:center;gap:4px;font-size:13px;color:#9e9e9e}
+.dp-st .material-icons{font-size:18px}
+.dp-st.ok{color:var(--ok)}
+.dp-cx{max-width:960px;margin:0 auto 14px}
+.dp-pub{display:inline-block;margin-top:5px;font-size:12px;color:#9e9e9e}
+.dp-pub.on{color:var(--ok);font-weight:500}
+.dp-ac{flex-shrink:0}
+.dp-act{display:inline-flex;align-items:center;gap:5px;color:var(--pri);text-decoration:none;font-size:13px;font-weight:500;letter-spacing:.02em;padding:8px 6px}
+.dp-act .material-icons{font-size:17px}
+.dp-act.mut{color:#9e9e9e}
 @media(max-width:760px){
  .dp-bar{margin:-14px -12px 12px;padding:8px 12px}
  .dp-ops{gap:10px;width:100%}.dp-gerar{margin-left:auto}
  .dp-row{padding:12px;gap:12px}.dp-ft{width:58px;height:58px}
  .dp-tt{font-size:14px}.dp-sb{font-size:12px}
+ .dp-row{flex-wrap:wrap}.dp-ac{width:100%;display:flex;justify-content:flex-end}
 }
 /* componentes */
 .btn{border:1px solid #d0d0d0;background:#fff;border-radius:var(--rad);padding:9px 16px;cursor:pointer;font-weight:500;color:var(--ink);text-decoration:none;display:inline-block;transition:filter .13s,box-shadow .13s,background .13s}
@@ -574,46 +587,74 @@ function anuncio(p){
   $('#sa').onclick=async()=>{ await api('/pecas/'+p.id,{method:'PATCH',body:{ml:$('#aml').checked,olx:$('#aolx').checked}}); toast('Salvo'); fecha(); listaEstoque&&listaEstoque(); };
 }
 
-// ---------- Integrações (Mercado Livre) ----------
-async function integracoes(){
-  const c=await api('/config'); const ml=c.ml||{};
-  const q=new URLSearchParams((location.hash.split('?')[1]||''));
-  const flash=q.get('ml')==='ok' && ml.conectado
-    ?'<div class="card" style="background:#e8f7ec;border-color:#bfe6c9"><b style="color:#116b2e">✅ Mercado Livre conectado!</b></div>':'';
-  const admin=S.user&&S.user.papel==='admin';
-  $('#main').innerHTML=`<div class="top"><h2>Anúncios ML · Mercado Livre</h2></div>
-   ${flash}
-   <div class="card">
-     <div class="top" style="margin:0 0 6px"><h3 style="margin:0">🛒 Mercado Livre</h3>
+// ---------- Anúncios ML (publicações + conexão com o Mercado Livre) ----------
+function cartaoML(ml,admin){
+  return `<div class="card dp-cx">
+     <div class="top" style="margin:0 0 6px"><h3 style="margin:0">🛒 Conexão com o Mercado Livre</h3>
        ${ml.conectado?'<span class="tag ml">Conectado</span>':'<span class="tag zero">Desconectado</span>'}</div>
-     <p class="small mut">Conecte sua conta do Mercado Livre para publicar anúncios direto do sistema.</p>
-     ${ml.conectado?`<p class="small">Conta: <b>${esc(ml.nickname||'conectada')}</b> &nbsp; <button class="btn sm" id="mldesc">Desconectar</button></p>`:''}
-     ${!ml.conectado && ml.ultimoErro?`<div class="card small" style="background:#fdeaea;border-color:#f3c2c2;margin:8px 0"><b style="color:#a12">❌ Última tentativa de conectar falhou:</b><br>${esc(ml.ultimoErro)}</div>`:''}
-     ${admin?`
-     <hr style="border:none;border-top:1px solid #eee;margin:14px 0">
-     <b class="small">1) Credenciais do seu app no Mercado Livre</b>
+     ${ml.conectado?`<p class="small">Conta: <b>${esc(ml.nickname||'conectada')}</b> &nbsp; ${admin?'<button class="btn sm" id="mldesc">Desconectar</button>':''}</p>`:'<p class="small mut">Conecte sua conta do Mercado Livre para publicar anúncios direto do sistema.</p>'}
+     ${!ml.conectado&&ml.ultimoErro?`<div class="card small" style="background:#fdeaea;margin:8px 0;box-shadow:none"><b style="color:var(--red)">❌ Última tentativa de conectar falhou:</b><br>${esc(ml.ultimoErro)}</div>`:''}
+     ${admin?`<b class="small">1) Credenciais do seu app no Mercado Livre</b>
      <label class="f">App ID<input id="mlapp" placeholder="${ml.appIdSet?'•••••• (já salvo — preencha só p/ trocar)':'número do App ID'}"></label>
      <label class="f">Secret Key<input id="mlsec" placeholder="${ml.appIdSet?'•••••• (já salvo — preencha só p/ trocar)':'código secreto'}"></label>
-     <button class="btn p sm" id="mlsave">Salvar credenciais</button>
-     <p class="small mut" style="margin-top:10px">No cadastro do app no Mercado Livre, use esta <b>URL de redirect</b>:<br>
-       <code style="font-size:11px;word-break:break-all">${esc(ml.redirectUri||'')}</code></p>
-     <hr style="border:none;border-top:1px solid #eee;margin:14px 0">
-     <b class="small">2) Conectar a conta</b>
-     <p class="small mut">Salve as credenciais acima e clique abaixo para fazer login no Mercado Livre.</p>
-     <button class="btn p" id="mlconn" style="margin-top:6px">🔗 Conectar Mercado Livre</button>
-     `:'<p class="small mut">Somente o administrador pode configurar a conexão.</p>'}
+     <button class="btn p sm" id="mlsave" style="margin-top:10px">Salvar credenciais</button>
+     <p class="small mut" style="margin-top:10px">URL de redirect do app: <code style="font-size:11px;word-break:break-all">${esc(ml.redirectUri||'')}</code></p>
+     <b class="small">2) Conectar a conta</b><br>
+     <button class="btn p" id="mlconn" style="margin-top:8px">🔗 ${ml.conectado?'Reconectar':'Conectar'} Mercado Livre</button>`:'<p class="small mut">Somente o administrador pode configurar a conexão.</p>'}
    </div>`;
-  if($('#mldesc'))$('#mldesc').onclick=async()=>{ if(!confirm('Desconectar o Mercado Livre?'))return; await api('/ml/desconectar',{method:'POST'}); toast('Desconectado'); integracoes(); };
+}
+function ligaML(ml,recarrega){
+  if($('#mldesc'))$('#mldesc').onclick=async()=>{ if(!confirm('Desconectar o Mercado Livre?'))return; await api('/ml/desconectar',{method:'POST'}); toast('Desconectado'); fecha(); recarrega(); };
   if($('#mlsave'))$('#mlsave').onclick=async()=>{
     const appId=$('#mlapp').value.trim(), secret=$('#mlsec').value.trim();
-    if(!ml.appIdSet && (!appId||!secret)){ toast('Preencha App ID e Secret'); return; }
-    try{ await api('/ml/credenciais',{method:'POST',body:{appId:appId||undefined, secret:secret||undefined}}); toast('Credenciais salvas'); integracoes(); }
-    catch(e){ toast(e.message); }
-  };
+    if(!ml.appIdSet&&(!appId||!secret)){ toast('Preencha App ID e Secret'); return; }
+    try{ await api('/ml/credenciais',{method:'POST',body:{appId:appId||undefined,secret:secret||undefined}}); toast('Credenciais salvas'); fecha(); recarrega(); }catch(e){ toast(e.message); } };
   if($('#mlconn'))$('#mlconn').onclick=async()=>{
-    try{ const r=await api('/ml/connect'); if(r&&r.url){ toast('Abrindo Mercado Livre…'); location.href=r.url; } else toast('Não foi possível gerar o link'); }
-    catch(e){ toast('Erro: '+e.message); }
+    try{ const r=await api('/ml/connect'); if(r&&r.url){ toast('Abrindo Mercado Livre…'); location.href=r.url; } else toast('Não foi possível gerar o link'); }catch(e){ toast('Erro: '+e.message); } };
+}
+async function integracoes(){
+  const [c]=await Promise.all([api('/config'),carregaLocais()]); const ml=c.ml||{};
+  const { pecas }=await api('/pecas?todas=1'); S.pecas=pecas;
+  const ui=S.ui; ui.mlMos=ui.mlMos||'todas'; ui.mlQ=ui.mlQ||'';
+  const admin=S.user&&S.user.papel==='admin';
+  const q0=new URLSearchParams((location.hash.split('?')[1]||''));
+  const flash=q0.get('ml')==='ok'&&ml.conectado?'<div class="card" style="background:#e8f5e9;box-shadow:none;max-width:960px;margin:0 auto 12px"><b style="color:var(--ok)">✅ Mercado Livre conectado!</b></div>':'';
+  $('#main').innerHTML=`<div class="dp-bar">
+     <label class="dp-busca"><span class="material-icons">search</span><input id="mq" placeholder="Procurar por peça..." value="${esc(ui.mlQ)}" autocomplete="off"></label>
+     <div class="dp-ops">
+       <span class="dp-op">Mostrar: <select id="mmos"><option value="todas">Todas</option><option value="pub">Publicadas</option><option value="nao">Não publicadas</option></select></span>
+       <span class="dp-st ${ml.conectado?'ok':''}"><span class="material-icons">${ml.conectado?'check_circle':'error_outline'}</span>${ml.conectado?esc(ml.nickname||'Conectado'):'Desconectado'}</span>
+       <button class="dp-gerar dp-azul" id="mcfg"><span class="material-icons">settings</span>CONEXÃO</button>
+     </div></div>
+   ${flash}${ml.conectado?'':cartaoML(ml,admin)}
+   <div class="dp-mini" id="mresumo"></div>
+   <div class="dp-lista" id="mlista"></div>`;
+  $('#mmos').value=ui.mlMos;
+  const desenha=()=>{
+    const q=nrm(ui.mlQ).split(/\s+/).filter(Boolean);
+    let l=S.pecas.filter(p=>ui.mlMos==='todas'||(ui.mlMos==='pub'?!!p.ml:!p.ml));
+    if(q.length)l=l.filter(p=>{ const t=nrm([p.nome,p.marca,p.modelo,p.ano,p.pn,cod(p.codigo),p.ml_id].join(' ')); return q.every(w=>t.includes(w)); });
+    l.sort((a,b)=>(b.criado_em||0)-(a.criado_em||0));
+    const pub=S.pecas.filter(p=>p.ml).length;
+    $('#mresumo').textContent=`${pub} publicada(s) · ${S.pecas.length-pub} sem anúncio`;
+    $('#mlista').innerHTML=l.map(p=>{
+      const v=([(p.marca||'').toUpperCase(),p.modelo].filter(Boolean).join(' ')+(p.ano?' - '+p.ano:'')).trim();
+      const sub=[brl(p.preco),(Number(p.qtd)||0)+' un','Cod: '+String(p.codigo).padStart(6,'0'),v].filter(Boolean).join(' | ');
+      const st=p.ml?`<span class="dp-pub on">● Publicada${p.ml_id?' · '+esc(p.ml_id):''}</span>`:'<span class="dp-pub">○ Não publicada</span>';
+      const acao=p.ml&&p.ml_link?`<a class="dp-act" href="${esc(p.ml_link)}" target="_blank" rel="noopener" data-stop="1"><span class="material-icons">open_in_new</span>VER ANÚNCIO</a>`
+        :p.ml?'<span class="dp-act mut">MARCADA</span>'
+        :`<button class="dp-gerar" data-pub="${p.id}" ${ml.conectado?'':'disabled title="Conecte o Mercado Livre primeiro"'}><span class="material-icons">publish</span>PUBLICAR</button>`;
+      return `<div class="dp-row" data-id="${p.id}"><div class="dp-ft">${p.fotos&&p.fotos[0]?`<img src="/api/foto/${p.fotos[0]}" loading="lazy" alt="">`:'<span class="material-icons">build</span>'}</div>
+        <div class="dp-tx"><div class="dp-tt">${esc(p.nome)}</div><div class="dp-sb">${esc(sub)}</div>${st}</div><div class="dp-ac">${acao}</div></div>`; }).join('')
+      ||'<div class="empty">Nenhuma peça encontrada.</div>';
+    document.querySelectorAll('#mlista .dp-row').forEach(r=>r.onclick=e=>{ if(e.target.closest('[data-stop],[data-pub]'))return; abrePeca(r.dataset.id); });
+    document.querySelectorAll('[data-pub]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); const p=S.pecas.find(x=>x.id===b.dataset.pub); if(p)publicarML(p); });
   };
+  $('#mq').oninput=e=>{ ui.mlQ=e.target.value; desenha(); };
+  $('#mmos').onchange=e=>{ ui.mlMos=e.target.value; desenha(); };
+  $('#mcfg').onclick=()=>{ modal(cartaoML(ml,admin)); ligaML(ml,integracoes); };
+  ligaML(ml,integracoes);
+  desenha();
 }
 
 // ---------- Localizações ----------
