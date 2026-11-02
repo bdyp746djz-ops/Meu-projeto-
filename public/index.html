@@ -917,7 +917,9 @@ async function cartaoGerador(){
   el.innerHTML=`<div class="card" style="max-width:960px;margin:0 auto 12px"><div class="top" style="margin:0"><b>🎬 Gerador de vídeo com IA (no seu PC)</b>
     <span class="small">${a.configurado?(a.online?'🟢 conectado'+(a.gpu?' · '+esc(a.gpu)+(a.vram?' '+a.vram+' GB':''):'')+(a.modelo?' · vídeo '+({wan:'IA Wan 2.2',ltx:'IA LTX-Video',cinema:'cinematográfico (foto real)'}[a.modelo]||a.modelo):''):'🔴 desconectado · visto '+quandoFoi(a.visto)):'⚪ não instalado'}</span></div>
     <div class="small mut" style="margin:6px 0">PC com Windows. <b>Placa AMD (ex.: RX 6600) ou Intel:</b> fotos com IA (recorte BiRefNet, melhoria Real-ESRGAN, luz) e vídeo cinematográfico de 10 s feito com a foto real — a peça não muda. <b>NVIDIA 12 GB+:</b> também gera vídeo com IA. Na 1ª vez o PC baixa os modelos. Sem custo por foto ou vídeo.<br>📱 <b>Você pede pelo celular e o PC faz sozinho</b> — o gerador abre junto com o Windows e não deixa o PC suspender; é só deixar o PC ligado com internet.</div>
-    <div class="mlact"><button class="btn sm p" id="agbx"><span class="material-icons" style="font-size:16px;vertical-align:-3px">download</span> Baixar instalador (abra no PC)</button><button class="btn sm" id="agcmd">✍️ Comandos da IA</button>${a.configurado?'<button class="btn sm" id="agch">Trocar chave</button>':''}</div></div>`;
+    ${S.user&&S.user.papel==='admin'?`<div class="mlact"><button class="btn sm p" id="agbx"><span class="material-icons" style="font-size:16px;vertical-align:-3px">download</span> Baixar instalador (abra no PC)</button><button class="btn sm" id="agcmd">✍️ Comandos da IA</button>${a.configurado?'<button class="btn sm" id="agch">Trocar chave</button>':''}</div>`
+      :`<div class="card small" style="background:#fff7e6;box-shadow:none;margin:6px 0">🔒 Você entrou como <b>${esc(S.user&&(S.user.nome||S.user.login)||'funcionário')}</b>. Só o <b>administrador</b> baixa o instalador. Toque em <b>Sair</b> e entre com o login de administrador (o mesmo do seu celular) para aparecer o botão.</div>`}</div>`;
+  if(!$('#agbx'))return;
   $('#agcmd').onclick=telaComandos;
   $('#agbx').onclick=async()=>{ try{ const r=await fetch('/api/agente/instalador'); if(!r.ok)throw new Error((await r.json().catch(()=>({}))).erro||'falhou');
       const u=URL.createObjectURL(await r.blob()), l=document.createElement('a'); l.href=u; l.download='instalar-gerador-video.bat'; document.body.appendChild(l); l.click(); l.remove(); setTimeout(()=>URL.revokeObjectURL(u),5000);
@@ -1457,7 +1459,7 @@ async function integracoes(){
      </div></div>
    ${flash}${ml.conectado?'':cartaoML(ml,admin)}
    <div class="dp-mini" id="mresumo"></div>
-   ${admin?'<div id="vidcard" style="padding:0 12px"></div>':''}
+   <div id="vidcard" style="padding:0 12px"></div>
    <div class="dp-lista" id="mlista"></div>`;
   $('#mmos').value=ui.mlMos;
   const desenha=()=>{
@@ -1483,7 +1485,7 @@ async function integracoes(){
   $('#mq').oninput=e=>{ ui.mlQ=e.target.value; desenha(); };
   $('#mmos').onchange=e=>{ ui.mlMos=e.target.value; desenha(); };
   $('#mcfg').onclick=()=>{ modal(cartaoML(ml,admin)); ligaML(ml,integracoes); };
-  if(admin)cartaoGerador();
+  cartaoGerador();
   ligaML(ml,integracoes);
   desenha();
 }
