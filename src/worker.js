@@ -152,6 +152,8 @@ async function api(request, env, url) {
   mt = p.match(/^\/api\/videos\/([\w-]+)\/repetir$/);
   if (mt && m === 'POST') return repeteVideo(mt[1], env);
   if (p === '/api/agente/status' && m === 'GET') return json(await agenteResumo(env));
+  if (p === '/api/ia/comandos' && m === 'GET') return json(await comandosIA(env));
+  if (p === '/api/ia/comandos' && m === 'POST') return salvaComandosIA(request, env, user);
   if (p === '/api/agente/instalador' && m === 'GET') return agenteInstalador(env, url, user);
   if (p === '/api/agente/chave' && m === 'POST') return agenteNovaChave(env, user);
   if (p === '/api/ml/expedicao' && m === 'GET') return mlExpedicao(env);
@@ -1045,10 +1047,27 @@ async function agenteAutorizado(request, env) {
   let d = 0; for (let i = 0; i < t.length; i++) d |= t.charCodeAt(i) ^ ok.charCodeAt(i);
   return d === 0;
 }
-const NEG_VIDEO = 'morphing, deformation, melting, changing shape, extra parts, missing parts, text, watermark, logo, hands, people, blurry, low quality, distorted, cartoon';
-function promptVideo(p) {
-  const veic = [p.marca, p.modelo, p.ano].filter(Boolean).join(' ');
-  return `Professional product video of a used automotive part: ${p.nome}${veic ? ' (' + veic + ')' : ''}. The part stays still on a clean pure white studio background while the camera slowly orbits a little around it and gently zooms in. Soft studio lighting, sharp focus, realistic metal and plastic textures. The part's shape, connectors, holes and every detail stay exactly the same.`;
+const NEG_VIDEO = 'product rotation, spinning, orbit, 360 view, morphing, deformation, melting, changing shape, new holes, missing holes, extra parts, missing parts, changed text, fake letters, fake numbers, new logo, watermark, cuts, scene change, transitions, hands, people, voice, blurry, low quality, distorted, cartoon, painting';
+// comandos (prompts) da IA — os padrões são os textos do Rafael; editáveis em Anúncios ML → Comandos da IA
+const CMD_PADRAO = { foto: "remova o fundo e deixe fundo branco sem sombras, preserve as caracteristicas da peça, com resolução exigidas para anúncios do mercado livre de 1.200 x 1.200 pixels. faça que essa foto fosse tirada com uma câmera Canon RF 24-70mm f/2.8L IS USM e a Canon RF 70-200mm f/2.8L IS USM, mantenha exatamente a fisionomia, características e detalhes do produto. mantenha exatamente as as escritas e numerações que as peças tem, não mude essas características. Se houver reflexo de luzes, remova. Mantenha tonalidade de cores. Mantenha a imagem real da original, cor da peça e características, arranhões, amassados e manchas, Realize um upscale de alta fidelidade e aumente a nitidez e a resolução geral. Corrija qualquer micro-desfoque, reduza ruídos de sensor discretos e OTIMIZE o contraste e o balanço de cores de forma realista, preservando rigorosamente as texturas originais da pele, tecidos e cenário, sem inventar elementos novos ou criar aspecto artificial/pintado. Mantenha a autenticidade técnica da imagem original.", arte: "Crie uma imagem mostrando aonde vai instalada exatamente essa peça do {peca} com resolução 1200x1200 px para anúncios do mercado livre, totalmente em português br, mantenha exatamente a fisionomia, características e detalhes do produto. mantenha exatamente as as escritas e numerações que as peças tem, não mude essas características. Não escreva e nem mencione se a peça é usada ou nova.", video: "Based on the attached product photo, create a 10-second vertical 9:16 cinematic commercial video.\n\nCRITICAL PRODUCT PRESERVATION INSTRUCTION:\n\nThe attached image is the absolute source of truth for the product.\n\nTreat the product as a locked, immutable visual asset. The AI must NOT redesign, reinterpret, regenerate, reconstruct, redraw, replace or modify the product.\n\nThe product shown in the reference image must remain visually identical to the original photograph from the first frame to the last frame.\n\nDo not change even the smallest physical characteristic of the product.\n\nPreserve exactly:\n\noverall silhouette\nouter contours\ndimensions\nproportions\nthickness\nedges\ncurves\nholes\nopenings\nslots\nmounting points\nscrews\nclips\nbrackets\nconnectors\nseams\ngrooves\ntextures\nscratches\nimperfections\nmaterial\ncolor\nreflections\nshadows on the product\nlabels\nlogos\nletters\nnumbers\nsymbols\nprinted markings\n\nThe product must never morph or change shape.\n\nNever add a hole.\nNever remove a hole.\nNever move a hole.\nNever change the size of a hole.\nNever change the thickness of any part.\nNever change the position of any component.\nNever create additional components.\nNever remove any component.\nNever invent details that are not visible in the reference image.\n\nTEXT AND MARKINGS\n\nAny text, logo, number, code, symbol or marking visible in the original image must remain exactly identical, in the exact same position, orientation, shape and appearance.\n\nDo not generate replacement text.\n\nDo not rewrite text.\n\nDo not create fake letters or numbers.\n\nDo not change or improve the typography.\n\nIf the original text is partially visible, keep it exactly as shown rather than attempting to reconstruct it.\n\nPRODUCT MOVEMENT\n\nTHE PRODUCT MUST NOT MOVE.\n\nDo not rotate the product.\n\nDo not spin the product.\n\nDo not bend the product.\n\nDo not deform the product.\n\nDo not animate the product.\n\nDo not make the product transform.\n\nDo not create a 360-degree view.\n\nDo not reveal hidden surfaces.\n\nDo not generate any new side of the product that is not visible in the reference image.\n\nThe product must remain in the same orientation and composition as the reference photograph.\n\nCAMERA\n\nUse an extremely subtle professional camera movement.\n\nThe safest camera movement is a very slow cinematic push-in, with only a minimal change in framing.\n\nThe camera movement must NOT require the AI to reconstruct hidden geometry.\n\nDo not orbit around the product.\n\nDo not move behind the product.\n\nDo not move around the sides of the product.\n\nDo not change the viewing angle significantly.\n\nThe product should remain essentially identical to the reference photograph while the camera makes a very subtle cinematic push-in.\n\nANIMATION\n\nAnimate only the environment, lighting and camera, never the physical geometry of the product.\n\nCreate subtle realistic changes in:\n\nstudio lighting\nsoft reflections\nbackground depth\nextremely subtle camera movement\n\nThe product itself remains frozen and unchanged.\n\nVISUAL QUALITY\n\nPremium automotive advertising aesthetic.\n\nRealistic professional studio environment.\n\nWarm, soft cinematic lighting.\n\nRealistic reflections.\n\nNatural shadows.\n\nSharp focus.\n\nUltra-HD 4K appearance.\n\nPhotorealistic materials.\n\nProfessional commercial product photography.\n\nPremium advertising-style color grading.\n\nClean and sophisticated background.\n\nVIDEO STRUCTURE\n\nUse one continuous shot only.\n\nNO scene changes.\n\nNO cuts.\n\nDo not use narration\n\nDo not use a human voice\n\nNO transitions.\n\nNO different camera angles.\n\nNO product rotation.\n\nNO change of product position.\n\nNO change of product appearance.\n\nThe entire 10-second video must be a single continuous shot of the same exact product.\n\nABSOLUTE PRIORITY\n\nIf there is any conflict between cinematic movement and product preservation, ALWAYS prioritize product preservation.\n\nIt is much more important for the product to remain 100% identical to the reference image than to create an elaborate camera movement.\n\nThe final result must look like a real camera filming the exact physical product shown in the reference photograph, not an AI recreating or redesigning the product.\n\nDO NOT GENERATE A NEW VERSION OF THE PRODUCT.\n\nDO NOT RECONSTRUCT THE PRODUCT.\n\nDO NOT MODIFY THE PRODUCT.\n\nKEEP THE PRODUCT IDENTICAL TO THE REFERENCE IMAGE FROM FRAME 1 TO FRAME 300." };
+async function comandosIA(env) {
+  const r = {};
+  for (const k of ['foto', 'arte', 'video']) r[k] = (await getCfg(env, 'ia_cmd_' + k)) || CMD_PADRAO[k];
+  r.padrao = CMD_PADRAO;
+  return r;
+}
+async function salvaComandosIA(request, env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  const b = await request.json().catch(() => ({}));
+  for (const k of ['foto', 'arte', 'video']) if (typeof b[k] === 'string') await setCfg(env, 'ia_cmd_' + k, b[k].trim().slice(0, 8000) || CMD_PADRAO[k]);
+  return json(await comandosIA(env));
+}
+const descPeca = p => [p.nome, [p.marca, p.modelo, p.ano].filter(Boolean).join(' '), p.pn].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+// a IA de vídeo só lê o começo de textos longos: o resumo das regras vai na frente do comando completo
+const RESUMO_VIDEO = 'One continuous 10-second vertical 9:16 shot. Very slow cinematic push-in towards the exact product from the reference photo. The product stays perfectly still and identical: no rotation, no morphing, same holes, connectors, text and numbers. Only light and camera change. Warm soft studio lighting, clean premium background, photorealistic automotive advertising, sharp focus.';
+async function promptVideo(p, env) {
+  const tpl = (await getCfg(env, 'ia_cmd_video')) || CMD_PADRAO.video;
+  return RESUMO_VIDEO + '\n\nProduct: ' + descPeca(p) + '\n\n' + tpl.split('{peca}').join(descPeca(p));
 }
 async function agenteResumo(env) {
   const visto = Number((await getCfg(env, 'agente_visto')) || 0);
@@ -1067,7 +1086,7 @@ async function agenteApi(p, m, request, env, url) {
     const v = await env.DB.prepare("SELECT * FROM videos WHERE status='fila' ORDER BY criado_em LIMIT 1").first();
     if (!v) return json({ job: null });
     await env.DB.prepare("UPDATE videos SET status='gerando', progresso='o PC começou a gerar', atualizado_em=? WHERE id=?").bind(now(), v.id).run();
-    return json({ job: { id: v.id, foto_url: url.origin + '/api/foto/' + v.foto_key, prompt: v.prompt, negativo: NEG_VIDEO } });
+    return json({ job: { id: v.id, foto_url: url.origin + '/api/foto/' + v.foto_key, prompt: v.prompt, negativo: NEG_VIDEO, segundos: 10 } });
   }
   let mt = p.match(/^\/api\/agente\/progresso\/([\w-]+)$/);
   if (mt && m === 'POST') {
@@ -1109,7 +1128,7 @@ async function criaVideo(request, env) {
   if (ja) return bad('já tem um vídeo dessa peça sendo gerado', 409);
   const id = uid();
   await env.DB.prepare('INSERT INTO videos (id,peca_id,status,prompt,foto_key,criado_em,atualizado_em) VALUES (?,?,?,?,?,?,?)')
-    .bind(id, pc.id, 'fila', promptVideo(pc), foto, now(), now()).run();
+    .bind(id, pc.id, 'fila', await promptVideo(pc, env), foto, now(), now()).run();
   return json({ ok: true, id });
 }
 async function listaVideos(url, env) {

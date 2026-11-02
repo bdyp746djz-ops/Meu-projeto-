@@ -8,7 +8,7 @@ que chama o sistema.
 """
 import io, json, os, sys, tempfile, time, traceback, urllib.error, urllib.request
 
-VERSAO = '1.0'
+VERSAO = '1.1'
 PASTA = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(PASTA, 'config.json'), encoding='utf-8-sig') as f:
     CFG = json.load(f)
@@ -41,6 +41,23 @@ def baixa(url):
     r = urllib.request.Request(url, headers={'User-Agent': 'RafaGerador/' + VERSAO})
     with urllib.request.urlopen(r, timeout=120) as resp:
         return resp.read()
+
+
+def atualiza_programa():
+    # baixa a versão mais nova do programa do sistema; se mudou, troca e reinicia
+    try:
+        novo = baixa(SERVIDOR + '/agente/agente.py')
+        atual = open(os.path.abspath(__file__), 'rb').read()
+        if novo and b'VERSAO' in novo and b'def main' in novo and novo.replace(b'\r\n', b'\n') != atual.replace(b'\r\n', b'\n'):
+            with open(os.path.abspath(__file__), 'wb') as f:
+                f.write(novo)
+            log('Programa atualizado. Reiniciando...')
+            os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)] + sys.argv[1:])
+    except Exception as e:
+        log('Não consegui verificar atualização (segue com a versão atual):', e)
+
+
+atualiza_programa()
 
 
 try:
@@ -116,12 +133,44 @@ def prepara_imagem(dados):
 def salva_mp4(quadros, arq):
     import imageio
     import numpy as np
+    n = 0
     with imageio.get_writer(arq, fps=FPS, codec='libx264', quality=8, pixelformat='yuv420p', macro_block_size=16) as w:
         for q in quadros:
             a = np.asarray(q)
             if a.dtype != np.uint8:
                 a = (np.clip(a, 0, 1) * 255).astype('uint8')
             w.append_data(a)
+            n += 1
+    return n
+
+
+def estica_para(arq, segundos, n_quadros):
+    # deixa o vídeo com a duração pedida (ex.: 10 s) criando quadros intermediários (300 quadros a 30 fps);
+    # se não der, faz ida e volta (o movimento de câmera vai e volta, a peça continua parada)
+    import subprocess
+    import imageio_ffmpeg
+    ff = imageio_ffmpeg.get_ffmpeg_exe()
+    dur = max(1, n_quadros - 1) / FPS   # tempo entre o 1º e o último quadro
+    if segundos <= dur + 0.2:
+        return arq
+    saida = arq.replace('.mp4', f'_{segundos}s.mp4')
+    fator = segundos / dur
+    try:
+        subprocess.run([ff, '-y', '-loglevel', 'error', '-i', arq, '-filter:v',
+                        f'setpts={fator:.4f}*PTS,minterpolate=fps=30:mi_mode=mci:mc_mode=aobmc:vsbmc=1,tpad=stop_mode=clone:stop_duration=2',
+                        '-frames:v', str(int(segundos * 30)), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-movflags', '+faststart', saida],
+                       check=True, timeout=1800)
+        return saida
+    except Exception as e:
+        log('Interpolação falhou, usando ida e volta:', e)
+    try:
+        subprocess.run([ff, '-y', '-loglevel', 'error', '-i', arq, '-filter_complex', '[0:v]reverse[r];[0:v][r]concat=n=2:v=1[v]',
+                        '-map', '[v]', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-movflags', '+faststart', saida],
+                       check=True, timeout=600)
+        return saida
+    except Exception as e:
+        log('Não consegui deixar com', segundos, 's; fica com', round(dur, 1), 's:', e)
+        return arq
 
 
 def gera(job):
@@ -138,10 +187,28 @@ def gera(job):
         return kw
 
     t0 = time.time()
-    saida = pipe(image=img, prompt=job['prompt'], negative_prompt=job.get('negativo'), width=LARG, height=ALT,
-                 num_frames=QUADROS, num_inference_steps=total, guidance_scale=GUIA, callback_on_step_end=progresso)
-    arq = os.path.join(tempfile.gettempdir(), 'rafa_video_' + job['id'] + '.mp4')
-    salva_mp4(saida.frames[0], arq)
+    extra = {'max_sequence_length': 512} if MODELO == 'wan' else {}
+    try:
+        saida = pipe(image=img, prompt=job['prompt'], negative_prompt=job.get('negativo'), width=LARG, height=ALT,
+                     num_frames=QUADROS, num_inference_steps=total, guidance_scale=GUIA, callback_on_step_end=progresso, **extra)
+    except TypeError:
+        saida = pipe(image=img, prompt=job['prompt'], negative_prompt=job.get('negativo'), width=LARG, height=ALT,
+                     num_frames=QUADROS, num_inference_steps=total, guidance_scale=GUIA, callback_on_step_end=progresso)
+    arq = os.path.join(tempfile.gettempdir(), f"rafa_video_{job['id']}_{os.getpid()}.mp4")
+    n_quadros = salva_mp4(saida.frames[0], arq)
+    segundos = int(job.get('segundos') or 0)
+    if segundos:
+        try:
+            req('POST', '/api/agente/progresso/' + job['id'], {'texto': f'finalizando o vídeo de {segundos} s'})
+        except Exception:
+            pass
+        final = estica_para(arq, segundos, n_quadros)
+        if final != arq:
+            try:
+                os.remove(arq)
+            except Exception:
+                pass
+            arq = final
     return arq, time.time() - t0
 
 

@@ -215,6 +215,7 @@ nav.bottom{display:none}
 .iaprev img{width:100%;display:block;aspect-ratio:1;object-fit:contain;background:#fff}.iaprev figcaption{padding:8px;font-size:13px}
 .spin-s{display:inline-block;width:14px;height:14px;border:2px solid #c5cae9;border-top-color:var(--pri);border-radius:50%;animation:gira .8s linear infinite;vertical-align:-2px;margin-right:4px}
 @keyframes gira{to{transform:rotate(360deg)}}
+.iaph{aspect-ratio:1;display:grid;place-items:center;background:#fff;font-size:13px;color:var(--mut)}
 /* componentes */
 .btn{border:1px solid #d0d0d0;background:#fff;border-radius:var(--rad);padding:9px 16px;cursor:pointer;font-weight:500;color:var(--ink);text-decoration:none;display:inline-block;transition:filter .13s,box-shadow .13s,background .13s}
 .btn:hover{background:#f5f5f5}
@@ -691,32 +692,72 @@ async function publicarML(p){
 // peça já cadastrada: gera fundo branco + arte, mostra antes de salvar, e (se quiser) atualiza o anúncio
 async function fotosIA(p){
   if(!(p.fotos||[]).length)return toast('A peça não tem foto');
-  modal(`<h3 style="margin:0 28px 6px 0">✨ Fotos com IA</h3><div class="small mut">${esc(p.nome)}</div><div id="iax"><p class="small mut" style="margin-top:12px"><span class="spin-s"></span> Recortando a peça e montando a arte… (a 1ª vez demora um pouco mais)</p></div>`);
-  let fb, arte=null, z=zonaDe(p.nome);
-  try{ fb=await fotoFundoBranco('/api/foto/'+p.fotos[0]); }catch(e){ $('#iax').innerHTML='<p style="color:var(--red)">⚠️ '+esc(e.message)+'</p>'; return; }
-  const pinta=async()=>{ arte=z?await arteOndeFica(p,fb.recorte,z):null;
-    const u1=URL.createObjectURL(fb.blob), u2=arte?URL.createObjectURL(arte):'';
-    $('#iax').innerHTML=`<div class="iaprev"><figure><img src="${u1}"><figcaption><label><input type="checkbox" id="iu1" checked style="width:auto"> Usar como 1ª foto (fundo branco)</label></figcaption></figure>
-      <figure>${arte?`<img src="${u2}">`:'<div class="small mut" style="padding:20px">Não sei onde essa peça fica — escolha abaixo.</div>'}<figcaption><label><input type="checkbox" id="iu2" ${arte?'checked':''} ${arte?'':'disabled'} style="width:auto"> Adicionar arte no final</label></figcaption></figure></div>
-      <label class="f">Onde fica no carro<select id="izona"><option value="">— escolha —</option>${Object.entries(ZONAS).map(([k,v])=>`<option value="${k}" ${k===z?'selected':''}>${esc(v.n)}</option>`).join('')}</select></label>
-      ${p.ml_id&&p.ml_status!=='closed'?'<label class="small" style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="iuml" checked style="width:auto"> Atualizar também as fotos do anúncio no Mercado Livre</label>':''}
-      <p class="small mut">As fotos originais continuam na peça. A arte vai sempre no final (o ML pede foto principal limpa, sem texto).</p>
-      <div class="top" style="margin-top:12px"><button class="btn p" id="iok">Salvar fotos</button><button class="btn" id="ivolta">Voltar</button></div>`;
-    $('#izona').onchange=e=>{ z=e.target.value||null; pinta(); };
-    $('#ivolta').onclick=()=>abrePeca(p.id);
-    $('#iok').onclick=async()=>{ const b=$('#iok'); b.disabled=true; b.textContent='Enviando…';
-      try{ const sobe=async blob=>{ const r=await fetch('/api/pecas/'+p.id+'/foto',{method:'POST',headers:{'content-type':'image/jpeg'},body:blob}); const j=await r.json(); if(!j.key)throw new Error(j.erro||'falha ao enviar foto'); return j.key; };
-        let ordem=[...p.fotos];
-        if($('#iu1').checked)ordem=[await sobe(fb.blob),...ordem];
-        if(arte&&$('#iu2')&&$('#iu2').checked)ordem=[...ordem,await sobe(arte)];
-        ordem=ordem.slice(0,12);
-        await api('/pecas/'+p.id,{method:'PATCH',body:{fotos:ordem}}); p.fotos=ordem;
-        if($('#iuml')&&$('#iuml').checked){ try{ await api('/ml/item/'+p.id,{method:'POST',body:{acao:'fotos'}}); toast('Fotos salvas e enviadas ao anúncio do ML'); }catch(e){ toast('Fotos salvas; o ML recusou: '+e.message); } }
-        else toast('Fotos salvas');
-        abrePeca(p.id); if(S.view==='estoque')listaEstoque();
-      }catch(e){ b.disabled=false; b.textContent='Salvar fotos'; toast(e.message); } };
-  };
-  pinta();
+  const c=await cmdIA(), mem=memArte(p.nome)||{}, admin=S.user&&S.user.papel==='admin';
+  const st={ z:mem.zona||zonaDe(p.nome), ponto:mem.ponto||null, fb:null, arte:null };
+  modal(`<h3 style="margin:0 28px 6px 0">✨ Fotos com IA</h3><div class="small mut">${esc(p.nome)}</div>
+   <div class="iaprev"><figure><div id="ifb" class="iaph"><span class="spin-s"></span> recortando…</div><figcaption><label><input type="checkbox" id="iu1" checked style="width:auto"> Usar como 1ª foto</label></figcaption></figure>
+     <figure><div id="iar" class="iaph">…</div><figcaption><label><input type="checkbox" id="iu2" style="width:auto"> Adicionar arte no final</label></figcaption></figure></div>
+   <label class="f">✍️ Comando da foto<textarea id="ift" rows="3">${esc(c.foto||'')}</textarea></label>
+   <div class="small" id="ifok"></div>
+   <div class="top" style="margin:6px 0 12px;gap:8px"><button class="btn sm" id="ifap">Aplicar na foto</button></div>
+   <label class="f">Onde fica no carro<select id="izona"><option value="">— escolha ou toque no carro —</option>${Object.entries(ZONAS).map(([k,v])=>`<option value="${k}">${esc(v.n)}</option>`).join('')}</select></label>
+   <label class="f">✍️ Comando da arte<textarea id="iat" rows="3">${esc((c.arte||'').split('{peca}').join([p.nome,[p.marca,p.modelo,p.ano].filter(Boolean).join(' '),p.pn].filter(Boolean).join(' '))+(mem.instr?'\n'+mem.instr:''))}</textarea></label>
+   <div class="small mut">Ajustes que dá pra escrever (um por linha): <b>legenda: …</b> · <b>título: …</b> · <b>lado: direito</b> · <b>local: porta</b> · <b>destaque azul</b> · <b>sem veículo</b>. E <b>toque no desenho do carro</b> para marcar o lugar exato.</div>
+   <div class="small" id="iaok" style="margin-top:4px"></div>
+   <div class="top" style="margin:6px 0;gap:8px"><button class="btn sm" id="iaap">Aplicar na arte</button><label class="small"><input type="checkbox" id="iamem" checked style="width:auto"> lembrar local e ajustes para peças com esse nome</label></div>
+   ${admin?'<label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="ipad" style="width:auto"> salvar estes comandos como padrão do sistema</label>':''}
+   ${p.ml_id&&p.ml_status!=='closed'?'<label class="small" style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="iuml" checked style="width:auto"> Atualizar também as fotos do anúncio no Mercado Livre</label>':''}
+   <p class="small mut">As fotos originais continuam na peça. A arte vai sempre no final (o ML pede a 1ª foto limpa, sem texto).</p>
+   <div class="top" style="margin-top:12px"><button class="btn p" id="iok" disabled>Salvar fotos</button><button class="btn" id="ivolta">Voltar</button></div>`);
+  if(st.z)$('#izona').value=st.z;
+  const arteExtra=()=>{ const linhas=$('#iat').value.split('\n'); return linhas.filter(l=>/^\s*(t[ií]tulo|legenda|texto|frase|lado|local|onde|fica|destaque|cor|sem )/i.test(l)).join('\n'); };
+  const fazFoto=async()=>{ const r=leComandoFoto($('#ift').value);
+    $('#ifok').innerHTML=`✅ Vou aplicar: ${esc(r.ok.join(' · '))}<br>${PRESERVA}${r.branco?'':'<div style="color:var(--amber)">⚠️ O ML pede fundo branco na 1ª foto.</div>'}`;
+    $('#ifb').innerHTML='<span class="spin-s"></span> recortando…'; $('#iok').disabled=true;
+    try{ st.fb=await fotoFundoBranco('/api/foto/'+p.fotos[0],r.op); $('#ifb').innerHTML=`<img src="${URL.createObjectURL(st.fb.blob)}">`; }
+    catch(e){ st.fb=null; $('#ifb').innerHTML='<p class="small" style="color:var(--red);padding:10px">⚠️ '+esc(e.message)+'</p>'; }
+    $('#iok').disabled=!st.fb; };
+  let primeira=true;
+  const fazArte=async()=>{ if(!st.fb)return; const r=leComandoArte($('#iat').value);
+    if(r.op.zona&&!st.ponto){ st.z=r.op.zona; $('#izona').value=st.z; }
+    $('#iaok').innerHTML='✅ Vou aplicar: '+esc(r.ok.join(' · '));
+    st.arte=await arteOndeFica(p,st.fb.recorte,st.z,{...r.op,ponto:st.ponto});
+    $('#iar').innerHTML=`<img id="iarimg" src="${URL.createObjectURL(st.arte)}" style="cursor:crosshair" title="Toque no carro para marcar o lugar">`;
+    const tem=!!(st.z||st.ponto); $('#iu2').disabled=!tem; if(primeira&&tem){ $('#iu2').checked=true; primeira=false; } if(!tem)$('#iu2').checked=false;
+    $('#iarimg').onclick=e=>{ const b=e.target.getBoundingClientRect(), X=(e.clientX-b.left)/b.width*1200, Y=(e.clientY-b.top)/b.height*1200;
+      if(Y<500||Y>960)return toast('Toque em cima do desenho do carro'); st.ponto={x:Math.round(X),y:Math.round(Y-130)}; toast('Local marcado'); fazArte(); }; };
+  $('#ifap').onclick=async()=>{ await fazFoto(); await fazArte(); };
+  $('#iaap').onclick=fazArte;
+  $('#izona').onchange=e=>{ st.z=e.target.value||null; st.ponto=null; fazArte(); };
+  $('#ivolta').onclick=()=>abrePeca(p.id);
+  $('#iok').onclick=async()=>{ const b=$('#iok'); b.disabled=true; b.textContent='Enviando…';
+    try{ const sobe=async blob=>{ const r=await fetch('/api/pecas/'+p.id+'/foto',{method:'POST',headers:{'content-type':'image/jpeg'},body:blob}); const j=await r.json(); if(!j.key)throw new Error(j.erro||'falha ao enviar foto'); return j.key; };
+      let ordem=[...p.fotos];
+      if($('#iu1').checked)ordem=[await sobe(st.fb.blob),...ordem];
+      if(st.arte&&$('#iu2').checked&&!$('#iu2').disabled)ordem=[...ordem,await sobe(st.arte)];
+      ordem=ordem.slice(0,12);
+      await api('/pecas/'+p.id,{method:'PATCH',body:{fotos:ordem}}); p.fotos=ordem;
+      if($('#iamem').checked)salvaMemArte(p.nome,{zona:st.z,ponto:st.ponto,instr:arteExtra()});
+      if($('#ipad')&&$('#ipad').checked){ const linhas=$('#iat').value.split('\n').filter(l=>!/^\s*(t[ií]tulo|legenda|texto|frase|lado|local|onde|fica|destaque|cor|sem )/i.test(l)).join('\n');
+        S.cmdIA=await api('/ia/comandos',{method:'POST',body:{foto:$('#ift').value,arte:linhas}}); }
+      if($('#iuml')&&$('#iuml').checked){ try{ await api('/ml/item/'+p.id,{method:'POST',body:{acao:'fotos'}}); toast('Fotos salvas e enviadas ao anúncio do ML'); }catch(e){ toast('Fotos salvas; o ML recusou: '+e.message); } }
+      else toast('Fotos salvas');
+      abrePeca(p.id); if(S.view==='estoque')listaEstoque();
+    }catch(e){ b.disabled=false; b.textContent='Salvar fotos'; toast(e.message); } };
+  await fazFoto(); await fazArte();
+}
+// tela para editar os 3 comandos (prompts) da IA
+async function telaComandos(){
+  const c=await cmdIA(true);
+  modal(`<h3 style="margin:0 28px 6px 0">✍️ Comandos da IA</h3><p class="small mut">Use <b>{peca}</b> para o sistema colocar o nome da peça, veículo e código.</p>
+   <label class="f">📷 Foto principal (fundo branco)<textarea id="cmf" rows="6">${esc(c.foto)}</textarea></label>
+   <label class="f">🖼️ Arte "onde fica no carro"<textarea id="cma" rows="4">${esc(c.arte)}</textarea></label>
+   <label class="f">🎬 Vídeo (gerado no PC)<textarea id="cmv" rows="8">${esc(c.video)}</textarea></label>
+   <p class="small mut">A IA de vídeo lê só o começo de textos longos; por isso o sistema coloca um resumo das regras principais na frente do seu comando.</p>
+   <div class="top" style="margin-top:12px"><button class="btn p" id="cmok">Salvar</button><button class="btn" id="cmpad">Voltar ao padrão</button><button class="btn" id="cmx">Fechar</button></div>`);
+  $('#cmx').onclick=fecha;
+  $('#cmpad').onclick=()=>{ $('#cmf').value=c.padrao.foto; $('#cma').value=c.padrao.arte; $('#cmv').value=c.padrao.video; toast('Padrão restaurado — toque em Salvar'); };
+  $('#cmok').onclick=async()=>{ try{ S.cmdIA=await api('/ia/comandos',{method:'POST',body:{foto:$('#cmf').value,arte:$('#cma').value,video:$('#cmv').value}}); toast('Comandos salvos'); fecha(); }catch(e){ toast(e.message); } };
 }
 // vídeo com IA: pede ao gerador do PC, acompanha e mostra o resultado
 const ST_VID={fila:'Na fila — esperando o PC',gerando:'O PC está gerando',pronto:'Pronto',erro:'Deu erro'};
@@ -748,7 +789,8 @@ async function cartaoGerador(){
   el.innerHTML=`<div class="card" style="max-width:960px;margin:0 auto 12px"><div class="top" style="margin:0"><b>🎬 Gerador de vídeo com IA (no seu PC)</b>
     <span class="small">${a.configurado?(a.online?'🟢 conectado'+(a.gpu?' · '+esc(a.gpu)+(a.vram?' '+a.vram+' GB':''):'')+(a.modelo?' · '+(a.modelo==='wan'?'Wan 2.2':'LTX-Video'):''):'🔴 desconectado · visto '+quandoFoi(a.visto)):'⚪ não instalado'}</span></div>
     <div class="small mut" style="margin:6px 0">Precisa de PC com Windows e placa NVIDIA (ideal 24 GB; funciona a partir de 12 GB). Na 1ª vez o PC baixa a IA (uns 30 GB). Cada vídeo de 5 s leva de 2 a 15 min, sem custo.</div>
-    <div class="mlact"><button class="btn sm p" id="agbx"><span class="material-icons" style="font-size:16px;vertical-align:-3px">download</span> Baixar instalador (abra no PC)</button>${a.configurado?'<button class="btn sm" id="agch">Trocar chave</button>':''}</div></div>`;
+    <div class="mlact"><button class="btn sm p" id="agbx"><span class="material-icons" style="font-size:16px;vertical-align:-3px">download</span> Baixar instalador (abra no PC)</button><button class="btn sm" id="agcmd">✍️ Comandos da IA</button>${a.configurado?'<button class="btn sm" id="agch">Trocar chave</button>':''}</div></div>`;
+  $('#agcmd').onclick=telaComandos;
   $('#agbx').onclick=async()=>{ try{ const r=await fetch('/api/agente/instalador'); if(!r.ok)throw new Error((await r.json().catch(()=>({}))).erro||'falhou');
       const u=URL.createObjectURL(await r.blob()), l=document.createElement('a'); l.href=u; l.download='instalar-gerador-video.bat'; document.body.appendChild(l); l.click(); l.remove(); setTimeout(()=>URL.revokeObjectURL(u),5000);
       toast('Instalador baixado: no PC, dê dois cliques nele'); cartaoGerador(); }catch(e){ toast(e.message); } };
@@ -969,35 +1011,91 @@ async function mascaraPeca(img){
   mx2.putImageData(md,0,0); return mc;
 }
 // recorta a peça e devolve: foto 1200x1200 fundo branco (JPEG) + recorte transparente (pra arte)
-async function fotoFundoBranco(fonte){
+const _mascaras=new Map();
+// recorta a peça e devolve a foto 1200x1200 (JPEG) + recorte transparente (pra arte). op = o que o comando pediu
+async function fotoFundoBranco(fonte,op={}){
   const url=typeof fonte==='string'?fonte:URL.createObjectURL(fonte);
-  const img=await carregaImg(url), W=img.naturalWidth, H=img.naturalHeight, k=Math.min(1,1600/Math.max(W,H)), w=Math.round(W*k), h=Math.round(H*k);
-  const mc=await mascaraPeca(img);
-  const cut=document.createElement('canvas'); cut.width=w; cut.height=h; const cx=cut.getContext('2d'); cx.drawImage(img,0,0,w,h);
-  const mk=document.createElement('canvas'); mk.width=w; mk.height=h; const mkx=mk.getContext('2d'); mkx.imageSmoothingQuality='high'; mkx.drawImage(mc,0,0,w,h);
-  const md=mkx.getImageData(0,0,w,h).data, id=cx.getImageData(0,0,w,h);
-  let x0=w,y0=h,x1=-1,y1=-1,area=0;
-  for(let p=0,i=0;p<w*h;p++,i+=4){ let a=(md[i+3]/255-0.2)/0.5; a=a<0?0:a>1?1:a; id.data[i+3]=Math.round(a*255);
-    if(a>0.5){ area++; const xx=p%w, yy=(p/w)|0; if(xx<x0)x0=xx; if(xx>x1)x1=xx; if(yy<y0)y0=yy; if(yy>y1)y1=yy; } }
-  if(area<w*h*0.01)throw new Error('a IA não encontrou a peça nessa foto');
-  realcePeca(id.data);
-  cx.putImageData(id,0,0);
-  const bw=x1-x0+1, bh=y1-y0+1, rec=document.createElement('canvas'); rec.width=bw; rec.height=bh; rec.getContext('2d').drawImage(cut,x0,y0,bw,bh,0,0,bw,bh);
-  const T=1200, out=document.createElement('canvas'); out.width=out.height=T; const o=out.getContext('2d'); o.fillStyle='#fff'; o.fillRect(0,0,T,T);
-  const s=Math.min(T*0.84/bw,T*0.84/bh), dw=bw*s, dh=bh*s; o.imageSmoothingQuality='high'; o.drawImage(rec,(T-dw)/2,(T-dh)/2,dw,dh);
-  const blob=await new Promise(r=>out.toBlob(r,'image/jpeg',0.92));
-  if(typeof fonte!=='string')URL.revokeObjectURL(url);
-  return { blob, recorte:rec, cobertura:area/(w*h) };
+  try{
+    const img=await carregaImg(url), W=img.naturalWidth, H=img.naturalHeight, k=Math.min(1,1600/Math.max(W,H)), w=Math.round(W*k), h=Math.round(H*k);
+    let mc=_mascaras.get(fonte); if(!mc){ mc=await mascaraPeca(img); _mascaras.set(fonte,mc); if(_mascaras.size>12)_mascaras.delete(_mascaras.keys().next().value); }
+    const cut=document.createElement('canvas'); cut.width=w; cut.height=h; const cx=cut.getContext('2d'); cx.drawImage(img,0,0,w,h);
+    const mk=document.createElement('canvas'); mk.width=w; mk.height=h; const mkx=mk.getContext('2d'); mkx.imageSmoothingQuality='high'; mkx.drawImage(mc,0,0,w,h);
+    const md=mkx.getImageData(0,0,w,h).data, id=cx.getImageData(0,0,w,h), corte=op.corte??0.2;
+    let x0=w,y0=h,x1=-1,y1=-1,area=0;
+    for(let p=0,i=0;p<w*h;p++,i+=4){ let a=(md[i+3]/255-corte)/0.5; a=a<0?0:a>1?1:a; id.data[i+3]=Math.round(a*255);
+      if(a>0.5){ area++; const xx=p%w, yy=(p/w)|0; if(xx<x0)x0=xx; if(xx>x1)x1=xx; if(yy<y0)y0=yy; if(yy>y1)y1=yy; } }
+    if(area<w*h*0.01)throw new Error('a IA não encontrou a peça nessa foto');
+    if(op.cor)balancoCor(id.data);
+    if(op.realce!==false)realcePeca(id.data,op.claro||0,op.contraste||1);
+    if(op.reflexos)suavizaReflexos(id.data);
+    cx.putImageData(id,0,0);
+    let rec=document.createElement('canvas'); rec.width=x1-x0+1; rec.height=y1-y0+1; rec.getContext('2d').drawImage(cut,x0,y0,rec.width,rec.height,0,0,rec.width,rec.height);
+    if(op.girar||op.espelhar)rec=giraCanvas(rec,op.girar||0,op.espelhar);
+    const T=1200, out=document.createElement('canvas'); out.width=out.height=T; const o=out.getContext('2d'); o.fillStyle=op.fundo||'#fff'; o.fillRect(0,0,T,T);
+    const oc=op.ocupa||0.84, s=Math.min(T*oc/rec.width,T*oc/rec.height), dw=rec.width*s, dh=rec.height*s, px=(T-dw)/2, py=(T-dh)/2;
+    if(op.sombra){ o.save(); o.translate(T/2,py+dh*0.985); o.scale(1,0.1); const g=o.createRadialGradient(0,0,0,0,0,dw*0.5); g.addColorStop(0,'rgba(0,0,0,.25)'); g.addColorStop(1,'rgba(0,0,0,0)'); o.fillStyle=g; o.beginPath(); o.arc(0,0,dw*0.5,0,Math.PI*2); o.fill(); o.restore(); }
+    o.imageSmoothingEnabled=true; o.imageSmoothingQuality='high'; o.drawImage(rec,px,py,dw,dh);
+    if(op.ruido)reduzRuido(o,T,{x:px,y:py,w:dw,h:dh});
+    if(op.nitidez)aplicaNitidez(o,T,{x:px,y:py,w:dw,h:dh});
+    const blob=await new Promise(r=>out.toBlob(r,'image/jpeg',0.93));
+    return { blob, recorte:rec, cobertura:area/(w*h) };
+  }finally{ if(typeof fonte!=='string')URL.revokeObjectURL(url); }
 }
+function giraCanvas(c,graus,espelhar){
+  const r=graus*Math.PI/180, cs=Math.abs(Math.cos(r)), sn=Math.abs(Math.sin(r)), w=Math.round(c.width*cs+c.height*sn), h=Math.round(c.width*sn+c.height*cs);
+  const n=document.createElement('canvas'); n.width=w; n.height=h; const x=n.getContext('2d'); x.translate(w/2,h/2); x.rotate(r); if(espelhar)x.scale(-1,1); x.drawImage(c,-c.width/2,-c.height/2); return n;
+}
+// balanço de cores realista (puxa só 30% em direção ao neutro, no máximo 6%)
+function balancoCor(d){ let r=0,g=0,b=0,n=0; for(let i=0;i<d.length;i+=4){ if(d[i+3]<128)continue; r+=d[i]; g+=d[i+1]; b+=d[i+2]; n++; } if(!n)return;
+  r/=n; g/=n; b/=n; const m=(r+g+b)/3, f=[r,g,b].map(v=>1+Math.max(-0.06,Math.min(0.06,(m/Math.max(1,v)-1)*0.3)));
+  for(let i=0;i<d.length;i+=4){ if(d[i+3]===0)continue; for(let k=0;k<3;k++){ const v=d[i+k]*f[k]; d[i+k]=v>255?255:v; } } }
+// reflexo estourado de luz: comprime só os pontos quase brancos da peça, sem mudar a cor
+function suavizaReflexos(d){ for(let i=0;i<d.length;i+=4){ if(d[i+3]<128)continue; const l=d[i]*0.299+d[i+1]*0.587+d[i+2]*0.114; if(l<=222)continue;
+  const nl=222+(l-222)*0.35, f=nl/l; for(let k=0;k<3;k++)d[i+k]=d[i+k]*f; } }
+// redução leve de ruído: só mistura onde a variação é pequena (bordas e escritas ficam intactas)
+function reduzRuido(o,T,a){ const x0=Math.max(1,a.x|0), y0=Math.max(1,a.y|0), w=Math.min(T-2,(a.x+a.w)|0)-x0, h=Math.min(T-2,(a.y+a.h)|0)-y0; if(w<3||h<3)return;
+  const im=o.getImageData(x0-1,y0-1,w+2,h+2), d=im.data, src=new Uint8ClampedArray(d), W=w+2;
+  for(let y=1;y<=h;y++)for(let x=1;x<=w;x++){ const i=(y*W+x)*4; for(let k=0;k<3;k++){ let s=0; for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)s+=src[((y+dy)*W+x+dx)*4+k]; const m=s/9, v=src[i+k];
+    if(Math.abs(v-m)<10)d[i+k]=v*0.45+m*0.55; } }
+  o.putImageData(im,x0-1,y0-1); }
+// nitidez (máscara de nitidez leve) — corrige micro-desfoque sem inventar detalhe
+function aplicaNitidez(o,T,a){ const x0=Math.max(1,a.x|0), y0=Math.max(1,a.y|0), w=Math.min(T-2,(a.x+a.w)|0)-x0, h=Math.min(T-2,(a.y+a.h)|0)-y0; if(w<3||h<3)return;
+  const im=o.getImageData(x0-1,y0-1,w+2,h+2), d=im.data, src=new Uint8ClampedArray(d), W=w+2;
+  for(let y=1;y<=h;y++)for(let x=1;x<=w;x++){ const i=(y*W+x)*4; for(let k=0;k<3;k++){ const c=src[i+k], viz=src[i-4+k]+src[i+4+k]+src[i-W*4+k]+src[i+W*4+k]; d[i+k]=c+0.6*(4*c-viz)/4; } }
+  o.putImageData(im,x0-1,y0-1); }
+// lê o comando (prompt) da foto e diz o que vai aplicar
+function leComandoFoto(txt){
+  const t=nrm(txt||''), op={}, ok=[];
+  const cores=[['cinza claro','#f2f2f2'],['cinza','#e9e9e9'],['preto','#111111'],['azul','#e3f2fd'],['bege','#f5efe6'],['branco','#ffffff']];
+  const mf=t.match(/fundo\s+(cinza claro|cinza|preto|azul|bege|branco)/); op.fundo=mf?cores.find(c=>c[0]===mf[1])[1]:'#ffffff'; ok.push('fundo '+(mf?mf[1]:'branco'));
+  if(/sem sombra/.test(t))ok.push('sem sombra'); else if(/com sombra|sombra suave/.test(t)){ op.sombra=true; ok.push('sombra suave embaixo'); }
+  ok.push('1200 × 1200 px');
+  if(/reflex/.test(t)&&/remov|tir|reduz|elimin|suaviz/.test(t)){ op.reflexos=true; ok.push('reflexos de luz suavizados'); }
+  if(/nitidez|desfoque|upscale|defini|canon|lente/.test(t)){ op.nitidez=true; ok.push('mais nitidez (corrige micro-desfoque)'); }
+  if(/ruido|granulad/.test(t)){ op.ruido=true; ok.push('ruído de sensor reduzido'); }
+  if(/balanco de cor|balanco das cor|equilibr\w* (as )?cor/.test(t)){ op.cor=true; ok.push('balanço de cores realista'); }
+  if(/sem (clarear|realce|ajuste|tratamento)|cores naturais/.test(t)){ op.realce=false; ok.push('sem clarear'); }
+  else{ if(/mais clar|mais brilho|mais luz/.test(t)){ op.claro=25; ok.push('mais claro'); } else if(/mais escur/.test(t)){ op.claro=-20; ok.push('mais escuro'); }
+    if(/contraste/.test(t)){ op.contraste=/menos contraste/.test(t)?0.93:1.06; ok.push((/menos contraste/.test(t)?'menos':'contraste otimizado')); } }
+  if(/(mant\w*|preserv\w*).{0,20}(tonalidade|cor)/.test(t))ok.push('tonalidade das cores mantida');
+  let m; if((m=t.match(/(\d{2})\s*%/))){ op.ocupa=Math.min(.98,Math.max(.4,+m[1]/100)); ok.push('peça ocupando '+m[1]+'%'); }
+  else if(/peca maior|mais zoom|aproxim/.test(t)){ op.ocupa=.94; ok.push('peça maior'); } else if(/peca menor|mais margem|menos zoom|afast/.test(t)){ op.ocupa=.7; ok.push('mais margem'); }
+  if((m=t.match(/gir\w*\s*(-?\d{1,3})/))){ op.girar=((+m[1])%360+360)%360; ok.push('girar '+op.girar+'°'); }
+  if(/espelh/.test(t)){ op.espelhar=true; ok.push('espelhar'); }
+  if(/recorte mais justo|limpar borda/.test(t)){ op.corte=.35; ok.push('recorte mais justo'); } else if(/recorte mais solto/.test(t)){ op.corte=.08; ok.push('recorte mais solto'); }
+  if(/canon|lente|camera/.test(t))ok.push('acabamento de foto profissional (a lente em si não dá pra simular)');
+  return {op,ok,branco:op.fundo==='#ffffff'};
+}
+const PRESERVA='🔒 A peça é recortada da sua foto, não redesenhada: escritas, números, arranhões, amassados e manchas ficam idênticos.';
 // clareia/contrasta só a peça (fotos de desmanche costumam sair escuras)
-function realcePeca(d){
+function realcePeca(d,claro=0,contraste=1){
   const hist=new Uint32Array(256); let n=0;
   for(let i=0;i<d.length;i+=4){ if(d[i+3]<128)continue; hist[(d[i]*0.299+d[i+1]*0.587+d[i+2]*0.114)|0]++; n++; }
   if(!n)return; let a=0,lo=0,hi=255;
   for(let v=0;v<256;v++){ a+=hist[v]; if(a>=n*0.02){ lo=v; break; } } a=0;
   for(let v=255;v>=0;v--){ a+=hist[v]; if(a>=n*0.02){ hi=v; break; } }
-  const g=Math.min(1.6,Math.max(1,225/Math.max(1,hi-lo))), off=Math.max(0,18-lo*g);
-  if(g<1.03&&off<2)return;
+  const g=Math.min(1.6,Math.max(1,225/Math.max(1,hi-lo)))*contraste, off=Math.max(0,18-lo*g)+claro;
+  if(g<1.03&&g>0.97&&Math.abs(off)<2)return;
   for(let i=0;i<d.length;i+=4)for(let k=0;k<3;k++){ const v=(d[i+k]-lo)*g+lo+off; d[i+k]=v<0?0:v>255?255:v; }
 }
 // ---------- arte "onde fica no carro" (desenho próprio, sem IA) ----------
@@ -1013,8 +1111,9 @@ const ZONA_REGRAS=[[/retrovisor|espelho/,'retrovisor'],[/lanterna|luz de placa|b
   [/amortecedor|mola|bandeja|manga|pivo|pinca|disco de freio|freio|cubo|rolamento|homocinetica|semi ?eixo|roda|pneu|bieleta|estabilizadora|caixa de direcao|terminal|coxim do amortecedor/,'roda'],
   [/motor|bomba|solenoide|injetor|bico|turbina|turbo|alternador|partida|coletor|tbi|borboleta|compressor|bobina|vela|modulo de injecao|\becu\b|sensor|cabecote|carter|cambio|embreagem|radiador|valvula|correia|tensor|polia|filtro|reservatorio|bateria|fusivel|chicote|condensador|ventoinha|eletroventilador|intercooler|mangueira|coxim/,'cofre']];
 function zonaDe(nome){ const t=nrm(nome).replace(/[-_/]+/g,' '); for(const [re,z] of ZONA_REGRAS)if(re.test(t))return z==='roda'?(/traseir/.test(t)?'rodaT':'rodaD'):z; return null; }
-function ladoDe(nome){ const t=nrm(nome), l=[]; if(/dianteir/.test(t))l.push('dianteiro'); if(/traseir/.test(t))l.push('traseiro');
-  if(/direit/.test(t))l.push('lado direito (passageiro)'); else if(/esquerd/.test(t))l.push('lado esquerdo (motorista)'); return l.join(' · '); }
+function ladoDe(nome){ const t=' '+nrm(nome).replace(/([a-z])\.(?=[a-z])/g,'$1').replace(/[^a-z0-9]+/g,' ')+' ', l=[];
+  if(/dianteir| diant | dt /.test(t))l.push('dianteiro'); if(/traseir| tras | tr /.test(t))l.push('traseiro');
+  if(/direit| dir | ld /.test(t))l.push('lado direito (passageiro)'); else if(/esquerd| esq | eq | le /.test(t))l.push('lado esquerdo (motorista)'); return l.join(' · '); }
 function desenhaCarro(x){
   x.save(); x.translate(0,130); x.lineJoin='round'; x.lineCap='round';
   x.fillStyle='rgba(0,0,0,.07)'; x.beginPath(); x.ellipse(600,792,520,18,0,0,Math.PI*2); x.fill();
@@ -1034,26 +1133,53 @@ function desenhaCarro(x){
     x.beginPath(); x.arc(cx,700,10,0,Math.PI*2); x.fillStyle='#78909c'; x.fill(); }
   x.restore();
 }
-async function arteOndeFica(p,recorte,zonaId){
-  const z=ZONAS[zonaId]; if(!z)throw new Error('escolha onde a peça fica no carro');
+const COR_DESTAQUE={vermelho:'#e53935',azul:'#1e88e5',verde:'#43a047',laranja:'#fb8c00',amarelo:'#fdd835',roxo:'#8e24aa'};
+const hexA=(h,a)=>{ const n=parseInt(h.slice(1),16); return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`; };
+// lê o comando da arte: regras gerais (português, 1200, sem dizer usada/nova) + ajustes curtos opcionais
+function leComandoArte(txt){
+  const op={}, ok=['1200 × 1200 px','tudo em português','não diz se a peça é usada ou nova','foto real da peça (não redesenhada)'];
+  for(const linha of String(txt||'').split(/\n|;/)){ const l=linha.trim(); if(!l)continue; const n=nrm(l); let m;
+    if((m=l.match(/^t[ií]tulo\s*[:\-]\s*(.+)$/i))){ op.titulo=m[1].trim().slice(0,40); ok.push('título: '+op.titulo); }
+    else if(/^sem t[ií]tulo/i.test(l)){ op.semTitulo=true; ok.push('sem título'); }
+    else if((m=l.match(/^(legenda|texto|frase)\s*[:\-]\s*(.+)$/i))){ op.legenda=m[2].trim().slice(0,90); ok.push('legenda própria'); }
+    else if((m=l.match(/^lado\s*[:\-]?\s*(.+)$/i))){ const x=nrm(m[1]); op.lado=/dir/.test(x)?'Lado direito (passageiro)':/esq/.test(x)?'Lado esquerdo (motorista)':m[1].trim().slice(0,40); ok.push(op.lado); }
+    else if((m=l.match(/^(local|onde|fica)\s*[:\-]\s*(.+)$/i))){ const z=zonaDe(m[2]); if(z){ op.zona=z; ok.push('local: '+ZONAS[z].n); } }
+    else if((m=n.match(/^(destaque|cor)\s+(vermelho|azul|verde|laranja|amarelo|roxo)/))){ op.cor=COR_DESTAQUE[m[2]]; ok.push('destaque '+m[2]); }
+    else if(/^sem (veiculo|carro)/.test(n)){ op.semVeiculo=true; ok.push('sem o veículo escrito'); }
+    else if(/^sem (foto|peca)/.test(n)){ op.semFoto=true; ok.push('sem a foto da peça'); }
+    else if(/^sem aviso/.test(n)){ op.semAviso=true; ok.push('sem o aviso de ilustração'); } }
+  return {op,ok};
+}
+// desenha texto centralizado diminuindo a fonte (e quebrando em 2 linhas) se não couber
+function textoCabe(x,txt,cx,y,maxW,tam,peso,F){ let t=tam; for(;t>24;t-=2){ x.font=`${peso} ${t}px ${F}`; if(x.measureText(txt).width<=maxW)break; }
+  if(x.measureText(txt).width<=maxW){ x.fillText(txt,cx,y); return y; }
+  const ps=txt.split(' '); let l1=''; for(const w of ps){ if(x.measureText((l1+' '+w).trim()).width>maxW)break; l1=(l1+' '+w).trim(); }
+  x.fillText(l1,cx,y-t*0.55); x.fillText(txt.slice(l1.length).trim(),cx,y+t*0.55); return y+t*0.55; }
+async function arteOndeFica(p,recorte,zonaId,op={}){
+  const z=ZONAS[zonaId]||null, pt=op.ponto||(z?{x:z.x,y:z.y}:null), cor=op.cor||'#e53935';
   try{ await document.fonts.load('bold 40px Roboto'); }catch(_){}
   const T=1200, F='Roboto, Arial, sans-serif', c=document.createElement('canvas'); c.width=c.height=T; const x=c.getContext('2d');
   x.fillStyle='#fff'; x.fillRect(0,0,T,T); x.textAlign='center'; x.textBaseline='alphabetic';
-  x.fillStyle='#1a237e'; x.font='bold 56px '+F; x.fillText('ONDE FICA NO CARRO',T/2,92);
-  const cx0=370, cy0=128, cw=460, ch=300; x.fillStyle='#f5f5f5'; x.strokeStyle='#e0e0e0'; x.lineWidth=3;
-  x.beginPath(); x.roundRect?x.roundRect(cx0,cy0,cw,ch,24):x.rect(cx0,cy0,cw,ch); x.fill(); x.stroke();
-  if(recorte){ const s=Math.min((cw-40)/recorte.width,(ch-40)/recorte.height), w=recorte.width*s, h=recorte.height*s; x.drawImage(recorte,cx0+(cw-w)/2,cy0+(ch-h)/2,w,h); }
+  if(!op.semTitulo){ x.fillStyle='#1a237e'; textoCabe(x,(op.titulo||'ONDE FICA NO CARRO').toUpperCase(),T/2,92,1100,56,'bold',F); }
+  const cx0=370, cy0=128, cw=460, ch=300;
+  if(!op.semFoto){ x.fillStyle='#f5f5f5'; x.strokeStyle='#e0e0e0'; x.lineWidth=3; x.beginPath(); x.roundRect?x.roundRect(cx0,cy0,cw,ch,24):x.rect(cx0,cy0,cw,ch); x.fill(); x.stroke();
+    if(recorte){ const s=Math.min((cw-40)/recorte.width,(ch-40)/recorte.height), w=recorte.width*s, h=recorte.height*s; x.drawImage(recorte,cx0+(cw-w)/2,cy0+(ch-h)/2,w,h); } }
   desenhaCarro(x);
-  const zx=z.x, zy=z.y+130;
-  x.strokeStyle='#e53935'; x.lineWidth=5; x.setLineDash([14,10]); x.beginPath(); x.moveTo(T/2,cy0+ch); x.lineTo(zx,zy); x.stroke(); x.setLineDash([]);
-  const g=x.createRadialGradient(zx,zy,8,zx,zy,90); g.addColorStop(0,'rgba(229,57,53,.55)'); g.addColorStop(1,'rgba(229,57,53,0)'); x.fillStyle=g; x.beginPath(); x.arc(zx,zy,90,0,Math.PI*2); x.fill();
-  x.strokeStyle='#e53935'; x.lineWidth=7; x.beginPath(); x.arc(zx,zy,40,0,Math.PI*2); x.stroke(); x.fillStyle='#e53935'; x.beginPath(); x.arc(zx,zy,11,0,Math.PI*2); x.fill();
-  x.fillStyle='#212121'; x.font='bold 50px '+F; x.fillText(z.n,T/2,1000);
-  const lado=ladoDe(p.nome||''); x.fillStyle='#546e7a'; x.font='38px '+F; if(lado)x.fillText(lado.charAt(0).toUpperCase()+lado.slice(1),T/2,1058);
-  const veic=[p.marca,p.modelo,p.ano].filter(Boolean).join(' '); if(veic){ x.fillStyle='#37474f'; x.font='bold 40px '+F; x.fillText(veic.toUpperCase(),T/2,lado?1120:1062); }
-  x.fillStyle='#9e9e9e'; x.font='24px '+F; x.fillText('Ilustração: a posição exata pode variar conforme o modelo',T/2,1172);
+  if(pt){ const zx=pt.x, zy=pt.y+130;
+    x.strokeStyle=cor; x.lineWidth=5; x.setLineDash([14,10]); x.beginPath(); x.moveTo(T/2,op.semFoto?150:cy0+ch); x.lineTo(zx,zy); x.stroke(); x.setLineDash([]);
+    const g=x.createRadialGradient(zx,zy,8,zx,zy,90); g.addColorStop(0,hexA(cor,.55)); g.addColorStop(1,hexA(cor,0)); x.fillStyle=g; x.beginPath(); x.arc(zx,zy,90,0,Math.PI*2); x.fill();
+    x.strokeStyle=cor; x.lineWidth=7; x.beginPath(); x.arc(zx,zy,40,0,Math.PI*2); x.stroke(); x.fillStyle=cor; x.beginPath(); x.arc(zx,zy,11,0,Math.PI*2); x.fill(); }
+  x.fillStyle='#212121'; let y=textoCabe(x,op.legenda||(z?z.n:(pt?'Local da peça':'Toque no carro para marcar o local')),T/2,1000,1120,50,'bold',F);
+  const lado=op.lado!==undefined?op.lado:ladoDe(p.nome||''); if(lado){ x.fillStyle='#546e7a'; y=textoCabe(x,lado.charAt(0).toUpperCase()+lado.slice(1),T/2,y+58,1120,38,'',F); }
+  const veic=[p.marca,p.modelo,p.ano].filter(Boolean).join(' '); if(veic&&!op.semVeiculo){ x.fillStyle='#37474f'; textoCabe(x,veic.toUpperCase(),T/2,y+62,1120,40,'bold',F); }
+  if(!op.semAviso){ x.fillStyle='#9e9e9e'; x.font='24px '+F; x.fillText('Ilustração: a posição exata pode variar conforme o modelo',T/2,1172); }
   return new Promise(r=>c.toBlob(r,'image/jpeg',0.92));
 }
+// memória por nome de peça (local marcado e ajustes da arte) — fica neste aparelho
+const memArte=n=>{ try{ return JSON.parse(localStorage.getItem('arteMem:'+nrm(n).trim())||'null'); }catch(_){ return null; } };
+const salvaMemArte=(n,v)=>{ try{ localStorage.setItem('arteMem:'+nrm(n).trim(),JSON.stringify(v)); }catch(_){} };
+// comandos da IA (salvos no sistema)
+async function cmdIA(forcar){ if(!S.cmdIA||forcar){ try{ S.cmdIA=await api('/ia/comandos'); }catch(_){ S.cmdIA=S.cmdIA||{foto:'',arte:'',video:''}; } } return S.cmdIA; }
 // liga/desliga as automações de foto (fica salvo no aparelho)
 const iaPref=k=>{ try{ return localStorage.getItem(k)!=='0'; }catch(_){ return true; } };
 const iaSet=(k,v)=>{ try{ localStorage.setItem(k,v?'1':'0'); }catch(_){} };
@@ -1062,18 +1188,20 @@ const iaSet=(k,v)=>{ try{ localStorage.setItem(k,v?'1':'0'); }catch(_){} };
 async function iaFundoPrincipal(manual){
   const f0=S.ui.fotos[0]; if(!f0)return manual&&toast('Adicione uma foto primeiro');
   if(f0.ia==='fundo'&&!manual)return; const st=$('#iast');
-  if(st)st.innerHTML='<span class="spin-s"></span> ✨ Deixando a foto principal com fundo branco… (a 1ª vez demora um pouco mais)';
-  try{ const r=await fotoFundoBranco(f0.blob||('/api/foto/'+f0.key)); S.ui.recorte=r.recorte;
+  if(st)st.innerHTML='<span class="spin-s"></span> ✨ Aplicando o comando da foto… (a 1ª vez demora um pouco mais)';
+  try{ const c=await cmdIA(), lido=leComandoFoto(c.foto);
+    const r=await fotoFundoBranco(f0.blob||('/api/foto/'+f0.key),lido.op); S.ui.recorte=r.recorte;
     if(f0.ia==='fundo')S.ui.fotos[0]={blob:r.blob,ia:'fundo'}; else S.ui.fotos.unshift({blob:r.blob,ia:'fundo'});
     if(S.ui.fotos.length>12)S.ui.fotos.length=12;
-    if(st)st.innerHTML='✅ Foto principal com fundo branco pronta (a original continua logo depois). Não gostou? Toque no × dela.'; drawThumbs();
+    if(st)st.innerHTML=`✅ Foto principal pronta (a original continua logo depois). Aplicado: ${esc(lido.ok.join(' · '))}.<br>${PRESERVA}`; drawThumbs();
   }catch(e){ if(st)st.innerHTML='⚠️ '+esc(e.message)+' — a foto original fica como principal.'; }
 }
 async function iaArteAoSalvar(dados){
   if(!iaPref('iaArte')||S.ui.fotos.some(f=>f.ia==='arte')||!S.ui.fotos.length||S.ui.fotos.length>=12)return;
-  const z=zonaDe(dados.nome); if(!z)return;
-  try{ if(!S.ui.recorte){ const f=S.ui.fotos.find(f=>f.ia==='fundo')||S.ui.fotos[0]; S.ui.recorte=(await fotoFundoBranco(f.blob||('/api/foto/'+f.key))).recorte; }
-    S.ui.fotos.push({blob:await arteOndeFica(dados,S.ui.recorte,z),ia:'arte'}); }catch(e){ console.warn('arte',e); }
+  const mem=memArte(dados.nome)||{}, c=await cmdIA(), lido=leComandoArte((c.arte||'')+'\n'+(mem.instr||''));
+  const z=lido.op.zona||mem.zona||zonaDe(dados.nome); if(!z&&!mem.ponto)return;
+  try{ if(!S.ui.recorte){ const f=S.ui.fotos.find(f=>f.ia==='fundo')||S.ui.fotos[0]; S.ui.recorte=(await fotoFundoBranco(f.blob||('/api/foto/'+f.key),leComandoFoto(c.foto).op)).recorte; }
+    S.ui.fotos.push({blob:await arteOndeFica(dados,S.ui.recorte,z,{...lido.op,ponto:mem.ponto||null}),ia:'arte'}); }catch(e){ console.warn('arte',e); }
 }
 // categoria do ML no cadastro: sugere pelo nome da peça ou busca por texto
 function ligaCatForm(){
@@ -1104,7 +1232,7 @@ async function salvaPeca(e){
     custo:fd.custo,qualidade:fd.qualidade,seguranca:!!fd.seguranca,rastreavel:!!fd.rastreavel,peso_g:fd.peso_g,alt_cm:fd.alt_cm,larg_cm:fd.larg_cm,comp_cm:fd.comp_cm,video:(fd.video||'').trim(),
     ml_cat:fd.ml_cat||'',ml_cat_nome:fd.ml_cat_nome||'' };
   try{
-    if(iaPref('iaArte')&&zonaDe(body.nome)&&S.ui.fotos.length&&!S.ui.fotos.some(f=>f.ia==='arte')){ btn.textContent='🖼️ Gerando arte…'; await iaArteAoSalvar(body); }
+    if(iaPref('iaArte')&&(zonaDe(body.nome)||memArte(body.nome))&&S.ui.fotos.length&&!S.ui.fotos.some(f=>f.ia==='arte')){ btn.textContent='🖼️ Gerando arte…'; await iaArteAoSalvar(body); }
     let peca; const editando=!!S.ui.editId;
     if(editando) peca=(await api('/pecas/'+S.ui.editId,{method:'PATCH',body})).peca;
     else peca=(await api('/pecas',{method:'POST',body})).peca;
