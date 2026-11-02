@@ -307,13 +307,14 @@ async function mlCaminho(cat) {
     return (c.path_from_root || []).map(x => x.name).join(' › ') || c.name || null;
   } catch { return null; }
 }
-async function mlCategorias(token, texto, limite = 5) {
+async function mlCategorias(token, texto, limite = 5, info = {}) {
   let lista = [];
   try {
     const r = await fetch(ML_API + '/sites/MLB/domain_discovery/search?limit=' + limite + '&q=' + encodeURIComponent(texto), { headers: token ? { Authorization: 'Bearer ' + token } : {} });
     const d = await r.json().catch(() => []);
     if (Array.isArray(d)) lista = d.filter(x => x && x.category_id);
-  } catch { /* sem previsão */ }
+    else info.erro = (d && (d.message || d.error)) || ('HTTP ' + r.status);
+  } catch (e) { info.erro = e.message; }
   const vistos = new Set(); lista = lista.filter(x => !vistos.has(x.category_id) && vistos.add(x.category_id));
   return Promise.all(lista.map(async x => ({
     id: x.category_id, nome: x.category_name || '', dominio: x.domain_name || '',
@@ -339,13 +340,24 @@ async function mlRascunho(pecaId, env, url, user) {
     const c = i >= 0 ? categorias.splice(i, 1)[0] : { id: mem.id, nome: '', dominio: '', caminho: mem.caminho || mem.id, previstos: {} };
     c.memoria = true; categorias.unshift(c);
   }
+  if (p.ml_cat) {
+    const i = categorias.findIndex(c => c.id === p.ml_cat);
+    const c = i >= 0 ? categorias.splice(i, 1)[0] : { id: p.ml_cat, nome: '', dominio: '', caminho: p.ml_cat_nome || p.ml_cat, previstos: {} };
+    c.cadastro = true; categorias.unshift(c);
+  }
   return json({ rascunho: { titulo, desc, preco: p.preco, qtd: Math.max(1, Number(p.qtd) || 1), fotos, categorias, categoria: categorias[0] ? categorias[0].id : null } });
 }
 // buscar categorias por um texto livre
 async function mlBuscaCategorias(url, env) {
   const q = (url.searchParams.get('q') || '').trim();
   if (q.length < 2) return json({ categorias: [] });
-  return json({ categorias: await mlCategorias(await mlToken(env), q, 6) });
+  if (/^MLB\d+$/i.test(q)) {  // código da categoria digitado direto
+    const cat = q.toUpperCase(), caminho = await mlCaminho(cat);
+    return json({ categorias: caminho ? [{ id: cat, nome: '', dominio: '', caminho, previstos: {} }] : [] });
+  }
+  const info = {};
+  const categorias = await mlCategorias(await mlToken(env), q, 6, info);
+  return json({ categorias, erro: categorias.length ? null : info.erro || null });
 }
 // ficha técnica (atributos) de uma categoria, simplificada para o formulário
 async function mlAtributos(url, env) {
@@ -418,7 +430,7 @@ async function mlPublicar(request, env, url, user) {
   try {
     await fetch(ML_API + '/items/' + d.id + '/description', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: JSON.stringify({ plain_text: b.desc || base.desc }) });
   } catch { /* descrição é secundária */ }
-  try { await garanteColsPecas(env); await env.DB.prepare('UPDATE pecas SET ml=1, ml_id=?, ml_link=?, ml_status=?, ml_em=? WHERE id=?').bind(String(d.id), d.permalink || '', d.status || 'active', now(), p.id).run(); } catch { /* marcação é secundária */ }
+  try { await garanteColsPecas(env); await env.DB.prepare('UPDATE pecas SET ml=1, ml_id=?, ml_link=?, ml_status=?, ml_em=?, ml_cat=?, ml_cat_nome=COALESCE(?,ml_cat_nome) WHERE id=?').bind(String(d.id), d.permalink || '', d.status || 'active', now(), categoria, b.caminho ? String(b.caminho).slice(0, 300) : null, p.id).run(); } catch { /* marcação é secundária */ }
   try { await setCfg(env, mlMemChave(p.nome), JSON.stringify({ id: categoria, caminho: String(b.caminho || '').slice(0, 300) })); } catch { /* memória é secundária */ }
   return json({ ok: true, id: d.id, permalink: d.permalink || null, status: d.status || null });
 }
@@ -509,6 +521,15 @@ async function mlBuscaAnuncios(token, params) {
   return Array.isArray(d.results) ? d.results : [];
 }
 const mlAttr = (it, id) => ((it.attributes || []).find(a => a && a.id === id) || {}).value_name || '';
+// palavras que importam no título (pra conferir se um anúncio é da mesma peça)
+const PARADAS = new Set(['para', 'com', 'sem', 'dos', 'das', 'del', 'the', 'por', 'original', 'usado', 'usada', 'novo', 'nova', 'peca', 'pecas', 'lado', 'kit']);
+const palavrasDe = t => norm(t).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length >= 3 && !PARADAS.has(w));
+function parecido(titulo, pal, pn) {
+  const t = norm(titulo).replace(/[^a-z0-9 ]/g, ' ');
+  if (pn && t.replace(/\s/g, '').includes(pn)) return true;
+  if (!pal.length || !t.includes(pal[0])) return false;   // a 1ª palavra é o tipo da peça (farol, solenoide...)
+  return pal.filter(w => t.includes(w)).length >= Math.min(2, pal.length);
+}
 async function mlPreco(pecaId, env) {
   const token = await mlToken(env);
   if (!token) return bad('conecte o Mercado Livre primeiro (Anúncios ML → Conexão)');
@@ -517,32 +538,67 @@ async function mlPreco(pecaId, env) {
   if (!row) return bad('peça não encontrada', 404);
   const p = parsePeca(row);
   const eu = String((await getCfg(env, 'ml_user_id')) || '-');
-  const achados = new Map(), buscas = [];
-  const junta = lista => { for (const it of lista) if (it && it.id && !achados.has(it.id) && String((it.seller && it.seller.id) ?? it.seller_id ?? '') !== eu) achados.set(it.id, it); };
+  const q = [p.nome, p.marca, p.modelo].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  const pal = palavrasDe(p.nome + ' ' + (p.marca || '') + ' ' + (p.modelo || ''));
+  const pnLimpo = norm(p.pn || '').replace(/[^a-z0-9]/g, '');
+  const tentativas = [], buscas = [];
+  let anuncios = [], fonte = null;
+  const deOutro = sid => String(sid ?? '') !== eu;
+  // 1) busca de anúncios (a melhor; o ML pode bloquear para alguns apps)
   try {
-    // 1º pelo código original (mais certeiro); se vier pouco, pelo nome + veículo dentro da categoria prevista
+    const achados = new Map();
+    const junta = l => { for (const it of l) if (it && it.id && !achados.has(it.id) && deOutro((it.seller && it.seller.id) ?? it.seller_id)) achados.set(it.id, it); };
     if (p.pn) { buscas.push('código ' + p.pn); junta(await mlBuscaAnuncios(token, { q: p.pn, ITEM_CONDITION: ML_COND_USADO })); }
     if (achados.size < 5) {
-      const q = [p.nome, p.marca, p.modelo].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
-      let cat = null;
-      try { const r = await fetch(ML_API + '/sites/MLB/domain_discovery/search?limit=1&q=' + encodeURIComponent(q), { headers: { Authorization: 'Bearer ' + token } }); const d = await r.json(); if (Array.isArray(d) && d[0]) cat = d[0].category_id; } catch { /* sem categoria */ }
+      let cat = p.ml_cat || null;
+      if (!cat) try { cat = ((await mlCategorias(token, q, 1))[0] || {}).id || null; } catch { /* sem categoria */ }
       buscas.push('nome "' + q + '"');
       junta(await mlBuscaAnuncios(token, { q, ITEM_CONDITION: ML_COND_USADO, ...(cat ? { category: cat } : {}) }));
     }
-  } catch (e) {
-    if (e.status === 401 || e.status === 403) return bad('o Mercado Livre não liberou a pesquisa de preços para este app (' + e.message + ')');
-    return bad('não consegui pesquisar no Mercado Livre: ' + e.message);
+    anuncios = [...achados.values()].filter(it => !it.condition || it.condition === 'used').map(it => ({
+      id: it.id, titulo: it.title || '', preco: it.price, link: it.permalink || null,
+      pn: mlAttr(it, 'PART_NUMBER') || mlAttr(it, 'OEM') || mlAttr(it, 'ORIGINAL_PART_NUMBER'),
+      foto: it.thumbnail ? String(it.thumbnail).replace(/^http:/, 'https:') : null, frete: !!(it.shipping && it.shipping.free_shipping),
+    }));
+    fonte = 'busca'; tentativas.push('busca: ok');
+  } catch (e) { tentativas.push('busca: ' + (e.status || '') + ' ' + e.message); }
+  // 2) catálogo do ML: produtos parecidos e os anúncios que concorrem neles
+  if (!fonte) {
+    try {
+      const prods = ((await mlReq(token, 'GET', '/products/search?status=active&site_id=MLB&q=' + encodeURIComponent(p.pn || q))).results || [])
+        .filter(x => x && x.id && parecido(x.name || '', pal, pnLimpo)).slice(0, 3);
+      for (const pr of prods) {
+        const its = (await mlReq(token, 'GET', '/products/' + encodeURIComponent(pr.id) + '/items').catch(() => ({}))).results || [];
+        for (const it of its) if (it && deOutro(it.seller_id) && (!it.condition || it.condition === 'used'))
+          anuncios.push({ id: it.item_id || it.id, titulo: pr.name || '', preco: it.price, link: 'https://www.mercadolivre.com.br/p/' + pr.id, pn: '', foto: null, frete: !!(it.shipping && it.shipping.free_shipping) });
+      }
+      buscas.push('catálogo "' + (p.pn || q) + '"'); tentativas.push('catálogo: ' + prods.length + ' produto(s)');
+      if (anuncios.length) fonte = 'catalogo';
+    } catch (e) { tentativas.push('catálogo: ' + e.message); }
   }
-  const anuncios = [...achados.values()].filter(it => !it.condition || it.condition === 'used').map(it => ({
-    id: it.id, titulo: it.title || '', preco: it.price, link: it.permalink || null,
-    pn: mlAttr(it, 'PART_NUMBER') || mlAttr(it, 'OEM') || mlAttr(it, 'ORIGINAL_PART_NUMBER'),
-    foto: it.thumbnail ? String(it.thumbnail).replace(/^http:/, 'https:') : null,
-    frete: !!(it.shipping && it.shipping.free_shipping),
-  }));
+  // 3) mais vendidos da categoria, só os de título parecido
+  if (!fonte) {
+    try {
+      let cat = p.ml_cat || null;
+      if (!cat) cat = ((await mlCategorias(token, q, 1))[0] || {}).id || null;
+      if (!cat) throw new Error('sem categoria');
+      const ids = ((await mlReq(token, 'GET', '/highlights/MLB/category/' + encodeURIComponent(cat))).content || []).filter(x => x && x.type === 'ITEM' && x.id).map(x => x.id).slice(0, 20);
+      if (ids.length) {
+        const lista = await mlReq(token, 'GET', '/items?ids=' + ids.join(',') + '&attributes=id,title,price,condition,permalink,thumbnail,seller_id,shipping');
+        for (const r of (Array.isArray(lista) ? lista : [])) { const it = r && r.body; if (!it || r.code !== 200 || !deOutro(it.seller_id)) continue;
+          if (it.condition && it.condition !== 'used') continue; if (!parecido(it.title || '', pal, pnLimpo)) continue;
+          anuncios.push({ id: it.id, titulo: it.title || '', preco: it.price, link: it.permalink || null, pn: '', foto: it.thumbnail ? String(it.thumbnail).replace(/^http:/, 'https:') : null, frete: !!(it.shipping && it.shipping.free_shipping) }); }
+      }
+      buscas.push('mais vendidos da categoria ' + cat); tentativas.push('mais vendidos: ' + ids.length + ' anúncio(s)');
+      if (anuncios.length) fonte = 'mais_vendidos';
+    } catch (e) { tentativas.push('mais vendidos: ' + e.message); }
+  }
+  if (!fonte) return bad('o Mercado Livre não liberou a pesquisa de preços para este app (' + tentativas.join(' · ') + ')');
   const r = sugerirPreco({ pn: p.pn }, anuncios);
+  const conf = fonte === 'busca' ? r.confianca : (r.sugerido ? 'baixa (' + (fonte === 'catalogo' ? 'pelo catálogo' : 'pelos mais vendidos') + ')' : r.confianca);
   const enx = a => ({ id: a.id, titulo: a.titulo, preco: a.preco, link: a.link, foto: a.foto, frete: a.frete, pnBate: !!a.pnBate });
   return json({
-    buscas, total: anuncios.length, sugerido: r.sugerido, confianca: r.confianca,
+    fonte, buscas, tentativas, total: anuncios.length, sugerido: r.sugerido, confianca: conf,
     usados: [...r.usados].sort((a, b) => a.preco - b.preco).slice(0, 15).map(enx),
     descartados: r.descartados.slice(0, 10).map(d => ({ ...enx(d.anuncio), motivo: d.motivo })), nDescartados: r.descartados.length,
   });
@@ -698,7 +754,7 @@ let colsPecasOk = false;
 async function garanteColsPecas(env) {
   if (colsPecasOk) return;
   for (const c of ['custo REAL', 'qualidade TEXT', 'seguranca INTEGER DEFAULT 0', 'rastreavel INTEGER DEFAULT 0', 'peso_g INTEGER',
-    'alt_cm REAL', 'larg_cm REAL', 'comp_cm REAL', 'video TEXT', 'etq_em INTEGER', 'ml_status TEXT', 'ml_em INTEGER']) {
+    'alt_cm REAL', 'larg_cm REAL', 'comp_cm REAL', 'video TEXT', 'etq_em INTEGER', 'ml_status TEXT', 'ml_em INTEGER', 'ml_cat TEXT', 'ml_cat_nome TEXT']) {
     try { await env.DB.prepare('ALTER TABLE pecas ADD COLUMN ' + c).run(); } catch { /* já existe */ }
   }
   colsPecasOk = true;
@@ -797,7 +853,7 @@ async function sugestoes(url, env) {
   return json({ sugestoes: r.results });
 }
 const CAMPOS = ['nome', 'marca', 'modelo', 'ano', 'pn', 'cond', 'veiculo', 'preco', 'qtd', 'local_id', 'obs', 'ml', 'ml_id', 'ml_link', 'olx', 'olx_link',
-  'custo', 'qualidade', 'seguranca', 'rastreavel', 'peso_g', 'alt_cm', 'larg_cm', 'comp_cm', 'video'];
+  'custo', 'qualidade', 'seguranca', 'rastreavel', 'peso_g', 'alt_cm', 'larg_cm', 'comp_cm', 'video', 'ml_cat', 'ml_cat_nome'];
 async function criaPeca(request, env, user) {
   await garanteColsPecas(env);
   const b = await request.json();
@@ -806,13 +862,13 @@ async function criaPeca(request, env, user) {
   const codigo = b.codigo ? parseInt(b.codigo) : await proxCodigo(env); // permite manter código do iBR na importação
   await env.DB.prepare(
     `INSERT INTO pecas (id,codigo,nome,marca,modelo,ano,pn,cond,veiculo,preco,qtd,local_id,obs,busca,fotos,ml,ml_link,olx,olx_link,criado_em,criado_por,
-       custo,qualidade,seguranca,rastreavel,peso_g,alt_cm,larg_cm,comp_cm,video)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       custo,qualidade,seguranca,rastreavel,peso_g,alt_cm,larg_cm,comp_cm,video,ml_cat,ml_cat_nome)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(id, codigo, b.nome, b.marca || null, b.modelo || null, b.ano || null, b.pn || null, b.cond || null,
     b.veiculo || null, Number(b.preco) || 0, parseInt(b.qtd) || 0, b.local_id || null, b.obs || null,
     buscaDe({ ...b, codigo }), JSON.stringify(b.fotos || []), b.ml ? 1 : 0, b.ml_link || null, b.olx ? 1 : 0, b.olx_link || null, now(), (user && user.id) || null,
     numOuNull(b.custo), b.qualidade || null, b.seguranca ? 1 : 0, b.rastreavel ? 1 : 0, numOuNull(b.peso_g), numOuNull(b.alt_cm), numOuNull(b.larg_cm),
-    numOuNull(b.comp_cm), b.video || null).run();
+    numOuNull(b.comp_cm), b.video || null, b.ml_cat || null, b.ml_cat_nome || null).run();
   return getPeca(id, env);
 }
 // edição em massa: muda preço, local ou marcação de anúncio de várias peças de uma vez

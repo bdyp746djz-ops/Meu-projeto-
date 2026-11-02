@@ -57,7 +57,9 @@ CREATE TABLE IF NOT EXISTS pecas (
   video         TEXT,                             -- link do YouTube
   etq_em        INTEGER,                          -- quando a etiqueta foi impressa
   ml_status     TEXT,                             -- status do anúncio no ML
-  ml_em         INTEGER                           -- quando foi publicada no ML
+  ml_em         INTEGER,                          -- quando foi publicada no ML
+  ml_cat        TEXT,                             -- categoria do ML escolhida no cadastro
+  ml_cat_nome   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_pecas_codigo ON pecas(codigo);
 CREATE INDEX IF NOT EXISTS idx_pecas_pn     ON pecas(pn);
