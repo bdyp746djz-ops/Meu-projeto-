@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS pecas (
   comp_cm       REAL,
   video         TEXT,                             -- link do YouTube
   etq_em        INTEGER,                          -- quando a etiqueta foi impressa
-  ml_status     TEXT                              -- status do anúncio no ML
+  ml_status     TEXT,                             -- status do anúncio no ML
+  ml_em         INTEGER                           -- quando foi publicada no ML
 );
 CREATE INDEX IF NOT EXISTS idx_pecas_codigo ON pecas(codigo);
 CREATE INDEX IF NOT EXISTS idx_pecas_pn     ON pecas(pn);
@@ -75,7 +76,8 @@ CREATE TABLE IF NOT EXISTS vendas (
   pagamento TEXT,
   local_path TEXT,
   cancelada INTEGER NOT NULL DEFAULT 0,
-  data      INTEGER NOT NULL
+  data      INTEGER NOT NULL,
+  ml_pedido TEXT                                 -- nº do pedido no Mercado Livre (baixa pela expedição)
 );
 CREATE INDEX IF NOT EXISTS idx_vendas_data ON vendas(data);
 

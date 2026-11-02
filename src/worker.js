@@ -16,6 +16,10 @@ const uid = () => crypto.randomUUID();
 const now = () => Date.now();
 // texto para busca sem acento/maiúscula (ex.: "Fusível" -> "fusivel")
 const norm = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+// horário de Brasília (UTC-3): início do dia / do mês para relatórios
+const BR = 3 * 3600e3;
+const inicioDiaBR = () => { const d = new Date(Date.now() - BR); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) + BR; };
+const inicioMesBR = (off = 0) => { const d = new Date(Date.now() - BR); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + off, 1) + BR; };
 const buscaDe = p => norm([p.nome, p.marca, p.modelo, p.ano, p.pn, p.veiculo, p.codigo, p.obs].filter(Boolean).join(' '));
 
 function cookies(req) {
@@ -139,6 +143,9 @@ async function api(request, env, url) {
   if (mt && m === 'POST') return cancelaVenda(mt[1], env);
 
   if (p === '/api/painel' && m === 'GET') return painel(env);
+  if (p === '/api/ml/expedicao' && m === 'GET') return mlExpedicao(env);
+  mt = p.match(/^\/api\/ml\/etiqueta-envio\/(\d+)$/);
+  if (mt && m === 'GET') return mlEtiquetaEnvio(mt[1], env);
 
   // integrações / Mercado Livre
   if (p === '/api/config' && m === 'GET') return getConfig(env, url);
@@ -540,6 +547,52 @@ async function mlPreco(pecaId, env) {
     descartados: r.descartados.slice(0, 10).map(d => ({ ...enx(d.anuncio), motivo: d.motivo })), nDescartados: r.descartados.length,
   });
 }
+// ---------- expedição: pedidos pagos do ML que ainda precisam ser enviados ----------
+async function mlExpedicao(env) {
+  const token = await mlToken(env);
+  if (!token) return json({ conectado: false, pedidos: [] });
+  const seller = await getCfg(env, 'ml_user_id');
+  if (!seller) return json({ conectado: true, pedidos: [], aviso: 'reconecte o Mercado Livre para ler os pedidos' });
+  await garanteColsPecas(env); await garanteColsVendas(env);
+  let d;
+  try { d = await mlReq(token, 'GET', '/orders/search?seller=' + encodeURIComponent(seller) + '&order.status=paid&sort=date_desc&limit=25'); }
+  catch (e) { return bad('não consegui ler os pedidos do Mercado Livre: ' + e.message); }
+  const ordens = Array.isArray(d.results) ? d.results : [];
+  // envios em paralelo (no máx. 25 consultas ao ML)
+  const envios = await Promise.all(ordens.map(async o => {
+    if (!o.shipping || !o.shipping.id) return null;
+    try {
+      const s = await mlReq(token, 'GET', '/shipments/' + encodeURIComponent(o.shipping.id));
+      return { id: s.id || o.shipping.id, status: s.status || null, sub: s.substatus || null,
+        tipo: (s.logistic && s.logistic.type) || s.logistic_type || null,
+        prazo: (s.lead_time && s.lead_time.estimated_handling_limit && s.lead_time.estimated_handling_limit.date) || (s.shipping_option && s.shipping_option.estimated_handling_limit && s.shipping_option.estimated_handling_limit.date) || null };
+    } catch { return { id: o.shipping.id, status: null }; }
+  }));
+  const abertas = ordens.map((o, i) => ({ o, envio: envios[i] })).filter(({ envio }) =>
+    !(envio && envio.tipo === 'fulfillment') &&                                                   // Full: o ML envia
+    !(envio && envio.status && !['pending', 'handling', 'ready_to_ship'].includes(envio.status)));   // já foi enviado/entregue
+  // peças vinculadas e baixas já feitas: 2 consultas no total
+  const mlIds = [...new Set(abertas.flatMap(({ o }) => (o.order_items || []).map(it => it.item && it.item.id).filter(Boolean).map(String)))];
+  const ordIds = abertas.map(({ o }) => String(o.id));
+  const porMl = {}, baixas = new Set();
+  if (mlIds.length) (await env.DB.prepare(`SELECT id,codigo,nome,local_id,qtd,ml_id FROM pecas WHERE ml_id IN (${mlIds.map(() => '?').join(',')})`).bind(...mlIds).all()).results.forEach(r => { porMl[r.ml_id] = r; });
+  if (ordIds.length) (await env.DB.prepare(`SELECT ml_pedido,peca_id FROM vendas WHERE cancelada=0 AND ml_pedido IN (${ordIds.map(() => '?').join(',')})`).bind(...ordIds).all()).results.forEach(r => baixas.add(r.ml_pedido + '|' + r.peca_id));
+  const pedidos = abertas.map(({ o, envio }) => ({
+    id: o.id, data: o.date_created || null, total: o.total_amount || 0, comprador: (o.buyer && o.buyer.nickname) || '', envio,
+    itens: (o.order_items || []).map(it => {
+      const mlId = it.item && it.item.id ? String(it.item.id) : null, pc = mlId ? porMl[mlId] || null : null;
+      return { mlId, titulo: (it.item && it.item.title) || '', qtd: it.quantity || 1, unit: it.unit_price || 0, peca: pc, baixa: !!(pc && baixas.has(String(o.id) + '|' + pc.id)) };
+    }),
+  }));
+  return json({ conectado: true, pedidos });
+}
+async function mlEtiquetaEnvio(shipId, env) {
+  const token = await mlToken(env);
+  if (!token) return bad('conecte o Mercado Livre primeiro');
+  const r = await fetch(ML_API + '/shipment_labels?shipment_ids=' + shipId + '&response_type=pdf', { headers: { Authorization: 'Bearer ' + token } });
+  if (!r.ok) { const d = await r.json().catch(() => ({})); return bad('o Mercado Livre não liberou a etiqueta: ' + (d.message || 'HTTP ' + r.status)); }
+  return new Response(r.body, { headers: { 'content-type': 'application/pdf', 'content-disposition': 'inline; filename="etiqueta-envio-' + shipId + '.pdf"', 'cache-control': 'no-store' } });
+}
 async function mlDesconecta(env, user) {
   if (user.papel !== 'admin') return bad('somente o administrador', 403);
   for (const k of ['ml_access_token', 'ml_refresh_token', 'ml_token_exp', 'ml_nickname', 'ml_user_id']) await setCfg(env, k, '');
@@ -860,18 +913,30 @@ async function serveFoto(key, env) {
 }
 
 // ---------- vendas ----------
+let colsVendasOk = false;
+async function garanteColsVendas(env) {
+  if (colsVendasOk) return;
+  try { await env.DB.prepare('ALTER TABLE vendas ADD COLUMN ml_pedido TEXT').run(); } catch { /* já existe */ }
+  colsVendasOk = true;
+}
 async function listaVendas(url, env) {
   const periodo = url.searchParams.get('periodo') || 'mes';
-  let ini = 0;
-  const d = new Date();
-  if (periodo === 'hoje') { d.setHours(0, 0, 0, 0); ini = d.getTime(); }
+  let ini = 0, fim = now() + 864e5;
+  if (periodo === 'hoje') ini = inicioDiaBR();
   else if (periodo === '7d') ini = now() - 7 * 864e5;
-  else if (periodo === 'mes') ini = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
-  const r = await env.DB.prepare('SELECT * FROM vendas WHERE data>=? ORDER BY data DESC LIMIT 1000').bind(ini).all();
+  else if (periodo === '30d') ini = now() - 30 * 864e5;
+  else if (periodo === 'mes') ini = inicioMesBR(0);
+  else if (periodo === 'mesant') { ini = inicioMesBR(-1); fim = inicioMesBR(0); }
+  const r = await env.DB.prepare('SELECT * FROM vendas WHERE data>=? AND data<? ORDER BY data DESC LIMIT 5000').bind(ini, fim).all();
   return json({ vendas: r.results });
 }
 async function criaVenda(request, env) {
+  await garanteColsVendas(env);
   const b = await request.json();
+  if (b.ml_pedido) {
+    const ja = await env.DB.prepare('SELECT id FROM vendas WHERE ml_pedido=? AND peca_id=? AND cancelada=0').bind(String(b.ml_pedido), b.peca_id).first();
+    if (ja) return bad('a baixa deste pedido já foi feita', 409);
+  }
   const peca = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(b.peca_id).first();
   if (!peca) return bad('peça não encontrada', 404);
   const qtd = Math.max(1, parseInt(b.qtd) || 1);
@@ -879,10 +944,10 @@ async function criaVenda(request, env) {
   const unit = Number(b.unit) || peca.preco || 0;
   const id = uid();
   await env.DB.prepare(
-    `INSERT INTO vendas (id,peca_id,nome,codigo,qtd,unit,total,canal,cliente,pagamento,local_path,data)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+    `INSERT INTO vendas (id,peca_id,nome,codigo,qtd,unit,total,canal,cliente,pagamento,local_path,data,ml_pedido)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(id, peca.id, peca.nome, peca.codigo, qtd, unit, qtd * unit, b.canal || 'Balcão',
-    b.cliente || null, b.pagamento || null, b.local_path || null, now()).run();
+    b.cliente || null, b.pagamento || null, b.local_path || null, now(), b.ml_pedido ? String(b.ml_pedido) : null).run();
   await env.DB.prepare('UPDATE pecas SET qtd=qtd-?, atualizado_em=? WHERE id=?').bind(qtd, now(), peca.id).run();
   const ml = await mlAposEstoque(env, peca.id);
   return json({ ok: true, id, ml });
@@ -899,7 +964,17 @@ async function cancelaVenda(id, env) {
 
 // ---------- painel ----------
 async function painel(env) {
-  const inicioMes = (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); })();
+  await garanteColsPecas(env);
+  const inicioMes = inicioMesBR(0), iniAnt = inicioMesBR(-1), decorrido = now() - inicioMes;
+  const soma = (a, b2) => env.DB.prepare('SELECT COUNT(*) n, COALESCE(SUM(total),0) total FROM vendas WHERE cancelada=0 AND data>=? AND data<?').bind(a, b2).first();
+  const hoje = await soma(inicioDiaBR(), now() + 864e5);
+  const antTotal = await soma(iniAnt, inicioMes);
+  const antParcial = await soma(iniAnt, Math.min(iniAnt + decorrido, inicioMes));
+  const pagamentos = await env.DB.prepare("SELECT COALESCE(NULLIF(pagamento,''),'Não informado') pagamento, COUNT(*) n, SUM(total) total FROM vendas WHERE cancelada=0 AND data>=? GROUP BY 1 ORDER BY total DESC").bind(inicioMes).all();
+  const top = await env.DB.prepare('SELECT nome, codigo, SUM(qtd) qtd, SUM(total) total FROM vendas WHERE cancelada=0 AND data>=? GROUP BY codigo, nome ORDER BY total DESC LIMIT 5').bind(inicioMes).all();
+  const mlSt = await env.DB.prepare("SELECT COALESCE(ml_status,'active') st, COUNT(*) c FROM pecas WHERE ml=1 GROUP BY 1").all();
+  const semEtq = await env.DB.prepare('SELECT COUNT(*) c FROM pecas WHERE qtd>0 AND etq_em IS NULL').first();
+  const semFoto = await env.DB.prepare("SELECT COUNT(*) c FROM pecas WHERE qtd>0 AND (fotos IS NULL OR fotos IN ('','[]'))").first();
   const est = await env.DB.prepare('SELECT COUNT(*) cadastros, COALESCE(SUM(qtd),0) pecas, COALESCE(SUM(qtd*preco),0) valor FROM pecas').first();
   const vend = await env.DB.prepare('SELECT COUNT(*) n, COALESCE(SUM(total),0) total FROM vendas WHERE cancelada=0 AND data>=?').bind(inicioMes).first();
   const semAnuncio = await env.DB.prepare('SELECT COUNT(*) c FROM pecas WHERE qtd>0 AND ml=0 AND olx=0').first();
@@ -909,7 +984,12 @@ async function painel(env) {
   const ultimas = await env.DB.prepare('SELECT id,nome,codigo,total,canal,data,cancelada FROM vendas ORDER BY data DESC LIMIT 8').all();
   return json({
     estoque: { cadastros: est.cadastros, pecas: est.pecas, valor: est.valor },
-    vendasMes: { n: vend.n, total: vend.total },
+    vendasMes: { n: vend.n, total: vend.total, ticket: vend.n ? vend.total / vend.n : 0 },
+    vendasHoje: { n: hoje.n, total: hoje.total },
+    mesAnterior: { n: antTotal.n, total: antTotal.total, mesmoPeriodo: antParcial.total },
+    porPagamento: pagamentos.results, maisVendidas: top.results,
+    anunciosML: Object.fromEntries(mlSt.results.map(r => [r.st, r.c])),
+    semEtiqueta: semEtq.c, semFoto: semFoto.c,
     semAnuncio: semAnuncio.c, semLocal: semLocal.c, parado: parado.c,
     porCanal: canais.results, ultimas: ultimas.results,
   });
