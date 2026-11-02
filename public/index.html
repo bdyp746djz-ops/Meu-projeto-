@@ -208,6 +208,8 @@ nav.bottom{display:none}
 .exp-h{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-bottom:6px}
 .exp-i{display:flex;gap:10px;align-items:center;padding:6px 0;border-top:1px dashed #eee}
 #mlcatv .mlcat{display:flex;align-items:center;gap:10px}
+.form.emb4{grid-template-columns:repeat(4,1fr)}
+@media(max-width:600px){.form.emb4{grid-template-columns:repeat(2,1fr)}}
 /* componentes */
 .btn{border:1px solid #d0d0d0;background:#fff;border-radius:var(--rad);padding:9px 16px;cursor:pointer;font-weight:500;color:var(--ink);text-decoration:none;display:inline-block;transition:filter .13s,box-shadow .13s,background .13s}
 .btn:hover{background:#f5f5f5}
@@ -587,6 +589,8 @@ function abrePeca(id){
   $('#detq').onclick=()=>abreGerador([itemPeca(p)]);
   $('#dx').onclick=()=>{ if(confirm('Excluir '+p.nome+'?')) api('/pecas/'+id,{method:'DELETE'}).then(()=>{ fecha(); toast('Peça excluída'); listaEstoque(); }); };
 }
+// embalagens prontas: [nome, peso g, altura, largura, comprimento cm]
+const EMB_PRESETS=[['Pequena (até 1 kg)',800,10,15,20],['Média (até 3 kg)',2500,20,25,35],['Grande (até 8 kg)',7000,30,40,50],['Extra (até 15 kg)',14000,40,50,70]];
 async function publicarML(p){
   let cfg; try{ cfg=await api('/config'); }catch{ cfg={}; }
   if(!(cfg.ml&&cfg.ml.conectado))return toast('Conecte o Mercado Livre primeiro (Anúncios ML → Conexão)');
@@ -606,9 +610,16 @@ async function publicarML(p){
    <div class="mlsec"><b>Categoria</b> <span class="small mut">— sugeridas pelo Mercado Livre a partir do título</span>
      <div id="mcats" class="mlcats"></div>
      <div class="mlbusca"><input id="mcq" placeholder="Não é nenhuma? Busque outra (ex.: farol, módulo de injeção)"><button class="btn sm" id="mcb" type="button">Buscar</button></div></div>
+   <div class="mlsec"><b>Embalagem *</b> <span class="small mut">— o Mercado Livre exige pra calcular o frete (peça já embalada)</span>
+     <div class="small" style="margin:6px 0">Rápido: ${EMB_PRESETS.map((e,i)=>`<button type="button" class="chip" data-emb="${i}">${e[0]}</button>`).join(' ')}</div>
+     ${d.embalagem&&d.embalagem.origem==='memoria'?'<div class="small mut">Preenchido com a embalagem usada da última vez nessa peça.</div>':''}
+     <div class="form emb4"><label class="f">Peso (g) *<input id="epeso" type="number" min="1" step="1" inputmode="numeric" value="${esc(d.embalagem&&d.embalagem.peso_g||'')}"></label>
+       <label class="f">Altura (cm) *<input id="ealt" type="number" min="1" step="0.1" inputmode="decimal" value="${esc(d.embalagem&&d.embalagem.alt_cm||'')}"></label>
+       <label class="f">Largura (cm) *<input id="elarg" type="number" min="1" step="0.1" inputmode="decimal" value="${esc(d.embalagem&&d.embalagem.larg_cm||'')}"></label>
+       <label class="f">Comprimento (cm) *<input id="ecomp" type="number" min="1" step="0.1" inputmode="decimal" value="${esc(d.embalagem&&d.embalagem.comp_cm||'')}"></label></div></div>
    <div class="mlsec"><b>Ficha técnica</b> <span class="small mut">— * = obrigatório no Mercado Livre</span><div id="mattrs"><p class="small mut">Escolha a categoria.</p></div></div>
    <label class="f">Descrição<textarea id="mdesc" rows="5" style="width:100%">${esc(d.desc)}</textarea></label>
-   <p class="small mut">${d.fotos.length} foto(s) · Condição: ${/^nov/i.test(p.cond||'')?'novo':'usado'} · Garantia do vendedor: 90 dias${p.peso_g&&p.alt_cm&&p.larg_cm&&p.comp_cm?' · Embalagem: '+p.peso_g+' g, '+p.alt_cm+'×'+p.larg_cm+'×'+p.comp_cm+' cm':' · <b style="color:var(--amber)">sem dados da embalagem</b> (o ML pode pedir pro frete)'}${p.video?' · com vídeo':''}</p>
+   <p class="small mut">${d.fotos.length} foto(s) · Condição: ${/^nov/i.test(p.cond||'')?'novo':'usado'} · Garantia do vendedor: 90 dias${p.video?' · com vídeo':''}</p>
    <div class="card small" style="background:#fff7e6;box-shadow:none;margin:8px 0">⚠️ Ao publicar, o anúncio fica <b>ativo no Mercado Livre</b>. Confira os dados; depois dá pra pausar ou excluir pela sua conta do ML.</div>
    <div class="top" style="margin-top:12px"><button class="btn p" id="mok">🛒 Publicar de verdade</button><button class="btn" id="mcc">Cancelar</button></div>`);
   $('#mpm').onclick=e=>{ e.preventDefault(); pesquisaPreco(p,$('#mpmx'),v=>{ $('#mpre').value=v; toast('Preço do anúncio: '+brl(v)+' (o da peça não muda)'); }); };
@@ -622,7 +633,9 @@ async function publicarML(p){
     else if(a.tipo==='number_unit') inp=`<input data-at="${a.id}" value="${esc(v)}" placeholder="ex.: 10 ${esc(a.unidade||a.unidades[0]||'')}">`;
     else inp=`<input data-at="${a.id}" value="${esc(v)}" ${a.max?`maxlength="${a.max}"`:''} autocomplete="off">`;
     return `<label class="f">${esc(a.nome)}${a.obrig?' <b style="color:var(--red)">*</b>':''}${a.cond?' <span class="mut">(pode ser exigido)</span>':''}${inp}${a.dica?`<span class="small mut" style="display:block;font-weight:400">${esc(a.dica)}</span>`:''}</label>`; };
+  document.querySelectorAll('[data-emb]').forEach(b=>b.onclick=()=>{ const e=EMB_PRESETS[+b.dataset.emb]; $('#epeso').value=e[1]; $('#ealt').value=e[2]; $('#elarg').value=e[3]; $('#ecomp').value=e[4]; toast('Confira e ajuste se precisar'); });
   const pintaAttrs=()=>{
+    st.attrs=st.attrs.filter(a=>!/^SELLER_PACKAGE_/.test(a.id));   // embalagem tem campos próprios acima
     if(!st.attrs.length){ $('#mattrs').innerHTML='<p class="small mut">Essa categoria não pede ficha técnica.</p>'; return; }
     const princ=st.attrs.filter(a=>a.obrig||a.cond||a.relev===1||valorDe(a)), resto=st.attrs.filter(a=>!princ.includes(a));
     princ.sort((x,y)=>(y.obrig-x.obrig)||(y.cond-x.cond));
@@ -648,12 +661,14 @@ async function publicarML(p){
     const atributos=[];
     document.querySelectorAll('[data-at]').forEach(el=>{ const a=st.attrs.find(x=>x.id===el.dataset.at), t=el.value.trim(); if(!a||!t)return;
       const m=a.valores.find(x=>nrm(x.nome)===nrm(t)); atributos.push(m?{id:a.id,value_id:String(m.id)}:{id:a.id,value_name:t}); });
+    const embalagem={peso_g:$('#epeso').value,alt_cm:$('#ealt').value,larg_cm:$('#elarg').value,comp_cm:$('#ecomp').value};
+    if(!(Number(embalagem.peso_g)>0&&Number(embalagem.alt_cm)>0&&Number(embalagem.larg_cm)>0&&Number(embalagem.comp_cm)>0)){ $('#epeso').scrollIntoView({block:'center'}); return toast('Preencha peso e as 3 medidas da embalagem (o Mercado Livre exige)'); }
     const falta=st.attrs.filter(a=>a.obrig&&!atributos.find(x=>x.id===a.id));
     if(falta.length&&!confirm('Faltam campos obrigatórios: '+falta.map(a=>a.nome).join(', ')+'.\nO Mercado Livre pode recusar. Publicar mesmo assim?'))return;
     const btn=$('#mok'); btn.disabled=true; btn.textContent='Publicando…';
     const cat=st.cats.find(x=>x.id===st.cat)||{};
     try{
-      const res=await api('/ml/publicar',{method:'POST',body:{pecaId:p.id,titulo:$('#mtit').value,preco:$('#mpre').value,desc:$('#mdesc').value,tipo:$('#mtipo').value,categoria:st.cat,caminho:cat.caminho||'',atributos}});
+      const res=await api('/ml/publicar',{method:'POST',body:{pecaId:p.id,titulo:$('#mtit').value,preco:$('#mpre').value,desc:$('#mdesc').value,tipo:$('#mtipo').value,categoria:st.cat,caminho:cat.caminho||'',atributos,embalagem}});
       fecha();
       modal(`<h3>✅ Anúncio publicado!</h3>
        <p>Código no Mercado Livre: <b>${esc(res.id)}</b>${res.status?` · status: ${esc(res.status)}`:''}</p>

@@ -322,6 +322,8 @@ async function mlCategorias(token, texto, limite = 5, info = {}) {
     previstos: Object.fromEntries((x.attributes || []).filter(a => a && a.id).map(a => [a.id, { id: a.value_id || null, nome: a.value_name || '' }])),
   })));
 }
+// memória: embalagem usada antes para o mesmo nome de peça
+const mlEmbChave = nome => 'mlemb:' + norm(nome).replace(/\s+/g, ' ').trim().slice(0, 80);
 // memória: categoria usada antes para o mesmo nome de peça
 const mlMemChave = nome => 'mlcat:' + norm(nome).replace(/\s+/g, ' ').trim().slice(0, 80);
 // rascunho (pré-visualização) — não publica nada
@@ -340,12 +342,16 @@ async function mlRascunho(pecaId, env, url, user) {
     const c = i >= 0 ? categorias.splice(i, 1)[0] : { id: mem.id, nome: '', dominio: '', caminho: mem.caminho || mem.id, previstos: {} };
     c.memoria = true; categorias.unshift(c);
   }
+  let embalagem = { peso_g: p.peso_g, alt_cm: p.alt_cm, larg_cm: p.larg_cm, comp_cm: p.comp_cm, origem: 'peca' };
+  if (!(p.peso_g && p.alt_cm && p.larg_cm && p.comp_cm)) {
+    try { const m = JSON.parse((await getCfg(env, mlEmbChave(p.nome))) || 'null'); if (m) embalagem = { ...m, origem: 'memoria' }; } catch { /* sem memória */ }
+  }
   if (p.ml_cat) {
     const i = categorias.findIndex(c => c.id === p.ml_cat);
     const c = i >= 0 ? categorias.splice(i, 1)[0] : { id: p.ml_cat, nome: '', dominio: '', caminho: p.ml_cat_nome || p.ml_cat, previstos: {} };
     c.cadastro = true; categorias.unshift(c);
   }
-  return json({ rascunho: { titulo, desc, preco: p.preco, qtd: Math.max(1, Number(p.qtd) || 1), fotos, categorias, categoria: categorias[0] ? categorias[0].id : null } });
+  return json({ rascunho: { titulo, desc, preco: p.preco, qtd: Math.max(1, Number(p.qtd) || 1), fotos, categorias, categoria: categorias[0] ? categorias[0].id : null, embalagem } });
 }
 // buscar categorias por um texto livre
 async function mlBuscaCategorias(url, env) {
@@ -399,7 +405,7 @@ async function mlPublicar(request, env, url, user) {
   if (Array.isArray(b.atributos)) {
     // ficha técnica preenchida na tela (value_id quando bate com a lista do ML, senão texto)
     for (const a of b.atributos) {
-      if (!a || !a.id || atributos.find(x => x.id === a.id)) continue;
+      if (!a || !a.id || atributos.find(x => x.id === a.id) || /^SELLER_PACKAGE_/.test(a.id)) continue;
       if (a.value_id) atributos.push({ id: String(a.id), value_id: String(a.value_id) });
       else if (a.value_name != null && String(a.value_name).trim()) atributos.push({ id: String(a.id), value_name: String(a.value_name).trim().slice(0, 255) });
     }
@@ -407,7 +413,10 @@ async function mlPublicar(request, env, url, user) {
     if (p.marca) atributos.push({ id: 'BRAND', value_name: String(p.marca) });
     if (p.pn) atributos.push({ id: 'PART_NUMBER', value_name: String(p.pn) });
   }
-  const pac = [['SELLER_PACKAGE_HEIGHT', p.alt_cm, 'cm'], ['SELLER_PACKAGE_WIDTH', p.larg_cm, 'cm'], ['SELLER_PACKAGE_LENGTH', p.comp_cm, 'cm'], ['SELLER_PACKAGE_WEIGHT', p.peso_g, 'g']];
+  const e0 = b.embalagem || {};
+  const emb = { peso_g: numOuNull(e0.peso_g) ?? numOuNull(p.peso_g), alt_cm: numOuNull(e0.alt_cm) ?? numOuNull(p.alt_cm), larg_cm: numOuNull(e0.larg_cm) ?? numOuNull(p.larg_cm), comp_cm: numOuNull(e0.comp_cm) ?? numOuNull(p.comp_cm) };
+  if (emb.peso_g != null) emb.peso_g = Math.round(emb.peso_g);
+  const pac = [['SELLER_PACKAGE_HEIGHT', emb.alt_cm, 'cm'], ['SELLER_PACKAGE_WIDTH', emb.larg_cm, 'cm'], ['SELLER_PACKAGE_LENGTH', emb.comp_cm, 'cm'], ['SELLER_PACKAGE_WEIGHT', emb.peso_g, 'g']];
   for (const [aid, v, u] of pac) if (v != null && Number(v) > 0 && !atributos.find(a => a.id === aid)) atributos.push({ id: aid, value_name: Number(v) + ' ' + u });
   const yt = String(p.video || '').match(/(?:youtu\.be\/|v=|shorts\/|embed\/)([\w-]{11})/);
   const item = {
@@ -443,6 +452,10 @@ async function mlPublicar(request, env, url, user) {
   } catch { /* descrição é secundária */ }
   try { await garanteColsPecas(env); await env.DB.prepare('UPDATE pecas SET ml=1, ml_id=?, ml_link=?, ml_status=?, ml_em=?, ml_cat=?, ml_cat_nome=COALESCE(?,ml_cat_nome) WHERE id=?').bind(String(d.id), d.permalink || '', d.status || 'active', now(), categoria, b.caminho ? String(b.caminho).slice(0, 300) : null, p.id).run(); } catch { /* marcação é secundária */ }
   try { await setCfg(env, mlMemChave(p.nome), JSON.stringify({ id: categoria, caminho: String(b.caminho || '').slice(0, 300) })); } catch { /* memória é secundária */ }
+  if (emb.peso_g && emb.alt_cm && emb.larg_cm && emb.comp_cm) {   // guarda a embalagem na peça e para as próximas iguais
+    try { await env.DB.prepare('UPDATE pecas SET peso_g=?, alt_cm=?, larg_cm=?, comp_cm=? WHERE id=?').bind(emb.peso_g, emb.alt_cm, emb.larg_cm, emb.comp_cm, p.id).run(); } catch { /* secundário */ }
+    try { await setCfg(env, mlEmbChave(p.nome), JSON.stringify(emb)); } catch { /* secundário */ }
+  }
   return json({ ok: true, id: d.id, permalink: d.permalink || null, status: d.status || null });
 }
 // condição do anúncio a partir da condição da peça
