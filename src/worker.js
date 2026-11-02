@@ -456,8 +456,10 @@ async function mlPublicar(request, env, url, user) {
     try { await env.DB.prepare('UPDATE pecas SET peso_g=?, alt_cm=?, larg_cm=?, comp_cm=? WHERE id=?').bind(emb.peso_g, emb.alt_cm, emb.larg_cm, emb.comp_cm, p.id).run(); } catch { /* secundário */ }
     try { await setCfg(env, mlEmbChave(p.nome), JSON.stringify(emb)); } catch { /* secundário */ }
   }
-  return json({ ok: true, id: d.id, permalink: d.permalink || null, status: d.status || null });
+  return json({ ok: true, id: d.id, permalink: d.permalink || null, status: d.status || null, sub: d.sub_status || [], avisos: mlAvisos(d) });
 }
+// avisos que o ML devolve junto com o anúncio (ex.: motivo de ficar pausado)
+const mlAvisos = d => (Array.isArray(d && d.warnings) ? d.warnings : []).map(w => (w && (w.message || w.code)) || '').filter(Boolean).slice(0, 5);
 // condição do anúncio a partir da condição da peça
 const condML = c => /^nov/.test(norm(c)) ? 'new' : 'used';
 // chamada genérica à API do ML (lança erro com o motivo que o ML devolver)
@@ -471,7 +473,7 @@ async function mlReq(token, metodo, caminho, corpo) {
   }
   return d;
 }
-const ML_ITEM_CAMPOS = 'id,status,sub_status,permalink,price,available_quantity,sold_quantity,listing_type_id,health,date_created';
+const ML_ITEM_CAMPOS = 'id,status,sub_status,permalink,price,available_quantity,sold_quantity,listing_type_id,health,date_created,warnings,tags';
 // situação do anúncio vinculado à peça
 async function mlItem(pecaId, env) {
   await garanteColsPecas(env);
@@ -484,7 +486,7 @@ async function mlItem(pecaId, env) {
     const d = await mlReq(token, 'GET', '/items/' + encodeURIComponent(p.ml_id) + '?attributes=' + ML_ITEM_CAMPOS);
     const st = (p.ml_status === 'paused_venda' && d.status === 'paused') ? 'paused_venda' : d.status;
     if (st && st !== p.ml_status) await env.DB.prepare('UPDATE pecas SET ml_status=?, ml_link=COALESCE(?,ml_link) WHERE id=?').bind(st, d.permalink || null, p.id).run();
-    return json({ item: { id: d.id, status: st, sub: d.sub_status || [], link: d.permalink || null, preco: d.price, qtd: d.available_quantity, vendidos: d.sold_quantity || 0, tipo: d.listing_type_id, saude: d.health ?? null, criado: d.date_created || null } });
+    return json({ item: { id: d.id, status: st, sub: d.sub_status || [], link: d.permalink || null, preco: d.price, qtd: d.available_quantity, vendidos: d.sold_quantity || 0, tipo: d.listing_type_id, saude: d.health ?? null, criado: d.date_created || null, avisos: mlAvisos(d) } });
   } catch (e) { return bad('não consegui ler o anúncio no Mercado Livre: ' + e.message); }
 }
 // pausar / retomar / sincronizar preço e estoque / finalizar / desvincular

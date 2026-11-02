@@ -671,7 +671,8 @@ async function publicarML(p){
       const res=await api('/ml/publicar',{method:'POST',body:{pecaId:p.id,titulo:$('#mtit').value,preco:$('#mpre').value,desc:$('#mdesc').value,tipo:$('#mtipo').value,categoria:st.cat,caminho:cat.caminho||'',atributos,embalagem}});
       fecha();
       modal(`<h3>✅ Anúncio publicado!</h3>
-       <p>Código no Mercado Livre: <b>${esc(res.id)}</b>${res.status?` · status: ${esc(res.status)}`:''}</p>
+       <p>Código no Mercado Livre: <b>${esc(res.id)}</b>${res.status?` · situação: <b>${esc(stML(res.status))}</b>`:''}</p>
+       ${res.status&&res.status!=='active'?`<div class="card small" style="background:#fff7e6;box-shadow:none;margin:8px 0">${res.sub&&res.sub.length?'Motivo: <b>'+esc(subML(res.sub))+'</b>':'O Mercado Livre criou o anúncio pausado.'}${res.avisos&&res.avisos.length?'<br>⚠️ '+res.avisos.map(esc).join('<br>⚠️ '):''}<br>Abra a peça para acompanhar — lá aparece a situação atualizada e o botão <b>Retomar</b>.</div>`:''}
        ${res.permalink?`<p><a href="${esc(res.permalink)}" target="_blank" rel="noopener" class="btn p">Ver anúncio no Mercado Livre</a></p>`:''}
        <p class="small mut">A peça foi marcada como anunciada e a categoria ficou salva para as próximas parecidas.</p>
        <div class="top" style="margin-top:12px"><button class="btn" id="fok">Fechar</button></div>`);
@@ -723,10 +724,20 @@ async function precoMercado(p){
 }
 const ML_ST={active:'Ativo',paused:'Pausado',paused_venda:'Pausado (sem estoque)',closed:'Finalizado',under_review:'Em revisão',inactive:'Inativo'};
 const stML=s=>ML_ST[s]||(s?s:'Publicado');
+// motivos (sub_status) do ML em português
+const ML_SUB={picture_download_pending:'o ML ainda está baixando as fotos — fica ativo sozinho em alguns minutos',out_of_stock:'sem estoque',
+  waiting_for_patch:'o ML pediu correção de algum dado do anúncio',under_review:'em revisão pelo Mercado Livre',held:'retido pelo Mercado Livre para revisão',
+  warning:'o ML marcou um alerta no anúncio',pending_documentation:'o ML pediu documentação',forbidden:'proibido pelo Mercado Livre',suspended:'suspenso pelo Mercado Livre',
+  suspended_for_prevention:'suspenso por prevenção pelo Mercado Livre',freezed:'congelado pelo Mercado Livre',expired:'expirado',deleted:'excluído',
+  moderation_penalty:'penalidade de moderação do ML',paused_by_seller:'pausado pelo vendedor',inactive_by_seller:'inativado pelo vendedor'};
+const subML=l=>(l||[]).map(x=>ML_SUB[x]||x).join('; ');
 async function caixaAnuncio(p){
   const pinta=it=>{ const st=it?it.status:p.ml_status, link=(it&&it.link)||p.ml_link;
     if($('#mlst')){ $('#mlst').textContent=stML(st); $('#mlst').className='tag '+(st==='active'?'ml':st==='closed'?'zero':''); }
-    if($('#mlinfo'))$('#mlinfo').innerHTML=it?`${esc(p.ml_id)} · ${brl(it.preco)} · ${it.qtd} disponível(is) · ${it.vendidos} vendido(s) no ML${it.sub&&it.sub.length?' · '+esc(it.sub.join(', ')):''}`:esc(p.ml_id);
+    if($('#mlinfo'))$('#mlinfo').innerHTML=it?`${esc(p.ml_id)} · ${brl(it.preco)} · ${it.qtd} disponível(is) · ${it.vendidos} vendido(s) no ML`
+      +(it.sub&&it.sub.length?`<div style="margin-top:4px;color:var(--ink)">Motivo: <b>${esc(subML(it.sub))}</b></div>`:'')
+      +(it.avisos&&it.avisos.length?`<div style="margin-top:4px;color:var(--amber)">⚠️ ${it.avisos.map(esc).join('<br>⚠️ ')}</div>`:'')
+      +(st&&st.startsWith('paused')&&!(it.sub||[]).includes('picture_download_pending')&&!(it.sub||[]).includes('out_of_stock')?'<div class="small" style="margin-top:4px">Se não houver motivo do ML, toque em <b>Retomar</b> para ativar.</div>':''):esc(p.ml_id);
     const b=(k,t,ic,cl)=>`<button class="btn sm ${cl||''}" data-ma="${k}"><span class="material-icons" style="font-size:16px;vertical-align:-3px">${ic}</span> ${t}</button>`;
     $('#mlact').innerHTML=(link?`<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener"><span class="material-icons" style="font-size:16px;vertical-align:-3px">open_in_new</span> Ver</a>`+b('copiar','Copiar link','content_copy'):'')
       +(st==='active'?b('pausar','Pausar','pause'):'')+(st&&st.startsWith('paused')?b('retomar','Retomar','play_arrow'):'')
