@@ -2165,6 +2165,24 @@ function modal(html){ $('#modal').innerHTML=`<div class="modal" id="ov"><div cla
   $('#ov').onclick=e=>{ if(e.target.id==='ov')fecha(); }; $('#xb').onclick=fecha; }
 function fecha(){ $('#modal').innerHTML=''; }
 
+// ---------- versão nova do sistema ----------
+// o iPhone deixa a página aberta na memória e não pega sozinho o que foi publicado: confere de tempos em tempos
+let versaoAtual=null;
+const assinaturaHtml=t=>{ let h=0; for(let i=0;i<t.length;i++)h=(h*31+t.charCodeAt(i))|0; return h; };
+async function versaoServidor(){ const r=await fetch('/?v='+Date.now(),{cache:'no-store'}); if(!r.ok)throw 0; return assinaturaHtml(await r.text()); }
+function podeRecarregar(){ if(S.view==='nova'||$('#modal').innerHTML.trim())return false;
+  return ![...document.querySelectorAll('textarea,input[type=text],input:not([type])')].some(e=>e.value&&e.value.trim()&&e.id!=='gbusca'&&e.id!=='pgass'); }
+async function confereVersao(aoVoltar){
+  try{ const v=await versaoServidor(); if(versaoAtual==null){ versaoAtual=v; return; } if(v===versaoAtual)return;
+    if(aoVoltar&&podeRecarregar()){ location.reload(); return; }
+    if(!$('#novaversao')){ const d=document.createElement('div'); d.id='novaversao';
+      d.style.cssText='position:fixed;left:12px;right:12px;bottom:84px;z-index:60;background:#212121;color:#fff;border-radius:8px;padding:12px 14px;box-shadow:0 4px 12px rgba(0,0,0,.3);font-size:14px;cursor:pointer;text-align:center';
+      d.innerHTML='🔄 <b>Tem versão nova do sistema</b> — toque aqui para atualizar'; d.onclick=()=>location.reload(); document.body.appendChild(d); }
+  }catch(_){ }
+}
+confereVersao(false);
+setInterval(()=>confereVersao(false),5*60e3);
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible')confereVersao(true); });
 boot();
 </script>
 </body>
