@@ -92,6 +92,8 @@ async function api(request, env, url) {
   if (p === '/api/login' && m === 'POST') return login(request, env, secret);
   // retorno do Mercado Livre (vem de fora, protegido pelo state) — público
   if (p === '/api/ml/callback' && m === 'GET') return mlCallback(env, url);
+  // foto pública: o Mercado Livre precisa baixar a imagem para montar o anúncio
+  { const mf = p.match(/^\/api\/foto\/(.+)$/); if (mf && m === 'GET') return serveFoto(decodeURIComponent(mf[1]), env); }
 
   // autenticação
   const userId = await leSessao(cookies(request).sess, secret);
@@ -125,9 +127,7 @@ async function api(request, env, url) {
   mt = p.match(/^\/api\/pecas\/([\w-]+)\/foto$/);
   if (mt && m === 'POST') return subirFoto(mt[1], request, env);
 
-  // fotos (R2)
-  mt = p.match(/^\/api\/foto\/(.+)$/);
-  if (mt && m === 'GET') return serveFoto(decodeURIComponent(mt[1]), env);
+  // fotos (R2): servidas publicamente na seção pública acima
 
   // vendas
   if (p === '/api/vendas' && m === 'GET') return listaVendas(url, env);
@@ -143,6 +143,9 @@ async function api(request, env, url) {
   if (p === '/api/ml/connect' && m === 'GET') return mlConnect(env, url, user);
   if (p === '/api/ml/exchange' && m === 'POST') return mlExchange(request, env, url, user);
   if (p === '/api/ml/desconectar' && m === 'POST') return mlDesconecta(env, user);
+  mt = p.match(/^\/api\/ml\/rascunho\/([\w-]+)$/);
+  if (mt && m === 'GET') return mlRascunho(mt[1], env, url, user);
+  if (p === '/api/ml/publicar' && m === 'POST') return mlPublicar(request, env, url, user);
 
   return bad('rota não encontrada', 404);
 }
@@ -251,6 +254,97 @@ async function mlExchange(request, env, url, user) {
   await setCfg(env, 'ml_ultimo_erro', r.ok ? '' : r.erro);
   if (!r.ok) return bad(r.erro);
   return json({ ok: true, nickname: r.nickname || null });
+}
+// token de acesso válido (renova com refresh_token quando perto de expirar)
+async function mlToken(env) {
+  let token = await getCfg(env, 'ml_access_token');
+  const exp = Number(await getCfg(env, 'ml_token_exp') || 0);
+  if (token && now() < exp - 120000) return token;
+  const refresh = await getCfg(env, 'ml_refresh_token');
+  const appId = await getCfg(env, 'ml_app_id');
+  const secret = await getCfg(env, 'ml_secret');
+  if (!refresh || !appId || !secret) return token || null;
+  const body = new URLSearchParams({ grant_type: 'refresh_token', client_id: appId, client_secret: secret, refresh_token: refresh });
+  const r = await fetch(ML_API + '/oauth/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body });
+  const d = await r.json().catch(() => ({}));
+  if (r.ok && d.access_token) { await mlGuardaToken(env, d); return d.access_token; }
+  return token || null;
+}
+// monta título (≤60) e descrição a partir da peça
+function anuncioDe(p) {
+  const veic = [p.marca, p.modelo, p.ano].filter(Boolean).join(' ');
+  let titulo = [p.nome, p.pn, veic].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  if (titulo.length > 60) titulo = titulo.slice(0, 60).replace(/\s\S*$/, '');
+  const desc = `${p.nome}${veic ? ' ' + veic : ''}\n\n` +
+    `✅ Condição: ${p.cond || 'Usada, em bom estado'}\n` +
+    (p.pn ? `🔢 Código original: ${p.pn}\n` : '') +
+    `🚗 ${p.veiculo ? 'Retirada de ' + p.veiculo + '. ' : ''}Confira a compatibilidade pelo código antes de comprar.\n` +
+    `📦 Enviamos para todo o Brasil.\n🛡️ Garantia de 90 dias.\n\nCódigo interno: ${String(p.codigo).padStart(6, '0')}`;
+  return { titulo, desc };
+}
+// prevê a categoria no catálogo do ML a partir do título
+async function mlCategoria(token, titulo) {
+  try {
+    const r = await fetch(ML_API + '/sites/MLB/domain_discovery/search?limit=1&q=' + encodeURIComponent(titulo), { headers: { Authorization: 'Bearer ' + token } });
+    const d = await r.json().catch(() => ([]));
+    if (Array.isArray(d) && d[0] && d[0].category_id) return d[0].category_id;
+  } catch { /* sem categoria prevista */ }
+  return null;
+}
+// rascunho (pré-visualização) — não publica nada
+async function mlRascunho(pecaId, env, url, user) {
+  const token = await mlToken(env);
+  if (!token) return bad('conecte o Mercado Livre primeiro (aba Integrações)');
+  const row = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(pecaId).first();
+  if (!row) return bad('peça não encontrada', 404);
+  const p = parsePeca(row);
+  const { titulo, desc } = anuncioDe(p);
+  const fotos = (p.fotos || []).map(k => url.origin + '/api/foto/' + k);
+  const categoria = await mlCategoria(token, titulo);
+  let catNome = null;
+  if (categoria) { try { const c = await (await fetch(ML_API + '/categories/' + categoria)).json(); catNome = c && c.name; } catch { /* nome é opcional */ } }
+  return json({ rascunho: { titulo, desc, preco: p.preco, qtd: Math.max(1, Number(p.qtd) || 1), fotos, categoria, catNome } });
+}
+// publica o anúncio no Mercado Livre
+async function mlPublicar(request, env, url, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  const b = await request.json().catch(() => ({}));
+  const token = await mlToken(env);
+  if (!token) return bad('conecte o Mercado Livre primeiro (aba Integrações)');
+  const row = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(b.pecaId).first();
+  if (!row) return bad('peça não encontrada', 404);
+  const p = parsePeca(row);
+  const base = anuncioDe(p);
+  const titulo = (b.titulo || base.titulo).slice(0, 60);
+  const preco = Number(b.preco || p.preco);
+  if (!preco || preco <= 0) return bad('defina um preço para a peça antes de publicar');
+  const fotos = (p.fotos || []).map(k => ({ source: url.origin + '/api/foto/' + k }));
+  if (!fotos.length) return bad('a peça precisa de pelo menos uma foto para anunciar');
+  const categoria = b.categoria || await mlCategoria(token, titulo);
+  if (!categoria) return bad('não consegui identificar a categoria no Mercado Livre — ajuste o título e tente de novo');
+  const atributos = [];
+  if (p.marca) atributos.push({ id: 'BRAND', value_name: String(p.marca) });
+  if (p.pn) atributos.push({ id: 'PART_NUMBER', value_name: String(p.pn) });
+  const item = {
+    title: titulo, category_id: categoria, price: preco, currency_id: 'BRL',
+    available_quantity: Math.max(1, Number(p.qtd) || 1), buying_mode: 'buy_it_now',
+    condition: 'used', listing_type_id: b.tipo || 'gold_special', pictures: fotos, attributes: atributos,
+  };
+  let r, d;
+  try {
+    r = await fetch(ML_API + '/items', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: JSON.stringify(item) });
+    d = await r.json().catch(() => ({}));
+  } catch (e) { return bad('falha de rede ao publicar: ' + (e && e.message || e)); }
+  if (!r.ok || !d.id) {
+    let det = d.message || ('HTTP ' + (r ? r.status : '?'));
+    if (Array.isArray(d.cause) && d.cause.length) det += ' — ' + d.cause.map(c => c.message || c.code).filter(Boolean).join('; ');
+    return bad('o Mercado Livre recusou: ' + det);
+  }
+  try {
+    await fetch(ML_API + '/items/' + d.id + '/description', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: JSON.stringify({ plain_text: b.desc || base.desc }) });
+  } catch { /* descrição é secundária */ }
+  try { await env.DB.prepare('UPDATE pecas SET ml=1, ml_id=?, ml_link=? WHERE id=?').bind(String(d.id), d.permalink || '', p.id).run(); } catch { /* marcação é secundária */ }
+  return json({ ok: true, id: d.id, permalink: d.permalink || null, status: d.status || null });
 }
 async function mlDesconecta(env, user) {
   if (user.papel !== 'admin') return bad('somente o administrador', 403);

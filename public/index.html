@@ -303,12 +303,42 @@ function abrePeca(id){
    ${p.obs?`<tr><th>Obs.</th><td>${esc(p.obs)}</td></tr>`:''}</table>
    <div class="top" style="margin-top:14px;flex-wrap:wrap;gap:8px">
      <button class="btn g" id="dv" ${q>0?'':'disabled'}>💰 Vender</button>
-     <button class="btn" id="da">📣 Anúncio</button><button class="btn" id="de">✏️ Editar</button>
+     <button class="btn" id="da">📣 Anúncio</button><button class="btn p" id="dml">🛒 Publicar no ML</button><button class="btn" id="de">✏️ Editar</button>
      <button class="btn" id="ddup">🔁 Duplicar</button>
      <button class="btn" id="dx" style="color:var(--red)">Excluir</button></div>`);
   $('#dv').onclick=()=>vender(p); $('#da').onclick=()=>anuncio(p); $('#de').onclick=()=>editar(p.id);
+  $('#dml').onclick=()=>publicarML(p);
   $('#ddup').onclick=()=>duplicar(p);
   $('#dx').onclick=()=>{ if(confirm('Excluir '+p.nome+'?')) api('/pecas/'+id,{method:'DELETE'}).then(()=>{ fecha(); toast('Peça excluída'); listaEstoque(); }); };
+}
+async function publicarML(p){
+  let cfg; try{ cfg=await api('/config'); }catch{ cfg={}; }
+  if(!(cfg.ml&&cfg.ml.conectado)){ toast('Conecte o Mercado Livre primeiro (aba Integrações)'); return; }
+  modal('<h3>Montando anúncio…</h3><p class="mut small">Buscando a categoria e preparando os dados no Mercado Livre.</p>');
+  let r; try{ r=await api('/ml/rascunho/'+p.id); }catch(e){ fecha(); toast(e.message); return; }
+  const d=r.rascunho;
+  modal(`<h3>Publicar no Mercado Livre</h3>
+   <label class="f">Título (máx. 60)<input id="mtit" maxlength="60" value="${esc(d.titulo)}"></label>
+   <label class="f">Preço (R$)<input id="mpre" type="number" step="0.01" min="0" value="${esc(d.preco)}"></label>
+   <label class="f">Tipo do anúncio<select id="mtipo"><option value="gold_special">Clássico</option><option value="free">Grátis (bom p/ testar)</option><option value="gold_pro">Premium</option></select></label>
+   <p class="small mut">Categoria sugerida: <b>${esc(d.catNome||d.categoria||'—')}</b> · ${d.fotos.length} foto(s)</p>
+   <label class="f">Descrição<textarea id="mdesc" rows="6" style="width:100%">${esc(d.desc)}</textarea></label>
+   <div class="card small" style="background:#fff7e6;border-color:#f0d9a8;margin:8px 0">⚠️ Ao publicar, o anúncio fica <b>ativo no Mercado Livre</b>. Confira os dados; depois dá pra pausar ou excluir pela sua conta do ML.</div>
+   <div class="top" style="margin-top:12px"><button class="btn p" id="mok">🛒 Publicar de verdade</button><button class="btn" id="mcc">Cancelar</button></div>`);
+  $('#mcc').onclick=fecha;
+  $('#mok').onclick=async()=>{
+    const btn=$('#mok'); btn.disabled=true; btn.textContent='Publicando…';
+    try{
+      const res=await api('/ml/publicar',{method:'POST',body:{pecaId:p.id,titulo:$('#mtit').value,preco:$('#mpre').value,desc:$('#mdesc').value,tipo:$('#mtipo').value,categoria:d.categoria}});
+      fecha();
+      modal(`<h3>✅ Anúncio publicado!</h3>
+       <p>Código no Mercado Livre: <b>${esc(res.id)}</b>${res.status?` · status: ${esc(res.status)}`:''}</p>
+       ${res.permalink?`<p><a href="${esc(res.permalink)}" target="_blank" rel="noopener" class="btn p">Ver anúncio no Mercado Livre</a></p>`:''}
+       <p class="small mut">A peça foi marcada como anunciada (ML).</p>
+       <div class="top" style="margin-top:12px"><button class="btn" id="fok">Fechar</button></div>`);
+      $('#fok').onclick=()=>{ fecha(); go('estoque'); };
+    }catch(e){ btn.disabled=false; btn.textContent='🛒 Publicar de verdade'; toast(e.message); }
+  };
 }
 function editar(id){ fecha(); S.ui.editId=id; const p=S.pecas.find(x=>x.id===id); S.ui.fotos=[...(p.fotos||[]).map(k=>({key:k}))]; go('nova'); }
 async function duplicar(p){
