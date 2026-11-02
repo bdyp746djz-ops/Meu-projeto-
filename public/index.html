@@ -191,6 +191,13 @@ nav.bottom{display:none}
 .pm-b:nth-child(2){border-color:var(--pri);background:var(--pri-t)}
 .pm-a{display:grid;grid-template-columns:40px 1fr auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #eee;color:inherit;text-decoration:none;font-size:13px}
 .pm-a img{width:40px;height:40px;object-fit:cover;border-radius:3px}
+.pc-ac{display:flex;border-top:1px solid #eee;margin-top:auto}
+.pc-ac button{flex:1;border:0;background:none;padding:7px 0;cursor:pointer;color:var(--mut);display:grid;place-items:center}
+.pc-ac button:hover:not(:disabled){color:var(--pri);background:var(--pri-t)}.pc-ac button:disabled{opacity:.3;cursor:default}
+.pc-ac .material-icons{font-size:20px}
+.fpanel{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:2px 18px;background:#fff;padding:6px 16px 14px;border-radius:var(--rad);box-shadow:var(--sh);margin-bottom:12px}
+.fpanel[hidden]{display:none}.fpanel .chk2{margin-top:18px}
+#ford{width:auto}
 /* componentes */
 .btn{border:1px solid #d0d0d0;background:#fff;border-radius:var(--rad);padding:9px 16px;cursor:pointer;font-weight:500;color:var(--ink);text-decoration:none;display:inline-block;transition:filter .13s,box-shadow .13s,background .13s}
 .btn:hover{background:#f5f5f5}
@@ -393,8 +400,29 @@ async function estoque(){
     <div class="q" style="margin-bottom:10px"><div class="withmic"><input id="gq" placeholder="Buscar nome, código, part number ou veículo…" value="${esc(S.ui.q)}"><button type="button" class="mic" title="Ditar por voz">🎤</button></div></div>
     <div class="filters">
       <select id="floc"><option value="">Todas as localizações</option>${locOptions(S.ui.loc)}</select>
+      <select id="ford" title="Ordenar">${[['recentes','Mais recentes'],['antigas','Mais antigas'],['nome','Nome (A-Z)'],['codigo','Código'],['preco_asc','Menor preço'],['preco_desc','Maior preço']].map(([v,t])=>`<option value="${v}" ${S.ui.ord===v?'selected':''}>${t}</option>`).join('')}</select>
       ${chips.map(([k,l])=>`<button class="chip ${S.ui.status===k?'on':''}" data-c="${k}">${l}</button>`).join('')}
+      <button class="chip" id="fmais"><span class="material-icons" style="font-size:16px;vertical-align:-3px">tune</span> Mais filtros <b id="fnum"></b></button>
+    </div>
+    <div class="fpanel" id="fpanel" ${S.ui.fOpen?'':'hidden'}>
+      <label class="f">Fotos<select data-f="fotos"><option value="">Todas</option><option value="com">Com foto</option><option value="sem">Sem foto</option></select></label>
+      <label class="f">Etiqueta<select data-f="etq"><option value="">Todas</option><option value="nao">Não impressa</option><option value="sim">Já impressa</option></select></label>
+      <label class="f">Qualidade<select data-f="qual"><option value="">Todas</option><option>A</option><option>B</option><option>C</option><option value="sem">Sem qualidade</option></select></label>
+      <label class="f">Anunciada no ML e sem venda há<select data-f="semvenda"><option value="">—</option><option value="30">30 dias</option><option value="60">60 dias</option><option value="90">90 dias</option><option value="180">180 dias</option></select></label>
+      <label class="f">Preço de (R$)<input data-f="pmin" type="number" min="0" step="0.01" placeholder="0"></label>
+      <label class="f">Preço até (R$)<input data-f="pmax" type="number" min="0" step="0.01" placeholder="sem limite"></label>
+      <div class="f chk2"><label><input type="checkbox" data-f="seg"> Item de segurança</label><label><input type="checkbox" data-f="rast"> Rastreável</label></div>
+      <div class="f" style="align-self:end"><button class="btn sm" id="flimpa">Limpar filtros</button></div>
     </div><div id="lista"><p class="mut">carregando…</p></div>`;
+  const F=S.ui.f||(S.ui.f={});
+  const nF=()=>{ const n=Object.values(F).filter(Boolean).length; $('#fnum').textContent=n?'('+n+')':''; $('#fmais').classList.toggle('on',n>0||!!S.ui.fOpen); };
+  document.querySelectorAll('[data-f]').forEach(el=>{ const k=el.dataset.f;
+    if(el.type==='checkbox')el.checked=F[k]==='1'; else el.value=F[k]||'';
+    el.oninput=el.onchange=()=>{ F[k]=el.type==='checkbox'?(el.checked?'1':''):el.value; nF(); clearTimeout(window._tf); window._tf=setTimeout(listaEstoque,el.type==='number'?400:0); }; });
+  $('#fmais').onclick=()=>{ S.ui.fOpen=!S.ui.fOpen; $('#fpanel').hidden=!S.ui.fOpen; nF(); };
+  $('#flimpa').onclick=()=>{ S.ui.f={}; estoque(); };
+  $('#ford').onchange=e=>{ S.ui.ord=e.target.value; listaEstoque(); };
+  nF();
   $('#novapeca').onclick=()=>go('nova');
   $('#dlbtn').onclick=baixarEstoque;
   $('#selbtn').onclick=()=>{ S.ui.selMode=!S.ui.selMode; S.ui.sel=new Set(); const b=document.getElementById('bulkbar'); if(b)b.remove(); estoque(); };
@@ -406,6 +434,7 @@ async function estoque(){
 }
 async function listaEstoque(){
   const qs=new URLSearchParams(); if(S.ui.q)qs.set('q',S.ui.q); if(S.ui.loc)qs.set('local',S.ui.loc); if(S.ui.status&&S.ui.status!=='todos')qs.set('status',S.ui.status);
+  for(const [k,v] of Object.entries(S.ui.f||{}))if(v)qs.set(k,v); if(S.ui.ord)qs.set('ord',S.ui.ord);
   const { pecas }=await api('/pecas?'+qs); S.pecas=pecas;
   const el=$('#lista'); if(!el) return;
   if(!pecas.length){ el.innerHTML='<div class="empty">Nenhuma peça encontrada.</div>'; return; }
@@ -417,6 +446,8 @@ async function listaEstoque(){
       renderBulk();
     } else abrePeca(c.dataset.pid);
   });
+  document.querySelectorAll('[data-qa]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); const id=b.closest('[data-pid]').dataset.pid, p=S.pecas.find(x=>x.id===id); if(!p)return;
+    ({vender:()=>vender(p),editar:()=>editar(id),etq:()=>abreGerador([itemPeca(p)]),ver:()=>abrePeca(id)})[b.dataset.qa](); });
   renderBulk();
 }
 function renderBulk(){
@@ -453,8 +484,8 @@ function cardPeca(p){
   return `<div class="pc${checked?' sel':''}" data-pid="${p.id}">${S.ui.selMode?`<div class="selck">${checked?'✓':''}</div>`:''}<div class="ph">${img}${loc}</div><div class="b">
     <div class="n">${esc(p.nome)}</div>
     <div class="small mut">${esc([p.marca,p.modelo,p.ano].filter(Boolean).join(' '))}${p.pn?' · PN '+esc(p.pn):''}</div>
-    <div class="tags"><span class="tag price">${brl(p.preco)}</span><span class="tag ${q>0?'':'zero'}">${q} un</span><span class="tag">${cod(p.codigo)}</span>${p.ml?'<span class="tag ml">ML</span>':''}${p.olx?'<span class="tag olx">OLX</span>':''}</div>
-  </div></div>`;
+    <div class="tags"><span class="tag price">${brl(p.preco)}</span><span class="tag ${q>0?'':'zero'}">${q} un</span><span class="tag">${cod(p.codigo)}</span>${p.ml?'<span class="tag ml">ML</span>':''}${p.olx?'<span class="tag olx">OLX</span>':''}${p.qualidade?`<span class="tag">${esc(p.qualidade)}</span>`:''}${p.seguranca?'<span class="tag zero" title="Item de segurança">SEG</span>':''}</div>
+  </div>${S.ui.selMode?'':`<div class="pc-ac"><button type="button" data-qa="vender" title="Vender" ${q>0?'':'disabled'}><span class="material-icons">point_of_sale</span></button><button type="button" data-qa="editar" title="Editar"><span class="material-icons">edit</span></button><button type="button" data-qa="etq" title="Etiqueta${p.etq_em?' (impressa em '+dataBR(p.etq_em)+')':' (ainda não impressa)'}"><span class="material-icons">${p.etq_em?'label':'label_off'}</span></button><button type="button" data-qa="ver" title="Ver"><span class="material-icons">visibility</span></button></div>`}</div>`;
 }
 
 // ---------- Detalhe ----------
@@ -1053,7 +1084,7 @@ function itemPeca(p){
   const c=String(p.codigo).padStart(6,'0'), linhas=[];
   if(p.pn)linhas.push('PN:'+p.pn); else if(p.veiculo)linhas.push('Sucata:'+p.veiculo);
   linhas.push('Cod:'+c);
-  return { tipo:'peca', rotulo:cod(p.codigo)+' · '+p.nome, qr:'P:'+c, loja:LOJA, titulo:veic||p.nome, linhas, rodape:veic?p.nome:'' };
+  return { tipo:'peca', id:p.id, rotulo:cod(p.codigo)+' · '+p.nome, qr:'P:'+c, loja:LOJA, titulo:veic||p.nome, linhas, rodape:veic?p.nome:'' };
 }
 function itemLocal(id){ const [cima,baixo]=codigoLocal(id); return { tipo:'local', rotulo:codigoTxt(id)+' — '+locPath(id), qr:'L:'+id, acima:cima, grande:baixo }; }
 async function etiquetas(){
@@ -1065,7 +1096,7 @@ async function etiquetas(){
      <div class="dp-ops">
        <span class="dp-op">Tipo: <select id="etipo"><option value="pecas" ${ehP?'selected':''}>Peças</option><option value="locais" ${ehP?'':'selected'}>Localizações</option></select></span>
        ${ehP?`<span class="dp-op">Ordenar: <select id="eord"><option value="nome">Nome (A-Z)</option><option value="recentes">Mais recentes</option><option value="codigo">Código</option></select></span>
-       <span class="dp-op">Mostrar: <select id="emos"><option value="ativos">Ativos</option><option value="todos">Todos</option><option value="esgotados">Esgotados</option></select></span>`:''}
+       <span class="dp-op">Mostrar: <select id="emos"><option value="ativos">Ativos</option><option value="semetq">Sem etiqueta impressa</option><option value="todos">Todos</option><option value="esgotados">Esgotados</option></select></span>`:''}
        <button class="dp-gerar" id="egerar"><span class="material-icons">content_copy</span>GERAR ETIQUETAS<span class="n" id="en"></span></button>
      </div></div>
    <div class="dp-mini"><a id="etodos">Marcar todos</a> · <a id="elimpa">Limpar seleção</a></div>
@@ -1078,12 +1109,12 @@ async function etiquetas(){
     const q=nrm(ui.etqQ).split(/\s+/).filter(Boolean);
     let html='';
     if(ehP){
-      let l=S.pecas.filter(p=>ui.etqMos==='todos'||(ui.etqMos==='ativos'?(Number(p.qtd)||0)>0:(Number(p.qtd)||0)<=0));
+      let l=S.pecas.filter(p=>ui.etqMos==='todos'||(ui.etqMos==='semetq'?(Number(p.qtd)||0)>0&&!p.etq_em:ui.etqMos==='ativos'?(Number(p.qtd)||0)>0:(Number(p.qtd)||0)<=0));
       if(q.length)l=l.filter(p=>{ const t=nrm([p.nome,p.marca,p.modelo,p.ano,p.pn,p.veiculo,cod(p.codigo)].join(' ')); return q.every(w=>t.includes(w)); });
       l.sort(ui.etqOrd==='recentes'?(a,b)=>(b.criado_em||0)-(a.criado_em||0):ui.etqOrd==='codigo'?(a,b)=>a.codigo-b.codigo:(a,b)=>String(a.nome).localeCompare(String(b.nome),'pt',{numeric:true}));
       vis=l.map(p=>p.id);
       html=l.map(p=>{ const v=([(p.marca||'').toUpperCase(),p.modelo].filter(Boolean).join(' ')+(p.ano?' - '+p.ano:'')).trim();
-        const sub=[v,'Data de cadastro: '+dataBR(p.criado_em),'Cod: '+String(p.codigo).padStart(6,'0'),p.pn?'PN: '+p.pn:''].filter(Boolean).join(' | ');
+        const sub=[v,'Data de cadastro: '+dataBR(p.criado_em),'Cod: '+String(p.codigo).padStart(6,'0'),p.pn?'PN: '+p.pn:'',p.etq_em?'Etiqueta impressa: '+dataBR(p.etq_em):'Etiqueta não impressa'].filter(Boolean).join(' | ');
         return linha(p.id,p.fotos&&p.fotos[0]?`<img src="/api/foto/${p.fotos[0]}" loading="lazy" alt="">`:'<span class="material-icons">build</span>',p.nome,sub); }).join('');
     } else {
       let l=Object.keys(S.locais).map(id=>[id,locPath(id)]);
@@ -1139,6 +1170,8 @@ async function gerarPDF(itens,copias){
   doc.setProperties({title:'Gerador de Etiquetas',creator:LOJA});
   let n=0;
   for(const it of itens)for(let c=0;c<(copias||1);c++){ if(n++)doc.addPage([W,H],ori); it.tipo==='local'?desenhaLocal(doc,it,W,H):desenhaPeca(doc,it,W,H); }
+  const ids=[...new Set(itens.filter(i=>i.tipo==='peca'&&i.id).map(i=>i.id))];
+  if(ids.length)api('/pecas/etiquetas',{method:'POST',body:{ids}}).then(r=>ids.forEach(id=>{ const p=(S.pecas||[]).find(x=>x.id===id); if(p)p.etq_em=r.em; })).catch(()=>{});
   return doc.output('bloburl');
 }
 function qrPDF(doc,txt,x,y,t){ const q=qrcode(0,'M'); q.addData(txt); q.make(); const n=q.getModuleCount(), m=t/n; doc.setFillColor(0,0,0);

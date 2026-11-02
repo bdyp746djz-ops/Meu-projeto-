@@ -118,6 +118,7 @@ async function api(request, env, url) {
   if (p === '/api/mover' && m === 'POST') return mover(request, env, user);
   if (p === '/api/relatorios/produtividade' && m === 'GET') return produtividade(url, env);
   if (p === '/api/pecas/massa' && m === 'POST') return editaMassa(request, env);
+  if (p === '/api/pecas/etiquetas' && m === 'POST') return marcaEtiquetas(request, env);
   mt = p.match(/^\/api\/peca-codigo\/(\d+)$/);
   if (mt && m === 'GET') return pecaPorCodigo(mt[1], env);
   if (p === '/api/pecas' && m === 'GET') return listaPecas(url, env);
@@ -410,7 +411,7 @@ async function mlPublicar(request, env, url, user) {
   try {
     await fetch(ML_API + '/items/' + d.id + '/description', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: JSON.stringify({ plain_text: b.desc || base.desc }) });
   } catch { /* descrição é secundária */ }
-  try { await garanteColsPecas(env); await env.DB.prepare('UPDATE pecas SET ml=1, ml_id=?, ml_link=?, ml_status=? WHERE id=?').bind(String(d.id), d.permalink || '', d.status || 'active', p.id).run(); } catch { /* marcação é secundária */ }
+  try { await garanteColsPecas(env); await env.DB.prepare('UPDATE pecas SET ml=1, ml_id=?, ml_link=?, ml_status=?, ml_em=? WHERE id=?').bind(String(d.id), d.permalink || '', d.status || 'active', now(), p.id).run(); } catch { /* marcação é secundária */ }
   try { await setCfg(env, mlMemChave(p.nome), JSON.stringify({ id: categoria, caminho: String(b.caminho || '').slice(0, 300) })); } catch { /* memória é secundária */ }
   return json({ ok: true, id: d.id, permalink: d.permalink || null, status: d.status || null });
 }
@@ -644,7 +645,7 @@ let colsPecasOk = false;
 async function garanteColsPecas(env) {
   if (colsPecasOk) return;
   for (const c of ['custo REAL', 'qualidade TEXT', 'seguranca INTEGER DEFAULT 0', 'rastreavel INTEGER DEFAULT 0', 'peso_g INTEGER',
-    'alt_cm REAL', 'larg_cm REAL', 'comp_cm REAL', 'video TEXT', 'etq_em INTEGER', 'ml_status TEXT']) {
+    'alt_cm REAL', 'larg_cm REAL', 'comp_cm REAL', 'video TEXT', 'etq_em INTEGER', 'ml_status TEXT', 'ml_em INTEGER']) {
     try { await env.DB.prepare('ALTER TABLE pecas ADD COLUMN ' + c).run(); } catch { /* já existe */ }
   }
   colsPecasOk = true;
@@ -680,9 +681,42 @@ async function listaPecas(url, env) {
   else if (status === 'semanuncio') cond.push('qtd>0 AND ml=0 AND olx=0');
   else if (status === 'semlocal') cond.push('(local_id IS NULL OR local_id NOT IN (SELECT id FROM locais))');
   else if (status === 'parado') { cond.push('qtd>0 AND criado_em < ?'); binds.push(now() - 90 * 864e5); }
+  // filtros extras
+  const sp = url.searchParams;
+  if (sp.get('fotos') === 'com') cond.push("fotos IS NOT NULL AND fotos NOT IN ('','[]')");
+  else if (sp.get('fotos') === 'sem') cond.push("(fotos IS NULL OR fotos IN ('','[]'))");
+  if (sp.get('etq') === 'sim') cond.push('etq_em IS NOT NULL');
+  else if (sp.get('etq') === 'nao') cond.push('etq_em IS NULL');
+  const pmin = numOuNull(sp.get('pmin')), pmax = numOuNull(sp.get('pmax'));
+  if (pmin != null) { cond.push('preco >= ?'); binds.push(pmin); }
+  if (pmax != null) { cond.push('preco <= ?'); binds.push(pmax); }
+  const qual = sp.get('qual');
+  if (qual === 'sem') cond.push("(qualidade IS NULL OR qualidade='')");
+  else if (qual) { cond.push('qualidade = ?'); binds.push(qual); }
+  if (sp.get('seg') === '1') cond.push('seguranca = 1');
+  if (sp.get('rast') === '1') cond.push('rastreavel = 1');
+  const semVenda = parseInt(sp.get('semvenda')) || 0;  // anunciada no ML e sem venda há X dias
+  if (semVenda > 0) {
+    const lim = now() - semVenda * 864e5;
+    cond.push('ml = 1 AND qtd > 0 AND COALESCE(ml_em, criado_em) < ? AND id NOT IN (SELECT peca_id FROM vendas WHERE data >= ? AND cancelada = 0 AND peca_id IS NOT NULL)');
+    binds.push(lim, lim);
+  }
+  const ORD = { recentes: 'criado_em DESC', antigas: 'criado_em ASC', preco_desc: 'preco DESC', preco_asc: 'preco ASC', nome: 'nome COLLATE NOCASE ASC', codigo: 'codigo ASC' };
   const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
-  const r = await env.DB.prepare(`SELECT * FROM pecas ${where} ORDER BY criado_em DESC LIMIT ${url.searchParams.get('todas') ? 20000 : 500}`).bind(...binds).all();
+  const r = await env.DB.prepare(`SELECT * FROM pecas ${where} ORDER BY ${ORD[sp.get('ord')] || ORD.recentes} LIMIT ${sp.get('todas') ? 20000 : 500}`).bind(...binds).all();
   return json({ pecas: r.results.map(parsePeca) });
+}
+// marca quando a etiqueta da peça foi impressa (filtro "etiqueta não impressa")
+async function marcaEtiquetas(request, env) {
+  await garanteColsPecas(env);
+  const { ids } = await request.json().catch(() => ({}));
+  if (!Array.isArray(ids) || !ids.length) return bad('ids obrigatórios');
+  const t = now();
+  for (let i = 0; i < ids.length; i += 90) {
+    const parte = ids.slice(i, i + 90).map(String);
+    await env.DB.prepare(`UPDATE pecas SET etq_em=? WHERE id IN (${parte.map(() => '?').join(',')})`).bind(t, ...parte).run();
+  }
+  return json({ ok: true, n: ids.length, em: t });
 }
 async function getPeca(id, env) {
   const r = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(id).first();
