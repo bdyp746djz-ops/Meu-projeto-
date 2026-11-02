@@ -3,6 +3,8 @@
 // Bindings esperados (wrangler.toml): DB (D1), FOTOS (R2), ASSETS (estáticos),
 // e o secret SESSION_SECRET.
 
+import { sugerirPreco } from './preco.js';
+
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
@@ -148,6 +150,8 @@ async function api(request, env, url) {
   if (p === '/api/ml/publicar' && m === 'POST') return mlPublicar(request, env, url, user);
   if (p === '/api/ml/categorias' && m === 'GET') return mlBuscaCategorias(url, env);
   if (p === '/api/ml/atributos' && m === 'GET') return mlAtributos(url, env);
+  mt = p.match(/^\/api\/ml\/preco\/([\w-]+)$/);
+  if (mt && m === 'GET') return mlPreco(mt[1], env);
   mt = p.match(/^\/api\/ml\/item\/([\w-]+)$/);
   if (mt && m === 'GET') return mlItem(mt[1], env);
   if (mt && m === 'POST') return mlItemAcao(mt[1], request, env, user);
@@ -487,6 +491,53 @@ async function mlAposEstoque(env, pecaId) {
     await env.DB.prepare('UPDATE pecas SET ml_status=? WHERE id=?').bind(d.status || (reativa ? 'active' : p.ml_status) || 'active', p.id).run();
     return reativa ? 'reativado' : 'atualizado';
   } catch (e) { return 'erro: ' + e.message; }
+}
+// ---------- preço de mercado: anúncios usados parecidos no ML ----------
+const ML_COND_USADO = '2230581';
+async function mlBuscaAnuncios(token, params) {
+  const r = await fetch(ML_API + '/sites/MLB/search?' + new URLSearchParams({ limit: '50', ...params }), { headers: { Authorization: 'Bearer ' + token } });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(d.message || ('HTTP ' + r.status)); e.status = r.status; throw e; }
+  return Array.isArray(d.results) ? d.results : [];
+}
+const mlAttr = (it, id) => ((it.attributes || []).find(a => a && a.id === id) || {}).value_name || '';
+async function mlPreco(pecaId, env) {
+  const token = await mlToken(env);
+  if (!token) return bad('conecte o Mercado Livre primeiro (Anúncios ML → Conexão)');
+  await garanteColsPecas(env);
+  const row = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(pecaId).first();
+  if (!row) return bad('peça não encontrada', 404);
+  const p = parsePeca(row);
+  const eu = String((await getCfg(env, 'ml_user_id')) || '-');
+  const achados = new Map(), buscas = [];
+  const junta = lista => { for (const it of lista) if (it && it.id && !achados.has(it.id) && String((it.seller && it.seller.id) ?? it.seller_id ?? '') !== eu) achados.set(it.id, it); };
+  try {
+    // 1º pelo código original (mais certeiro); se vier pouco, pelo nome + veículo dentro da categoria prevista
+    if (p.pn) { buscas.push('código ' + p.pn); junta(await mlBuscaAnuncios(token, { q: p.pn, ITEM_CONDITION: ML_COND_USADO })); }
+    if (achados.size < 5) {
+      const q = [p.nome, p.marca, p.modelo].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+      let cat = null;
+      try { const r = await fetch(ML_API + '/sites/MLB/domain_discovery/search?limit=1&q=' + encodeURIComponent(q), { headers: { Authorization: 'Bearer ' + token } }); const d = await r.json(); if (Array.isArray(d) && d[0]) cat = d[0].category_id; } catch { /* sem categoria */ }
+      buscas.push('nome "' + q + '"');
+      junta(await mlBuscaAnuncios(token, { q, ITEM_CONDITION: ML_COND_USADO, ...(cat ? { category: cat } : {}) }));
+    }
+  } catch (e) {
+    if (e.status === 401 || e.status === 403) return bad('o Mercado Livre não liberou a pesquisa de preços para este app (' + e.message + ')');
+    return bad('não consegui pesquisar no Mercado Livre: ' + e.message);
+  }
+  const anuncios = [...achados.values()].filter(it => !it.condition || it.condition === 'used').map(it => ({
+    id: it.id, titulo: it.title || '', preco: it.price, link: it.permalink || null,
+    pn: mlAttr(it, 'PART_NUMBER') || mlAttr(it, 'OEM') || mlAttr(it, 'ORIGINAL_PART_NUMBER'),
+    foto: it.thumbnail ? String(it.thumbnail).replace(/^http:/, 'https:') : null,
+    frete: !!(it.shipping && it.shipping.free_shipping),
+  }));
+  const r = sugerirPreco({ pn: p.pn }, anuncios);
+  const enx = a => ({ id: a.id, titulo: a.titulo, preco: a.preco, link: a.link, foto: a.foto, frete: a.frete, pnBate: !!a.pnBate });
+  return json({
+    buscas, total: anuncios.length, sugerido: r.sugerido, confianca: r.confianca,
+    usados: [...r.usados].sort((a, b) => a.preco - b.preco).slice(0, 15).map(enx),
+    descartados: r.descartados.slice(0, 10).map(d => ({ ...enx(d.anuncio), motivo: d.motivo })), nDescartados: r.descartados.length,
+  });
 }
 async function mlDesconecta(env, user) {
   if (user.papel !== 'admin') return bad('somente o administrador', 403);

@@ -180,6 +180,17 @@ nav.bottom{display:none}
 .mlbox{margin-top:16px;padding:12px 14px;border:1px solid #e0e0e0;border-radius:var(--rad);background:#fafafa}
 .mlact{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .btn.red{color:var(--red)}
+.pr{margin-top:14px}.pr-t{display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px}
+.pr-b{height:6px;background:#eee;border-radius:3px;overflow:hidden}.pr-b i{display:block;height:100%}
+.pr-c{margin-top:6px;max-width:260px}.pr-c .pr-t{font-size:11.5px;color:var(--mut)}
+.pm{margin:10px 0;padding:12px;border:1px solid #e0e0e0;border-radius:var(--rad);background:#fafafa}
+.pm-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.pm-v{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px}
+.pm-b{border:1px solid #c5cae9;background:#fff;border-radius:var(--rad);padding:8px 4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;font:inherit}
+.pm-b small{color:var(--mut);font-size:11px}.pm-b b{font-size:15px;color:var(--ink)}.pm-b span{font-size:11px;color:var(--pri)}
+.pm-b:nth-child(2){border-color:var(--pri);background:var(--pri-t)}
+.pm-a{display:grid;grid-template-columns:40px 1fr auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #eee;color:inherit;text-decoration:none;font-size:13px}
+.pm-a img{width:40px;height:40px;object-fit:cover;border-radius:3px}
 /* componentes */
 .btn{border:1px solid #d0d0d0;background:#fff;border-radius:var(--rad);padding:9px 16px;cursor:pointer;font-weight:500;color:var(--ink);text-decoration:none;display:inline-block;transition:filter .13s,box-shadow .13s,background .13s}
 .btn:hover{background:#f5f5f5}
@@ -459,15 +470,17 @@ function abrePeca(id){
    ${p.peso_g||p.alt_cm||p.larg_cm||p.comp_cm?`<tr><th>Embalagem</th><td>${p.peso_g?esc(p.peso_g)+' g':''}${p.alt_cm||p.larg_cm||p.comp_cm?' · '+[p.alt_cm,p.larg_cm,p.comp_cm].map(v=>v||'?').join(' × ')+' cm':''}</td></tr>`:''}
    <tr><th>Localização</th><td>${p.local_id&&S.locais[p.local_id]?'📍 '+esc(locPath(p.local_id)):'<span class="tag zero">sem localização</span>'}</td></tr>
    ${p.obs?`<tr><th>Obs.</th><td>${esc(p.obs)}</td></tr>`:''}</table>
+   ${p.ml_id&&p.ml_status!=='closed'?'':barraPront(p)}
    <div class="top" style="margin-top:14px;flex-wrap:wrap;gap:8px">
      <button class="btn g" id="dv" ${q>0?'':'disabled'}>💰 Vender</button>
      <button class="btn" id="da">📣 Anúncio</button>${p.ml_id&&p.ml_status!=='closed'?'':'<button class="btn p" id="dml">🛒 Publicar no ML</button>'}<button class="btn" id="de">✏️ Editar</button>
-     <button class="btn" id="detq">🏷️ Etiqueta</button><button class="btn" id="ddup">🔁 Duplicar</button>
+     <button class="btn" id="dpm">💲 Preço de mercado</button><button class="btn" id="detq">🏷️ Etiqueta</button><button class="btn" id="ddup">🔁 Duplicar</button>
      <button class="btn" id="dx" style="color:var(--red)">Excluir</button></div>
    ${p.ml_id?`<div class="mlbox" id="mlbox"><div class="top" style="margin:0 0 6px"><b>Anúncio no Mercado Livre</b><span class="tag" id="mlst">${esc(stML(p.ml_status))}</span></div><div class="small mut" id="mlinfo">Consultando o anúncio…</div><div class="mlact" id="mlact"></div></div>`:''}`);
   if(p.ml_id)caixaAnuncio(p);
   $('#dv').onclick=()=>vender(p); $('#da').onclick=()=>anuncio(p); $('#de').onclick=()=>editar(p.id);
   if($('#dml'))$('#dml').onclick=()=>publicarML(p);
+  $('#dpm').onclick=()=>precoMercado(p);
   $('#ddup').onclick=()=>duplicar(p);
   $('#detq').onclick=()=>abreGerador([itemPeca(p)]);
   $('#dx').onclick=()=>{ if(confirm('Excluir '+p.nome+'?')) api('/pecas/'+id,{method:'DELETE'}).then(()=>{ fecha(); toast('Peça excluída'); listaEstoque(); }); };
@@ -484,8 +497,10 @@ async function publicarML(p){
     SELLER_PACKAGE_HEIGHT:cm(p.alt_cm),SELLER_PACKAGE_WIDTH:cm(p.larg_cm),SELLER_PACKAGE_LENGTH:cm(p.comp_cm),SELLER_PACKAGE_WEIGHT:p.peso_g?Number(p.peso_g)+' g':''};
   modal(`<h3>Publicar no Mercado Livre</h3>
    <label class="f">Título (máx. 60)<input id="mtit" maxlength="60" value="${esc(d.titulo)}"></label>
-   <div class="form"><label class="f">Preço (R$)<input id="mpre" type="number" step="0.01" min="0" value="${esc(d.preco)}"></label>
+   ${(()=>{ const r=prontidao(p); return r.falta.length?`<div class="card small" style="background:${r.bloqueia.length?'#fdecea':'#f5f5f5'};box-shadow:none;margin:6px 0">${r.bloqueia.length?'⛔ <b>Sem '+esc(r.bloqueia.join(', '))+'</b> o Mercado Livre não aceita o anúncio. ':''}Pronta ${r.pct}% — falta: ${esc(r.falta.join(', '))}</div>`:''; })()}
+   <div class="form"><label class="f">Preço (R$) <a href="#" id="mpm" class="small" style="margin-left:6px">💲 ver preço de mercado</a><input id="mpre" type="number" step="0.01" min="0" value="${esc(d.preco)}"></label>
    <label class="f">Tipo do anúncio<select id="mtipo"><option value="gold_special">Clássico</option><option value="free">Grátis (bom p/ testar)</option><option value="gold_pro">Premium</option></select></label></div>
+   <div id="mpmx"></div>
    <div class="mlsec"><b>Categoria</b> <span class="small mut">— sugeridas pelo Mercado Livre a partir do título</span>
      <div id="mcats" class="mlcats"></div>
      <div class="mlbusca"><input id="mcq" placeholder="Não é nenhuma? Busque outra (ex.: farol, módulo de injeção)"><button class="btn sm" id="mcb" type="button">Buscar</button></div></div>
@@ -494,6 +509,7 @@ async function publicarML(p){
    <p class="small mut">${d.fotos.length} foto(s) · Condição: usado · Garantia do vendedor: 90 dias${p.peso_g&&p.alt_cm&&p.larg_cm&&p.comp_cm?' · Embalagem: '+p.peso_g+' g, '+p.alt_cm+'×'+p.larg_cm+'×'+p.comp_cm+' cm':' · <b style="color:var(--amber)">sem dados da embalagem</b> (o ML pode pedir pro frete)'}${p.video?' · com vídeo':''}</p>
    <div class="card small" style="background:#fff7e6;box-shadow:none;margin:8px 0">⚠️ Ao publicar, o anúncio fica <b>ativo no Mercado Livre</b>. Confira os dados; depois dá pra pausar ou excluir pela sua conta do ML.</div>
    <div class="top" style="margin-top:12px"><button class="btn p" id="mok">🛒 Publicar de verdade</button><button class="btn" id="mcc">Cancelar</button></div>`);
+  $('#mpm').onclick=e=>{ e.preventDefault(); pesquisaPreco(p,$('#mpmx'),v=>{ $('#mpre').value=v; toast('Preço do anúncio: '+brl(v)+' (o da peça não muda)'); }); };
   const valorDe=a=>{ if(a.id in st.vals)return st.vals[a.id]; const c=st.cats.find(x=>x.id===st.cat)||{}; const pv=(c.previstos||{})[a.id];
     if(pv&&pv.nome)return pv.nome; if(daPeca[a.id])return String(daPeca[a.id]);
     if(a.id==='EMPTY_GTIN_REASON'){ const v=a.valores.find(x=>/n[aã]o tem c[oó]digo|sem c[oó]digo/i.test(x.nome)); if(v)return v.nome; }
@@ -545,6 +561,47 @@ async function publicarML(p){
       $('#fok').onclick=()=>{ fecha(); if(S.view==='integracoes')integracoes(); };
     }catch(e){ btn.disabled=false; btn.textContent='🛒 Publicar de verdade'; toast(e.message); }
   };
+}
+// quão pronta a peça está pra virar anúncio
+function prontidao(p){
+  const nf=(p.fotos||[]).length;
+  const itens=[['foto',nf>0,1],['3 fotos ou mais',nf>=3],['preço',Number(p.preco)>0,1],['estoque',Number(p.qtd)>0,1],['marca e modelo',!!(p.marca&&p.modelo)],
+    ['ano',!!p.ano],['part number',!!p.pn],['condição',!!p.cond],['embalagem (peso e medidas)',!!(p.peso_g&&p.alt_cm&&p.larg_cm&&p.comp_cm)],['localização',!!p.local_id]];
+  const ok=itens.filter(i=>i[1]).length;
+  return { pct:Math.round(ok*100/itens.length), falta:itens.filter(i=>!i[1]).map(i=>i[0]), bloqueia:itens.filter(i=>i[2]&&!i[1]).map(i=>i[0]) };
+}
+function barraPront(p,compacta){
+  const r=prontidao(p), cor=r.pct>=80?'var(--ok)':r.pct>=50?'var(--amber)':'var(--red)';
+  return `<div class="pr${compacta?' pr-c':''}" title="${r.falta.length?'Falta: '+esc(r.falta.join(', ')):'Tudo pronto'}"><div class="pr-t"><span>Pronta pra publicar</span><b style="color:${cor}">${r.pct}%</b></div><div class="pr-b"><i style="width:${r.pct}%;background:${cor}"></i></div>`
+    +(compacta?'':r.falta.length?`<div class="small mut" style="margin-top:4px">Falta: ${esc(r.falta.join(', '))}</div>`:'<div class="small" style="margin-top:4px;color:var(--ok)">Tudo pronto ✓</div>')+'</div>';
+}
+// pesquisa no ML anúncios usados parecidos e sugere mínimo / médio / máximo
+async function pesquisaPreco(p,alvo,aoEscolher){
+  alvo.innerHTML='<div class="small mut" style="padding:8px 0">🔎 Pesquisando anúncios parecidos no Mercado Livre…</div>';
+  let d; try{ d=await api('/ml/preco/'+p.id); }catch(e){ alvo.innerHTML='<div class="small" style="color:var(--red);padding:8px 0">⚠️ '+esc(e.message)+'</div>'; return; }
+  if(!d.sugerido){ alvo.innerHTML=`<div class="small mut" style="padding:8px 0">Nenhum anúncio usado comparável encontrado (busca por ${esc(d.buscas.join(' e '))}).</div>`; return; }
+  const s=d.sugerido, c=d.confianca, cc=c.startsWith('boa')?'price':c.startsWith('média')?'ml':'zero';
+  alvo.innerHTML=`<div class="pm"><div class="pm-h"><b>Usados parecidos no ML</b><span class="tag ${cc}">confiabilidade ${esc(c)}</span></div>
+   <div class="pm-v">${[['Mínimo',s.min],['Médio',s.mediana],['Máximo',s.max]].map(([t,v])=>`<button type="button" class="pm-b" data-v="${Math.round(v)}"><small>${t}</small><b>${brl(Math.round(v))}</b><span>usar este</span></button>`).join('')}</div>
+   <div class="small mut">${d.usados.length} anúncio(s) usados comparados · ${d.nDescartados} descartado(s) · busca por ${esc(d.buscas.join(' e '))}</div>
+   <details style="margin-top:6px"><summary class="small">Ver os anúncios comparados</summary>
+   ${d.usados.map(a=>`<a class="pm-a" href="${esc(a.link||'#')}" target="_blank" rel="noopener">${a.foto?`<img src="${esc(a.foto)}" loading="lazy" alt="">`:'<span></span>'}<span>${esc(a.titulo)}${a.pnBate?' <b style="color:var(--ok)">· código confere</b>':''}${a.frete?' <span class="mut">· frete grátis</span>':''}</span><b>${brl(a.preco)}</b></a>`).join('')}
+   ${d.descartados.length?`<div class="small mut" style="margin-top:8px"><b>Descartados:</b> ${d.descartados.map(x=>esc(brl(x.preco)+' — '+x.motivo)).join(' · ')}</div>`:''}</details></div>`;
+  alvo.querySelectorAll('.pm-b').forEach(b=>b.onclick=()=>aoEscolher(+b.dataset.v));
+}
+async function precoMercado(p){
+  let cfg; try{ cfg=await api('/config'); }catch{ cfg={}; }
+  if(!(cfg.ml&&cfg.ml.conectado))return toast('Conecte o Mercado Livre primeiro (Anúncios ML → Conexão)');
+  modal(`<h3 style="margin:0 28px 4px 0">💲 Preço de mercado</h3><div class="small mut">${esc(p.nome)} · seu preço hoje: <b>${brl(p.preco)}</b></div><div id="pmx"></div>
+    <div class="top" style="margin-top:12px"><button class="btn" id="pmv">← Voltar pra peça</button></div>`);
+  $('#pmv').onclick=()=>abrePeca(p.id);
+  pesquisaPreco(p,$('#pmx'),async v=>{
+    if(!confirm(`Mudar o preço de ${brl(p.preco)} para ${brl(v)}?`))return;
+    try{ await api('/pecas/'+p.id,{method:'PATCH',body:{preco:v}}); p.preco=v; toast('Preço atualizado');
+      if(p.ml_id&&p.ml_status!=='closed'&&confirm('Atualizar também o preço no anúncio do Mercado Livre?')){
+        try{ await api('/ml/item/'+p.id,{method:'POST',body:{acao:'sincronizar'}}); toast('Preço atualizado também no ML'); }catch(e){ toast(e.message); } }
+      abrePeca(p.id); if(S.view==='estoque')listaEstoque();
+    }catch(e){ toast(e.message); } });
 }
 const ML_ST={active:'Ativo',paused:'Pausado',paused_venda:'Pausado (sem estoque)',closed:'Finalizado',under_review:'Em revisão',inactive:'Inativo'};
 const stML=s=>ML_ST[s]||(s?s:'Publicado');
@@ -788,7 +845,7 @@ async function integracoes(){
         :p.ml?'<span class="dp-act mut">MARCADA</span>'
         :`<button class="dp-gerar" data-pub="${p.id}" ${ml.conectado?'':'disabled title="Conecte o Mercado Livre primeiro"'}><span class="material-icons">publish</span>PUBLICAR</button>`;
       return `<div class="dp-row" data-id="${p.id}"><div class="dp-ft">${p.fotos&&p.fotos[0]?`<img src="/api/foto/${p.fotos[0]}" loading="lazy" alt="">`:'<span class="material-icons">build</span>'}</div>
-        <div class="dp-tx"><div class="dp-tt">${esc(p.nome)}</div><div class="dp-sb">${esc(sub)}</div>${st}</div><div class="dp-ac">${acao}</div></div>`; }).join('')
+        <div class="dp-tx"><div class="dp-tt">${esc(p.nome)}</div><div class="dp-sb">${esc(sub)}</div>${st}${p.ml?'':barraPront(p,1)}</div><div class="dp-ac">${acao}</div></div>`; }).join('')
       ||'<div class="empty">Nenhuma peça encontrada.</div>';
     document.querySelectorAll('#mlista .dp-row').forEach(r=>r.onclick=e=>{ if(e.target.closest('[data-stop],[data-pub]'))return; abrePeca(r.dataset.id); });
     document.querySelectorAll('[data-pub]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); const p=S.pecas.find(x=>x.id===b.dataset.pub); if(p)publicarML(p); });
@@ -922,8 +979,9 @@ function moverPecas(id,ps){
 // peças relacionadas: totais, lista, imprimir relação e desvincular
 function pecasRelacionadas(id){
   const ps=pecasDentro(id,true), tq=ps.reduce((a,p)=>a+(Number(p.qtd)||0),0), tv=ps.reduce((a,p)=>a+(Number(p.preco)||0)*(Number(p.qtd)||0),0);
+  const comCusto=ps.filter(p=>p.custo!=null&&p.custo!==''), tc=comCusto.reduce((a,p)=>a+(Number(p.custo)||0)*(Number(p.qtd)||0),0);
   modal(`<h3>Peças relacionadas</h3><p class="small mut">${esc(codigoTxt(id))} — ${esc(locPath(id))}</p>
-   <div class="rel-tot"><div><span>Total de peças</span><b>${tq}</b></div><div><span>Valor total de venda</span><b>${brl(tv)}</b></div><div><span>Cadastros</span><b>${ps.length}</b></div></div>
+   <div class="rel-tot"><div><span>Total de peças</span><b>${tq}</b></div><div><span>Valor total de venda</span><b>${brl(tv)}</b></div><div><span>Valor total de compra</span><b>${comCusto.length?brl(tc):'—'}</b>${comCusto.length&&comCusto.length<ps.length?`<span>${comCusto.length} de ${ps.length} com custo</span>`:''}</div><div><span>Cadastros</span><b>${ps.length}</b></div></div>
    ${ps.length?`<div class="tw" style="max-height:48vh;overflow:auto"><table><tr><th style="width:30px"><input type="checkbox" id="rtodos" style="width:auto"></th><th>Código</th><th>Local</th><th>Descrição</th><th>Qtd</th><th>Preço</th></tr>
      ${ps.map(p=>`<tr><td><input type="checkbox" data-rp="${p.id}" style="width:auto"></td><td>${cod(p.codigo)}</td><td class="small">${esc(codigoTxt(p.local_id))}</td><td>${esc(p.nome)}</td><td>${Number(p.qtd)||0}</td><td>${brl(p.preco)}</td></tr>`).join('')}</table></div>`
      :'<div class="empty">Nenhuma peça guardada aqui.</div>'}
