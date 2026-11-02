@@ -1091,7 +1091,7 @@ async function agenteApi(p, m, request, env, url) {
     await env.DB.prepare("UPDATE videos SET status='gerando', progresso='o PC começou a gerar', atualizado_em=? WHERE id=?").bind(now(), v.id).run();
     if (v.tipo === 'foto') { let opcoes = {}; try { opcoes = JSON.parse(v.prompt || '{}'); } catch { /* sem opções */ }
       return json({ job: { id: v.id, tipo: 'foto', foto_url: url.origin + '/api/foto/' + v.foto_key, opcoes } }); }
-    return json({ job: { id: v.id, tipo: 'video', foto_url: url.origin + '/api/foto/' + v.foto_key, prompt: v.prompt, negativo: NEG_VIDEO, segundos: 10 } });
+    return json({ job: { id: v.id, tipo: 'video', foto_url: url.origin + '/api/foto/' + v.foto_key, foto_ia: /\/ia-/.test(v.foto_key || ''), prompt: v.prompt, negativo: NEG_VIDEO, segundos: 10 } });
   }
   let mt = p.match(/^\/api\/agente\/progresso\/([\w-]+)$/);
   if (mt && m === 'POST') {
@@ -1139,7 +1139,7 @@ async function criaVideo(request, env) {
   const row = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(b.peca_id || '').first();
   if (!row) return bad('peça não encontrada', 404);
   const pc = parsePeca(row), fotos = pc.fotos || [];
-  const foto = b.foto_key && fotos.includes(b.foto_key) ? b.foto_key : fotos[0];
+  const foto = b.foto_key && fotos.includes(b.foto_key) ? b.foto_key : (fotos.find(k => /\/ia-/.test(k)) || fotos.find(k => !/\/arte-/.test(k)) || fotos[0]);
   if (!foto) return bad('a peça precisa de pelo menos uma foto');
   if (!(await getCfg(env, 'agente_token'))) return bad('instale o gerador no PC primeiro (Anúncios ML → Gerador de vídeo)');
   const ja = await env.DB.prepare("SELECT id FROM videos WHERE peca_id=? AND status IN ('fila','gerando') AND COALESCE(tipo,'video')='video'").bind(pc.id).first();
@@ -1215,17 +1215,24 @@ set "SERVIDOR=__SERVIDOR__"
 set "TOKEN=__TOKEN__"
 set "PASTA=%USERPROFILE%\RafaGerador"
 echo.
-echo  === Gerador de video com IA - Rafa Busca Pecas ===
+echo  === IA de fotos e videos - Rafa Busca Pecas ===
 echo  Pasta: %PASTA%
 echo.
-nvidia-smi >nul 2>&1
-if errorlevel 1 (
-  echo  [ERRO] Nao encontrei placa NVIDIA. Atualize o driver em https://www.nvidia.com/pt-br/drivers/
-  pause
-  exit /b 1
+set "PLACA=outra"
+powershell -NoProfile -Command "(Get-CimInstance Win32_VideoController).Name" > "%TEMP%\rafa_placa.txt" 2>nul
+findstr /I "AMD Radeon" "%TEMP%\rafa_placa.txt" >nul && set "PLACA=amd"
+findstr /I "Intel" "%TEMP%\rafa_placa.txt" >nul && if "%PLACA%"=="outra" set "PLACA=intel"
+nvidia-smi >nul 2>&1 && set "PLACA=nvidia"
+echo  Placa de video encontrada:
+type "%TEMP%\rafa_placa.txt"
+if "%PLACA%"=="nvidia" (
+  echo  Modo: NVIDIA - fotos com IA e video com IA
+) else (
+  echo  Modo: leve - fotos com IA pelo DirectX/Vulkan e video cinematografico com a foto real
 )
+echo.
 set "CU=cu124"
-nvidia-smi --query-gpu=name --format=csv,noheader | findstr /R /C:"RTX 50[0-9][0-9]" >nul && set "CU=cu128"
+if "%PLACA%"=="nvidia" nvidia-smi --query-gpu=name --format=csv,noheader | findstr /R /C:"RTX 50[0-9][0-9]" >nul && set "CU=cu128"
 set PY=
 py -3.11 --version >nul 2>&1 && set PY=py -3.11
 if not defined PY python --version 2>nul | findstr /R /C:"3\.1[0-2]\." >nul && set PY=python
@@ -1243,7 +1250,7 @@ if not defined PY (
 if not exist "%PASTA%" mkdir "%PASTA%"
 cd /d "%PASTA%"
 echo  Baixando o programa...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; Invoke-WebRequest -UseBasicParsing '%SERVIDOR%/agente/agente.py' -OutFile 'agente.py'; Invoke-WebRequest -UseBasicParsing '%SERVIDOR%/agente/requirements.txt' -OutFile 'requirements.txt'"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; Invoke-WebRequest -UseBasicParsing '%SERVIDOR%/agente/agente.py' -OutFile 'agente.py'; Invoke-WebRequest -UseBasicParsing '%SERVIDOR%/agente/requirements.txt' -OutFile 'requirements.txt'; Invoke-WebRequest -UseBasicParsing '%SERVIDOR%/agente/requirements-leve.txt' -OutFile 'requirements-leve.txt'"
 if errorlevel 1 (
   echo  [ERRO] Nao consegui baixar o programa. Confira a internet e tente de novo.
   pause
@@ -1258,8 +1265,12 @@ if not exist "venv\Scripts\python.exe" (
 )
 echo  Instalando a IA (na primeira vez pode levar de 10 a 30 minutos)...
 "venv\Scripts\python.exe" -m pip install --upgrade pip
-"venv\Scripts\python.exe" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/%CU%
-"venv\Scripts\python.exe" -m pip install -r requirements.txt
+if "%PLACA%"=="nvidia" (
+  "venv\Scripts\python.exe" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/%CU%
+  "venv\Scripts\python.exe" -m pip install -r requirements.txt
+) else (
+  "venv\Scripts\python.exe" -m pip install -r requirements-leve.txt
+)
 if errorlevel 1 (
   echo  [ERRO] Falhou ao instalar as bibliotecas. Tire um print desta tela e mande pro suporte.
   pause

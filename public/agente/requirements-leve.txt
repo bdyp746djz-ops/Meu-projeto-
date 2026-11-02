@@ -1,0 +1,7 @@
+numpy
+pillow
+opencv-python-headless>=4.9
+imageio>=2.34
+imageio-ffmpeg>=0.5
+onnxruntime-directml>=1.18; sys_platform == "win32"
+onnxruntime>=1.18; sys_platform != "win32"

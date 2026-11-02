@@ -1,14 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-Gerador de vídeo com IA — Rafa Busca Peças
-Roda no PC com placa NVIDIA. Busca os pedidos de vídeo no sistema, gera o
-vídeo com um modelo aberto (Wan 2.2, Apache-2.0; ou LTX-Video nas placas com
-menos memória) e devolve o MP4. Não precisa abrir porta no roteador: é o PC
-que chama o sistema.
+IA da Rafa Busca Peças no PC — fotos e vídeos.
+Busca os pedidos no sistema e devolve o resultado. Não precisa abrir porta no
+roteador: é o PC que chama o sistema.
+- Fotos (qualquer placa): recorte BiRefNet (ONNX pelo DirectML: AMD, NVIDIA
+  ou Intel), melhoria Real-ESRGAN (Vulkan na AMD/Intel, CUDA na NVIDIA) e luz,
+  com trava de integridade.
+- Vídeos: placa NVIDIA com 12 GB+ → IA de vídeo (Wan 2.2 / LTX-Video);
+  outras placas (ex.: AMD RX 6600) → vídeo cinematográfico feito com a foto
+  real (câmera se aproximando e luz de estúdio; a peça não muda).
 """
-import io, json, os, sys, tempfile, time, traceback, urllib.error, urllib.request
+import importlib, io, json, os, subprocess, sys, tempfile, time, traceback, urllib.error, urllib.parse, urllib.request, zipfile
 
-VERSAO = '1.2'
+VERSAO = '2.0'
 PASTA = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(PASTA, 'config.json'), encoding='utf-8-sig') as f:
     CFG = json.load(f)
@@ -43,6 +47,27 @@ def baixa(url):
         return resp.read()
 
 
+def baixa_arquivo(url, destino, nome):
+    # arquivos grandes: baixa em partes, mostrando o andamento, e só troca quando termina
+    if os.path.exists(destino):
+        return destino
+    log(f'Baixando {nome} (só na 1ª vez)...')
+    r = urllib.request.Request(url, headers={'User-Agent': 'RafaGerador/' + VERSAO})
+    with urllib.request.urlopen(r, timeout=120) as resp, open(destino + '.tmp', 'wb') as f:
+        total, feito, aviso = int(resp.headers.get('content-length') or 0), 0, 0
+        while True:
+            bloco = resp.read(1024 * 1024)
+            if not bloco:
+                break
+            f.write(bloco)
+            feito += len(bloco)
+            if total and feito * 100 // total >= aviso + 20:
+                aviso = feito * 100 // total
+                log(f'  {nome}: {aviso}%')
+    os.replace(destino + '.tmp', destino)
+    return destino
+
+
 def atualiza_programa():
     # baixa a versão mais nova do programa do sistema; se mudou, troca e reinicia
     try:
@@ -60,65 +85,78 @@ def atualiza_programa():
 atualiza_programa()
 
 
+# ---------- modo do PC: NVIDIA (IA de vídeo) ou leve (AMD/Intel) ----------
+torch = None
+CUDA = False
+try:
+    import torch as _torch
+    if _torch.cuda.is_available():
+        torch, CUDA = _torch, True
+except Exception:
+    pass
+
+
+def nome_placa():
+    if CUDA:
+        return torch.cuda.get_device_name(0), torch.cuda.get_device_properties(0).total_memory / 1024 ** 3
+    try:
+        if os.name == 'nt':
+            r = subprocess.run(['powershell', '-NoProfile', '-Command', '(Get-CimInstance Win32_VideoController).Name'],
+                               capture_output=True, text=True, timeout=30)
+            nomes = [l.strip() for l in r.stdout.splitlines() if l.strip()]
+            if nomes:
+                return ' / '.join(nomes)[:80], 0
+    except Exception:
+        pass
+    return 'placa sem CUDA', 0
+
+
+GPU, VRAM = nome_placa()
+MODO_VIDEO = CFG.get('video', 'auto')
+if MODO_VIDEO not in ('ia', 'cinema'):
+    MODO_VIDEO = 'ia' if (CUDA and VRAM >= 12) else 'cinema'
+if MODO_VIDEO == 'ia' and not CUDA:
+    MODO_VIDEO = 'cinema'
+MODELO = CFG.get('modelo', 'auto')
+if MODO_VIDEO == 'cinema':
+    MODELO = 'cinema'
+elif MODELO not in ('wan', 'ltx'):
+    MODELO = 'wan' if VRAM >= 20 else 'ltx'
+
+
 def garante_dependencias():
-    # programa atualizado pode precisar de bibliotecas novas: instala sozinho
-    import importlib
-    import subprocess
+    # instala sozinho o que faltar (o programa se atualiza e pode precisar de coisa nova)
+    precisa = ['cv2', 'numpy', 'PIL', 'imageio', 'imageio_ffmpeg', 'onnxruntime']
+    if MODO_VIDEO == 'ia':
+        precisa += ['diffusers', 'transformers', 'accelerate', 'spandrel']
     faltando = []
-    for mod in ('cv2', 'spandrel', 'onnxruntime', 'timm', 'kornia', 'einops'):
+    for mod in precisa:
         try:
             importlib.import_module(mod)
         except Exception:
             faltando.append(mod)
-    if faltando:
-        log('Instalando componentes novos da IA de fotos:', ', '.join(faltando), '(só na 1ª vez)...')
-        try:
-            arq = os.path.join(PASTA, 'requirements.txt')
-            with open(arq, 'wb') as f:
-                f.write(baixa(SERVIDOR + '/agente/requirements.txt'))
-            subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '-r', arq], check=False, timeout=3600)
-        except Exception as e:
-            log('Não consegui instalar tudo agora:', e)
+    if not faltando:
+        return
+    nome = 'requirements.txt' if MODO_VIDEO == 'ia' else 'requirements-leve.txt'
+    log('Instalando componentes da IA:', ', '.join(faltando), '(só na 1ª vez)...')
     try:
-        importlib.import_module('torchvision')
-    except Exception:
-        try:
-            import torch as _t
-            v = _t.__version__.split('+')[0].split('.')
-            cu = 'cu' + (_t.version.cuda or '12.4').replace('.', '')
-            log('Instalando torchvision (só na 1ª vez)...')
-            subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', f'torchvision==0.{int(v[1]) + 15}.{v[2] if len(v) > 2 else 0}',
-                            '--index-url', f'https://download.pytorch.org/whl/{cu}'], check=False, timeout=3600)
-        except Exception as e:
-            log('Não consegui instalar o torchvision:', e)
+        arq = os.path.join(PASTA, nome)
+        with open(arq, 'wb') as f:
+            f.write(baixa(SERVIDOR + '/agente/' + nome))
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '-r', arq], check=False, timeout=3600)
+    except Exception as e:
+        log('Não consegui instalar tudo agora:', e)
 
 
 garante_dependencias()
 
-
-try:
-    import torch
-except Exception:
-    log('ERRO: a IA não foi instalada direito. Rode o instalador de novo.')
-    input('Aperte Enter para sair...')
-    sys.exit(1)
-
-if not torch.cuda.is_available():
-    log('ERRO: não achei placa NVIDIA com CUDA. Atualize o driver da NVIDIA e rode o instalador de novo.')
-    input('Aperte Enter para sair...')
-    sys.exit(1)
-
-GPU = torch.cuda.get_device_name(0)
-VRAM = torch.cuda.get_device_properties(0).total_memory / 1024 ** 3
-MODELO = CFG.get('modelo', 'auto')
-if MODELO not in ('wan', 'ltx'):
-    MODELO = 'wan' if VRAM >= 20 else 'ltx'
-
 # tamanho do vídeo (vertical 9:16, bom pra Clips/Reels) e ajustes por modelo
 if MODELO == 'wan':
-    LARG, ALT, QUADROS, FPS, GUIA = 704, 1280, 121, 24, 5.0   # 5 s
+    LARG, ALT, QUADROS, FPS, GUIA = 704, 1280, 121, 24, 5.0   # 5 s (esticado pra 10 s)
+elif MODELO == 'ltx':
+    LARG, ALT, QUADROS, FPS, GUIA = 480, 832, 121, 24, 3.0    # 5 s (esticado pra 10 s)
 else:
-    LARG, ALT, QUADROS, FPS, GUIA = 480, 832, 121, 24, 3.0    # 5 s
+    LARG, ALT, QUADROS, FPS, GUIA = 1080, 1920, 300, 30, 0     # vídeo cinematográfico: 10 s direto
 
 PIPE = None
 
@@ -210,6 +248,9 @@ def estica_para(arq, segundos, n_quadros):
 
 
 def gera(job):
+    if MODELO == 'cinema':
+        t0 = time.time()
+        return video_cinema(job), time.time() - t0
     pipe = carrega(job['id'])
     img = prepara_imagem(baixa(job['foto_url']))
     total = PASSOS
@@ -253,25 +294,32 @@ SEG = None   # ('birefnet', modelo) ou ('u2netp', sessão onnx)
 SR = None    # modelo Real-ESRGAN, ou False se não deu pra carregar
 
 
+def sessao_onnx(arq):
+    import onnxruntime as ort
+    prov = [p for p in ('DmlExecutionProvider', 'CUDAExecutionProvider') if p in ort.get_available_providers()] + ['CPUExecutionProvider']
+    try:
+        return ort.InferenceSession(arq, providers=prov)
+    except Exception:
+        return ort.InferenceSession(arq, providers=['CPUExecutionProvider'])
+
+
 def carrega_seg():
     global SEG
     if SEG is not None:
         return SEG
     try:
-        from transformers import AutoModelForImageSegmentation
-        log('Carregando o recorte BiRefNet (na 1ª vez baixa ~1 GB)...')
-        m = AutoModelForImageSegmentation.from_pretrained('ZhengPeng7/BiRefNet', trust_remote_code=True)
-        torch.set_float32_matmul_precision('high')
-        m.to('cuda').eval().half()
-        SEG = ('birefnet', m)
+        arq = baixa_arquivo('https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx',
+                            os.path.join(PASTA, 'birefnet-lite.onnx'), 'recorte BiRefNet (224 MB)')
+        s = sessao_onnx(arq)
+        log('Recorte BiRefNet pronto (' + ', '.join(p.replace('ExecutionProvider', '') for p in s.get_providers()) + ').')
+        SEG = ('birefnet', s)
     except Exception as e:
         log('BiRefNet indisponível, usando o recorte leve (u2netp):', str(e)[:160])
-        import onnxruntime as ort
         arq = os.path.join(PASTA, 'u2netp.onnx')
         if not os.path.exists(arq):
             with open(arq, 'wb') as f:
                 f.write(baixa(SERVIDOR + '/ia/u2netp.onnx'))
-        SEG = ('u2netp', ort.InferenceSession(arq, providers=['CPUExecutionProvider']))
+        SEG = ('u2netp', sessao_onnx(arq))
     return SEG
 
 
@@ -279,17 +327,14 @@ def mascara(img):
     import numpy as np
     from PIL import Image
     tipo, m = carrega_seg()
+    lado = 1024 if tipo == 'birefnet' else 320
     media, desvio = np.array([0.485, 0.456, 0.406], np.float32), np.array([0.229, 0.224, 0.225], np.float32)
-    if tipo == 'birefnet':
-        x = (np.asarray(img.resize((1024, 1024), Image.BILINEAR), dtype=np.float32) / 255.0 - media) / desvio
-        t = torch.from_numpy(x.transpose(2, 0, 1).copy()).unsqueeze(0).to('cuda').half()
-        with torch.no_grad():
-            pred = m(t)[-1].sigmoid().float().cpu().numpy()[0, 0]
-    else:
-        a = np.asarray(img.resize((320, 320), Image.BILINEAR), dtype=np.float32)
-        a = (a / max(1.0, float(a.max())) - media) / desvio
-        out = m.run(None, {m.get_inputs()[0].name: a.transpose(2, 0, 1)[None].astype(np.float32)})[0][0, 0]
-        pred = (out - out.min()) / max(1e-6, float(out.max() - out.min()))
+    a = np.asarray(img.resize((lado, lado), Image.LANCZOS if tipo == 'birefnet' else Image.BILINEAR), dtype=np.float32)
+    a = (a / max(1.0, float(a.max())) - media) / desvio
+    out = m.run(None, {m.get_inputs()[0].name: a.transpose(2, 0, 1)[None].astype(np.float32)})[0][0, 0]
+    if out.min() < 0 or out.max() > 1:
+        out = 1 / (1 + np.exp(-out))
+    pred = (out - out.min()) / max(1e-6, float(out.max() - out.min()))
     mk = Image.fromarray((pred * 255).clip(0, 255).astype('uint8')).resize(img.size, Image.BILINEAR)
     return np.asarray(mk, dtype=np.float32) / 255.0, tipo
 
@@ -299,18 +344,29 @@ def carrega_sr():
     if SR is not None:
         return SR
     try:
-        from spandrel import ModelLoader
-        arq = os.path.join(PASTA, 'RealESRGAN_x4plus.pth')
-        if not os.path.exists(arq):
-            log('Baixando o modelo de melhoria Real-ESRGAN (64 MB)...')
-            with open(arq + '.tmp', 'wb') as f:
-                f.write(baixa('https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth'))
-            os.replace(arq + '.tmp', arq)
-        m = ModelLoader().load_from_file(arq)
-        m.to('cuda').eval()
-        if getattr(m, 'supports_half', False):
-            m.half()
-        SR = m
+        if CUDA:
+            from spandrel import ModelLoader
+            arq = baixa_arquivo('https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth',
+                                os.path.join(PASTA, 'RealESRGAN_x4plus.pth'), 'melhoria Real-ESRGAN (64 MB)')
+            m = ModelLoader().load_from_file(arq)
+            m.to('cuda').eval()
+            if getattr(m, 'supports_half', False):
+                m.half()
+            SR = ('cuda', m)
+        elif os.name == 'nt':   # AMD/Intel no Windows: versão Vulkan
+            pasta = os.path.join(PASTA, 'realesrgan')
+            exe = os.path.join(pasta, 'realesrgan-ncnn-vulkan.exe')
+            if not os.path.exists(exe):
+                z = baixa_arquivo('https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip',
+                                  os.path.join(PASTA, 'realesrgan.zip'), 'melhoria Real-ESRGAN Vulkan (45 MB)')
+                with zipfile.ZipFile(z) as zz:
+                    zz.extractall(pasta)
+                for raiz, _, arqs in os.walk(pasta):
+                    if 'realesrgan-ncnn-vulkan.exe' in arqs and raiz != pasta:
+                        exe = os.path.join(raiz, 'realesrgan-ncnn-vulkan.exe')
+            SR = ('vulkan', exe)
+        else:
+            SR = False
     except Exception as e:
         log('Melhoria Real-ESRGAN indisponível (segue sem ela):', str(e)[:160])
         SR = False
@@ -318,13 +374,28 @@ def carrega_sr():
 
 
 def super_resolucao(arr):
-    # arr: HxWx3 float32 0..1 -> 4x maior, em blocos pra caber em qualquer placa
+    # arr: HxWx3 float32 0..1 -> 4x maior (ou None se não der)
     import numpy as np
     sr = carrega_sr()
     if not sr:
         return None
-    esc = int(getattr(sr, 'scale', 4))
-    dt = torch.float16 if getattr(sr, 'supports_half', False) else torch.float32
+    if sr[0] == 'vulkan':
+        import cv2
+        ent = os.path.join(tempfile.gettempdir(), f'rafa_sr_in_{os.getpid()}.png')
+        sai = os.path.join(tempfile.gettempdir(), f'rafa_sr_out_{os.getpid()}.png')
+        cv2.imwrite(ent, cv2.cvtColor((arr * 255).clip(0, 255).astype('uint8'), cv2.COLOR_RGB2BGR))
+        subprocess.run([sr[1], '-i', ent, '-o', sai, '-n', 'realesrgan-x4plus', '-s', '4', '-f', 'png'],
+                       check=True, timeout=600, cwd=os.path.dirname(sr[1]), capture_output=True)
+        out = cv2.cvtColor(cv2.imread(sai), cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        for f in (ent, sai):
+            try:
+                os.remove(f)
+            except Exception:
+                pass
+        return out
+    m = sr[1]
+    esc = int(getattr(m, 'scale', 4))
+    dt = torch.float16 if getattr(m, 'supports_half', False) else torch.float32
     h, w, _ = arr.shape
     T, ov = 192, 16
     out = np.zeros((h * esc, w * esc, 3), np.float32)
@@ -333,7 +404,7 @@ def super_resolucao(arr):
             y0, x0, y1, x1 = max(0, y - ov), max(0, x - ov), min(h, y + T + ov), min(w, x + T + ov)
             t = torch.from_numpy(arr[y0:y1, x0:x1].transpose(2, 0, 1).copy())[None].to('cuda', dt)
             with torch.no_grad():
-                r = sr(t).float().clamp(0, 1).cpu().numpy()[0].transpose(1, 2, 0)
+                r = m(t).float().clamp(0, 1).cpu().numpy()[0].transpose(1, 2, 0)
             ye, xe = min(y + T, h), min(x + T, w)
             out[y * esc:ye * esc, x * esc:xe * esc] = r[(y - y0) * esc:(ye - y0) * esc, (x - x0) * esc:(xe - x0) * esc]
     return out
@@ -470,9 +541,81 @@ def processa_foto(job):
     return buf.getvalue(), ' · '.join(etapas)
 
 
+def video_cinema(job):
+    # câmera se aproximando devagar + luz de estúdio passando; a peça é a foto real e não muda
+    import cv2
+    import numpy as np
+    from PIL import Image, ImageOps
+    import imageio
+    img = ImageOps.exif_transpose(Image.open(io.BytesIO(baixa(job['foto_url'])))).convert('RGB')
+    try:
+        req('POST', '/api/agente/progresso/' + job['id'], {'texto': 'recortando a peça'})
+    except Exception:
+        pass
+    alfa, _ = mascara(img)
+    alfa = np.clip((alfa - 0.2) / 0.5, 0, 1)
+    ys, xs = np.where(alfa > 0.5)
+    if len(ys) < alfa.size * 0.01:
+        raise RuntimeError('a IA não encontrou a peça nessa foto')
+    y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+    rgb = np.asarray(img, dtype=np.float32)[y0:y1, x0:x1]
+    a = alfa[y0:y1, x0:x1]
+    if not job.get('foto_ia'):
+        rgb = tons(rgb, a, {})
+    W, H, N, FPS_V, SS = 1080, 1920, 300, 30, 1.12   # cena feita 12% maior pra aproximar sem perder nitidez
+    BW, BH = int(W * SS), int(H * SS)
+    yy, xx = np.mgrid[0:BH, 0:BW].astype(np.float32)
+    d = np.sqrt(((xx - BW / 2) / (BW * 0.7)) ** 2 + ((yy - BH * 0.47) / (BH * 0.62)) ** 2)
+    f = 255 - 40 * np.clip(d, 0, 1.4) ** 1.6
+    cena = np.dstack([f, f * 0.988, f * 0.968])                     # fundo de estúdio, levemente quente
+    h, w = a.shape
+    s = min(BW * 0.84 / w, BH * 0.52 / h)
+    dw, dh = int(w * s), int(h * s)
+    peca = cv2.resize(rgb, (dw, dh), interpolation=cv2.INTER_LANCZOS4 if s > 1 else cv2.INTER_AREA)
+    am = cv2.GaussianBlur(cv2.resize(a, (dw, dh), interpolation=cv2.INTER_LINEAR), (3, 3), 0)
+    px, py = (BW - dw) // 2, int(BH * 0.47 - dh / 2)
+    sombra = np.zeros((BH, BW), np.float32)                           # sombra natural embaixo da peça
+    cv2.ellipse(sombra, (BW // 2, py + int(dh * 0.98)), (int(dw * 0.42), max(6, int(dh * 0.05))), 0, 0, 360, 1.0, -1)
+    sombra = cv2.GaussianBlur(sombra, (0, 0), 28) * 0.28
+    cena = cena * (1 - sombra[..., None])
+    reg = cena[py:py + dh, px:px + dw]
+    cena[py:py + dh, px:px + dw] = reg * (1 - am[..., None]) + np.clip(peca, 0, 255) * am[..., None]
+    mascara_cena = np.zeros((BH, BW), np.float32)
+    mascara_cena[py:py + dh, px:px + dw] = am
+    vinheta = (1 - 0.10 * np.clip(d, 0, 1.4) ** 2)[..., None]
+    arq = os.path.join(tempfile.gettempdir(), f"rafa_video_{job['id']}_{os.getpid()}.mp4")
+    try:
+        req('POST', '/api/agente/progresso/' + job['id'], {'texto': 'filmando (câmera e luz)'})
+    except Exception:
+        pass
+    diag = (xx * 0.8 + yy * 0.6)
+    dmin, dmax = float(diag[mascara_cena > 0.5].min()), float(diag[mascara_cena > 0.5].max())
+    with imageio.get_writer(arq, fps=FPS_V, codec='libx264', quality=8, pixelformat='yuv420p', macro_block_size=8) as wr:
+        for i in range(N):
+            t = i / (N - 1)
+            e = t * t * (3 - 2 * t)                                    # começa e termina suave
+            zoom = 1.0 + 0.075 * e                                     # aproximação lenta
+            pos = dmin - 0.25 * (dmax - dmin) + 1.5 * (dmax - dmin) * t  # faixa de luz atravessando a peça
+            faixa = np.exp(-((diag - pos) / (0.10 * (dmax - dmin) + 1)) ** 2) * 0.16 * mascara_cena
+            quadro = cena + faixa[..., None] * (255 - cena)
+            quadro = quadro * (1 + 0.015 * np.sin(2 * np.pi * t)) * vinheta   # luz "respirando" bem de leve
+            cw, ch = BW / zoom, BH / zoom
+            x0c = min(max(BW / 2 - cw / 2, 0), BW - cw)            # recorte da câmera sempre dentro da cena,
+            y0c = min(max(BH * 0.47 - ch / 2, 0), BH - ch)         # mirando a peça
+            M = np.array([[W / cw, 0, -x0c * W / cw], [0, H / ch, -y0c * H / ch]], np.float32)
+            fr = cv2.warpAffine(np.clip(quadro, 0, 255).astype(np.float32), M, (W, H), flags=cv2.INTER_AREA if zoom < 1.12 else cv2.INTER_CUBIC)
+            wr.append_data(np.clip(fr, 0, 255).astype(np.uint8))
+            if i % 60 == 0:
+                try:
+                    req('POST', '/api/agente/progresso/' + job['id'], {'texto': f'filmando: {i * 100 // N}%'})
+                except Exception:
+                    pass
+    return arq
+
+
 def main():
     log(f'Gerador de vídeo Rafa Busca Peças v{VERSAO}')
-    log(f'Placa: {GPU} ({VRAM:.0f} GB) — modelo: {"Wan 2.2" if MODELO == "wan" else "LTX-Video"}')
+    log(f'Placa: {GPU}' + (f' ({VRAM:.0f} GB)' if VRAM else '') + ' — vídeo: ' + {'wan': 'IA Wan 2.2', 'ltx': 'IA LTX-Video', 'cinema': 'cinematográfico com a foto real'}[MODELO])
     log('Deixe esta janela aberta. Os pedidos de vídeo feitos no sistema aparecem aqui.')
     info = {'gpu': GPU, 'vram': round(VRAM, 1), 'modelo': MODELO, 'versao': VERSAO}
     while True:
@@ -487,7 +630,6 @@ def main():
                 try:
                     t0 = time.time()
                     dados, detalhe = processa_foto(job)
-                    import urllib.parse
                     req('POST', '/api/agente/video/' + job['id'] + '?detalhe=' + urllib.parse.quote(detalhe), dados, tipo='image/jpeg', timeout=120)
                     log(f'Foto pronta ({time.time() - t0:.0f} s): {detalhe}')
                 except Exception as e:
@@ -519,7 +661,8 @@ def main():
                     pass
             finally:
                 try:
-                    torch.cuda.empty_cache()
+                    if CUDA:
+                        torch.cuda.empty_cache()
                 except Exception:
                     pass
         except urllib.error.HTTPError as e:

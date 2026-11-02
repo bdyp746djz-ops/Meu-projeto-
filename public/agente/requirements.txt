@@ -1,18 +1,16 @@
+numpy
+pillow
+opencv-python-headless>=4.9
+imageio>=2.34
+imageio-ffmpeg>=0.5
+onnxruntime-directml>=1.18; sys_platform == "win32"
+onnxruntime>=1.18; sys_platform != "win32"
 diffusers>=0.35.1
 transformers>=4.51.3
 accelerate>=1.1.1
 sentencepiece
 protobuf
 ftfy
-imageio>=2.34
-imageio-ffmpeg>=0.5
-pillow
-numpy
 huggingface_hub>=0.30
 safetensors
-opencv-python-headless>=4.9
 spandrel>=0.4
-onnxruntime>=1.18
-timm
-kornia
-einops
