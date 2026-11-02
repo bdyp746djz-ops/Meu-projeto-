@@ -146,6 +146,8 @@ async function api(request, env, url) {
   mt = p.match(/^\/api\/ml\/rascunho\/([\w-]+)$/);
   if (mt && m === 'GET') return mlRascunho(mt[1], env, url, user);
   if (p === '/api/ml/publicar' && m === 'POST') return mlPublicar(request, env, url, user);
+  if (p === '/api/ml/categorias' && m === 'GET') return mlBuscaCategorias(url, env);
+  if (p === '/api/ml/atributos' && m === 'GET') return mlAtributos(url, env);
 
   return bad('rota não encontrada', 404);
 }
@@ -283,29 +285,73 @@ function anuncioDe(p) {
   return { titulo, desc };
 }
 // prevê a categoria no catálogo do ML a partir do título
-async function mlCategoria(token, titulo) {
+// categorias que o Mercado Livre prevê para um texto (até `limite`), com o caminho completo
+async function mlCaminho(cat) {
   try {
-    const r = await fetch(ML_API + '/sites/MLB/domain_discovery/search?limit=1&q=' + encodeURIComponent(titulo), { headers: { Authorization: 'Bearer ' + token } });
-    const d = await r.json().catch(() => ([]));
-    if (Array.isArray(d) && d[0] && d[0].category_id) return d[0].category_id;
-  } catch { /* sem categoria prevista */ }
-  return null;
+    const c = await (await fetch(ML_API + '/categories/' + encodeURIComponent(cat))).json();
+    return (c.path_from_root || []).map(x => x.name).join(' › ') || c.name || null;
+  } catch { return null; }
 }
+async function mlCategorias(token, texto, limite = 5) {
+  let lista = [];
+  try {
+    const r = await fetch(ML_API + '/sites/MLB/domain_discovery/search?limit=' + limite + '&q=' + encodeURIComponent(texto), { headers: token ? { Authorization: 'Bearer ' + token } : {} });
+    const d = await r.json().catch(() => []);
+    if (Array.isArray(d)) lista = d.filter(x => x && x.category_id);
+  } catch { /* sem previsão */ }
+  const vistos = new Set(); lista = lista.filter(x => !vistos.has(x.category_id) && vistos.add(x.category_id));
+  return Promise.all(lista.map(async x => ({
+    id: x.category_id, nome: x.category_name || '', dominio: x.domain_name || '',
+    caminho: (await mlCaminho(x.category_id)) || x.category_name || x.category_id,
+    previstos: Object.fromEntries((x.attributes || []).filter(a => a && a.id).map(a => [a.id, { id: a.value_id || null, nome: a.value_name || '' }])),
+  })));
+}
+// memória: categoria usada antes para o mesmo nome de peça
+const mlMemChave = nome => 'mlcat:' + norm(nome).replace(/\s+/g, ' ').trim().slice(0, 80);
 // rascunho (pré-visualização) — não publica nada
 async function mlRascunho(pecaId, env, url, user) {
   const token = await mlToken(env);
-  if (!token) return bad('conecte o Mercado Livre primeiro (aba Integrações)');
+  if (!token) return bad('conecte o Mercado Livre primeiro (Anúncios ML → Conexão)');
   const row = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(pecaId).first();
   if (!row) return bad('peça não encontrada', 404);
   const p = parsePeca(row);
   const { titulo, desc } = anuncioDe(p);
   const fotos = (p.fotos || []).map(k => url.origin + '/api/foto/' + k);
-  const categoria = await mlCategoria(token, titulo);
-  let catNome = null;
-  if (categoria) { try { const c = await (await fetch(ML_API + '/categories/' + categoria)).json(); catNome = c && c.name; } catch { /* nome é opcional */ } }
-  return json({ rascunho: { titulo, desc, preco: p.preco, qtd: Math.max(1, Number(p.qtd) || 1), fotos, categoria, catNome } });
+  const categorias = await mlCategorias(token, titulo, 5);
+  let mem = null; try { mem = JSON.parse((await getCfg(env, mlMemChave(p.nome))) || 'null'); } catch { /* sem memória */ }
+  if (mem && mem.id) {
+    const i = categorias.findIndex(c => c.id === mem.id);
+    const c = i >= 0 ? categorias.splice(i, 1)[0] : { id: mem.id, nome: '', dominio: '', caminho: mem.caminho || mem.id, previstos: {} };
+    c.memoria = true; categorias.unshift(c);
+  }
+  return json({ rascunho: { titulo, desc, preco: p.preco, qtd: Math.max(1, Number(p.qtd) || 1), fotos, categorias, categoria: categorias[0] ? categorias[0].id : null } });
 }
-// publica o anúncio no Mercado Livre
+// buscar categorias por um texto livre
+async function mlBuscaCategorias(url, env) {
+  const q = (url.searchParams.get('q') || '').trim();
+  if (q.length < 2) return json({ categorias: [] });
+  return json({ categorias: await mlCategorias(await mlToken(env), q, 6) });
+}
+// ficha técnica (atributos) de uma categoria, simplificada para o formulário
+async function mlAtributos(url, env) {
+  const cat = url.searchParams.get('cat');
+  if (!cat) return bad('informe a categoria');
+  let d;
+  try { d = await (await fetch(ML_API + '/categories/' + encodeURIComponent(cat) + '/attributes')).json(); }
+  catch { return bad('não consegui ler a ficha técnica dessa categoria'); }
+  if (!Array.isArray(d)) return bad('o Mercado Livre não devolveu a ficha técnica (' + ((d && (d.message || d.error)) || 'sem detalhe') + ')');
+  const atributos = d.filter(a => a && a.id && !(a.tags && (a.tags.hidden || a.tags.read_only || a.tags.fixed))).map(a => {
+    const t = a.tags || {};
+    return {
+      id: a.id, nome: a.name || a.id, tipo: a.value_type || 'string',
+      obrig: !!(t.required || t.catalog_required), cond: !!t.conditional_required, relev: a.relevance || 2,
+      valores: (a.values || []).slice(0, 400).map(v => ({ id: v.id, nome: v.name })),
+      unidades: (a.allowed_units || []).map(u => u.name || u.id), unidade: a.default_unit || null,
+      dica: a.hint || a.tooltip || '', max: a.value_max_length || null,
+    };
+  });
+  return json({ atributos });
+}
 async function mlPublicar(request, env, url, user) {
   if (user.papel !== 'admin') return bad('somente o administrador', 403);
   const b = await request.json().catch(() => ({}));
@@ -320,15 +366,25 @@ async function mlPublicar(request, env, url, user) {
   if (!preco || preco <= 0) return bad('defina um preço para a peça antes de publicar');
   const fotos = (p.fotos || []).map(k => ({ source: url.origin + '/api/foto/' + k }));
   if (!fotos.length) return bad('a peça precisa de pelo menos uma foto para anunciar');
-  const categoria = b.categoria || await mlCategoria(token, titulo);
+  const categoria = b.categoria || ((await mlCategorias(token, titulo, 1))[0] || {}).id;
   if (!categoria) return bad('não consegui identificar a categoria no Mercado Livre — ajuste o título e tente de novo');
   const atributos = [];
-  if (p.marca) atributos.push({ id: 'BRAND', value_name: String(p.marca) });
-  if (p.pn) atributos.push({ id: 'PART_NUMBER', value_name: String(p.pn) });
+  if (Array.isArray(b.atributos)) {
+    // ficha técnica preenchida na tela (value_id quando bate com a lista do ML, senão texto)
+    for (const a of b.atributos) {
+      if (!a || !a.id || atributos.find(x => x.id === a.id)) continue;
+      if (a.value_id) atributos.push({ id: String(a.id), value_id: String(a.value_id) });
+      else if (a.value_name != null && String(a.value_name).trim()) atributos.push({ id: String(a.id), value_name: String(a.value_name).trim().slice(0, 255) });
+    }
+  } else {
+    if (p.marca) atributos.push({ id: 'BRAND', value_name: String(p.marca) });
+    if (p.pn) atributos.push({ id: 'PART_NUMBER', value_name: String(p.pn) });
+  }
   const item = {
     title: titulo, category_id: categoria, price: preco, currency_id: 'BRL',
     available_quantity: Math.max(1, Number(p.qtd) || 1), buying_mode: 'buy_it_now',
     condition: 'used', listing_type_id: b.tipo || 'gold_special', pictures: fotos, attributes: atributos,
+    sale_terms: [{ id: 'WARRANTY_TYPE', value_name: 'Garantia do vendedor' }, { id: 'WARRANTY_TIME', value_name: '90 dias' }],
   };
   let r, d;
   try {
@@ -344,6 +400,7 @@ async function mlPublicar(request, env, url, user) {
     await fetch(ML_API + '/items/' + d.id + '/description', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: JSON.stringify({ plain_text: b.desc || base.desc }) });
   } catch { /* descrição é secundária */ }
   try { await env.DB.prepare('UPDATE pecas SET ml=1, ml_id=?, ml_link=? WHERE id=?').bind(String(d.id), d.permalink || '', p.id).run(); } catch { /* marcação é secundária */ }
+  try { await setCfg(env, mlMemChave(p.nome), JSON.stringify({ id: categoria, caminho: String(b.caminho || '').slice(0, 300) })); } catch { /* memória é secundária */ }
   return json({ ok: true, id: d.id, permalink: d.permalink || null, status: d.status || null });
 }
 async function mlDesconecta(env, user) {

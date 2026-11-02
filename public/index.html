@@ -144,6 +144,14 @@ nav.bottom{display:none}
 .lc-b:hover{background:#eee;color:var(--ink)}
 .lc-b .material-icons{font-size:20px}
 @media(max-width:760px){.lc-row{flex-wrap:wrap;padding-left:calc(6px + var(--d,0)*12px)}.lc-ac{width:100%;justify-content:flex-end}.lc-b{width:34px;height:34px}}
+.mlsec{margin:14px 0 4px;padding-top:12px;border-top:1px solid #eee}
+.mlcats{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+.mlcat{display:flex;gap:10px;align-items:flex-start;padding:9px 11px;border:1px solid #e0e0e0;border-radius:var(--rad);cursor:pointer;font-size:13.5px;line-height:1.35}
+.mlcat.on{border-color:var(--pri);background:var(--pri-t)}
+.mlcat input{width:auto;margin:3px 0 0;flex-shrink:0}
+.mlbusca{display:flex;gap:8px;align-items:center}
+.mlattrs{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:0 16px}
+.mlmais{margin-top:8px}.mlmais summary{cursor:pointer;color:var(--pri);font-size:13px;padding:6px 0}
 /* componentes */
 .btn{border:1px solid #d0d0d0;background:#fff;border-radius:var(--rad);padding:9px 16px;cursor:pointer;font-weight:500;color:var(--ink);text-decoration:none;display:inline-block;transition:filter .13s,box-shadow .13s,background .13s}
 .btn:hover{background:#f5f5f5}
@@ -434,30 +442,73 @@ function abrePeca(id){
 }
 async function publicarML(p){
   let cfg; try{ cfg=await api('/config'); }catch{ cfg={}; }
-  if(!(cfg.ml&&cfg.ml.conectado)){ toast('Conecte o Mercado Livre primeiro (aba Integrações)'); return; }
-  modal('<h3>Montando anúncio…</h3><p class="mut small">Buscando a categoria e preparando os dados no Mercado Livre.</p>');
-  let r; try{ r=await api('/ml/rascunho/'+p.id); }catch(e){ fecha(); toast(e.message); return; }
-  const d=r.rascunho;
+  if(!(cfg.ml&&cfg.ml.conectado))return toast('Conecte o Mercado Livre primeiro (Anúncios ML → Conexão)');
+  modal('<h3>Montando anúncio…</h3><p class="mut small">Buscando as categorias no Mercado Livre.</p>');
+  let r; try{ r=await api('/ml/rascunho/'+p.id); }catch(e){ fecha(); return toast(e.message); }
+  const d=r.rascunho, st={cats:d.categorias||[],cat:d.categoria,attrs:[],vals:{}};
+  const sku=String(p.codigo).padStart(6,'0');
+  const daPeca={BRAND:p.marca,MODEL:p.modelo,PART_NUMBER:p.pn,OEM:p.pn,ORIGINAL_PART_NUMBER:p.pn,SELLER_SKU:sku,VEHICLE_YEAR:p.ano};
   modal(`<h3>Publicar no Mercado Livre</h3>
    <label class="f">Título (máx. 60)<input id="mtit" maxlength="60" value="${esc(d.titulo)}"></label>
-   <label class="f">Preço (R$)<input id="mpre" type="number" step="0.01" min="0" value="${esc(d.preco)}"></label>
-   <label class="f">Tipo do anúncio<select id="mtipo"><option value="gold_special">Clássico</option><option value="free">Grátis (bom p/ testar)</option><option value="gold_pro">Premium</option></select></label>
-   <p class="small mut">Categoria sugerida: <b>${esc(d.catNome||d.categoria||'—')}</b> · ${d.fotos.length} foto(s)</p>
-   <label class="f">Descrição<textarea id="mdesc" rows="6" style="width:100%">${esc(d.desc)}</textarea></label>
-   <div class="card small" style="background:#fff7e6;border-color:#f0d9a8;margin:8px 0">⚠️ Ao publicar, o anúncio fica <b>ativo no Mercado Livre</b>. Confira os dados; depois dá pra pausar ou excluir pela sua conta do ML.</div>
+   <div class="form"><label class="f">Preço (R$)<input id="mpre" type="number" step="0.01" min="0" value="${esc(d.preco)}"></label>
+   <label class="f">Tipo do anúncio<select id="mtipo"><option value="gold_special">Clássico</option><option value="free">Grátis (bom p/ testar)</option><option value="gold_pro">Premium</option></select></label></div>
+   <div class="mlsec"><b>Categoria</b> <span class="small mut">— sugeridas pelo Mercado Livre a partir do título</span>
+     <div id="mcats" class="mlcats"></div>
+     <div class="mlbusca"><input id="mcq" placeholder="Não é nenhuma? Busque outra (ex.: farol, módulo de injeção)"><button class="btn sm" id="mcb" type="button">Buscar</button></div></div>
+   <div class="mlsec"><b>Ficha técnica</b> <span class="small mut">— * = obrigatório no Mercado Livre</span><div id="mattrs"><p class="small mut">Escolha a categoria.</p></div></div>
+   <label class="f">Descrição<textarea id="mdesc" rows="5" style="width:100%">${esc(d.desc)}</textarea></label>
+   <p class="small mut">${d.fotos.length} foto(s) · Condição: usado · Garantia do vendedor: 90 dias</p>
+   <div class="card small" style="background:#fff7e6;box-shadow:none;margin:8px 0">⚠️ Ao publicar, o anúncio fica <b>ativo no Mercado Livre</b>. Confira os dados; depois dá pra pausar ou excluir pela sua conta do ML.</div>
    <div class="top" style="margin-top:12px"><button class="btn p" id="mok">🛒 Publicar de verdade</button><button class="btn" id="mcc">Cancelar</button></div>`);
+  const valorDe=a=>{ if(a.id in st.vals)return st.vals[a.id]; const c=st.cats.find(x=>x.id===st.cat)||{}; const pv=(c.previstos||{})[a.id];
+    if(pv&&pv.nome)return pv.nome; if(daPeca[a.id])return String(daPeca[a.id]);
+    if(a.id==='EMPTY_GTIN_REASON'){ const v=a.valores.find(x=>/n[aã]o tem c[oó]digo|sem c[oó]digo/i.test(x.nome)); if(v)return v.nome; }
+    return ''; };
+  const campo=a=>{ const v=valorDe(a); let inp;
+    if(a.valores.length&&a.tipo!=='number_unit') inp=`<input data-at="${a.id}" list="dl_${a.id}" value="${esc(v)}" placeholder="${a.valores.length>12?'digite ou escolha':'escolha'}" autocomplete="off"><datalist id="dl_${a.id}">${a.valores.map(x=>`<option value="${esc(x.nome)}">`).join('')}</datalist>`;
+    else if(a.tipo==='number') inp=`<input data-at="${a.id}" type="number" step="any" value="${esc(v)}">`;
+    else if(a.tipo==='number_unit') inp=`<input data-at="${a.id}" value="${esc(v)}" placeholder="ex.: 10 ${esc(a.unidade||a.unidades[0]||'')}">`;
+    else inp=`<input data-at="${a.id}" value="${esc(v)}" ${a.max?`maxlength="${a.max}"`:''} autocomplete="off">`;
+    return `<label class="f">${esc(a.nome)}${a.obrig?' <b style="color:var(--red)">*</b>':''}${a.cond?' <span class="mut">(pode ser exigido)</span>':''}${inp}${a.dica?`<span class="small mut" style="display:block;font-weight:400">${esc(a.dica)}</span>`:''}</label>`; };
+  const pintaAttrs=()=>{
+    if(!st.attrs.length){ $('#mattrs').innerHTML='<p class="small mut">Essa categoria não pede ficha técnica.</p>'; return; }
+    const princ=st.attrs.filter(a=>a.obrig||a.cond||a.relev===1||valorDe(a)), resto=st.attrs.filter(a=>!princ.includes(a));
+    princ.sort((x,y)=>(y.obrig-x.obrig)||(y.cond-x.cond));
+    $('#mattrs').innerHTML=`<div class="mlattrs">${princ.map(campo).join('')}</div>${resto.length?`<details class="mlmais"><summary>Mais campos opcionais (${resto.length})</summary><div class="mlattrs">${resto.map(campo).join('')}</div></details>`:''}`;
+    document.querySelectorAll('[data-at]').forEach(el=>el.oninput=()=>{ st.vals[el.dataset.at]=el.value; }); };
+  const escolhe=async id=>{ st.cat=id; pintaCats(); $('#mattrs').innerHTML='<p class="small mut">Carregando ficha técnica…</p>';
+    try{ const { atributos }=await api('/ml/atributos?cat='+encodeURIComponent(id)); if(st.cat!==id)return; st.attrs=atributos; pintaAttrs(); }
+    catch(e){ st.attrs=[]; $('#mattrs').innerHTML='<p class="small" style="color:var(--red)">'+esc(e.message)+'</p>'; } };
+  const pintaCats=()=>{
+    $('#mcats').innerHTML=st.cats.length?st.cats.map(c=>`<label class="mlcat ${c.id===st.cat?'on':''}"><input type="radio" name="mcat" value="${esc(c.id)}" ${c.id===st.cat?'checked':''}><span><b>${esc(c.caminho)}</b>${c.memoria?' <span class="tag ml">usada antes</span>':''}<br><span class="small mut">${esc(c.dominio||c.nome)} · ${esc(c.id)}</span></span></label>`).join('')
+      :'<p class="small mut">O Mercado Livre não sugeriu categoria para esse título. Busque abaixo.</p>';
+    document.querySelectorAll('[name=mcat]').forEach(x=>x.onchange=()=>escolhe(x.value)); };
+  const busca=async()=>{ const q=$('#mcq').value.trim(); if(q.length<2)return toast('Digite pelo menos 2 letras');
+    $('#mcb').disabled=true; try{ const { categorias }=await api('/ml/categorias?q='+encodeURIComponent(q));
+      if(!categorias.length)toast('Nada encontrado para "'+q+'"');
+      else{ categorias.forEach(c=>{ if(!st.cats.find(x=>x.id===c.id))st.cats.push(c); }); escolhe(categorias[0].id); } }
+    catch(e){ toast(e.message); } $('#mcb').disabled=false; };
+  $('#mcb').onclick=busca; $('#mcq').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); busca(); } };
   $('#mcc').onclick=fecha;
+  pintaCats(); if(st.cat)escolhe(st.cat);
   $('#mok').onclick=async()=>{
+    if(!st.cat)return toast('Escolha uma categoria');
+    const atributos=[];
+    document.querySelectorAll('[data-at]').forEach(el=>{ const a=st.attrs.find(x=>x.id===el.dataset.at), t=el.value.trim(); if(!a||!t)return;
+      const m=a.valores.find(x=>nrm(x.nome)===nrm(t)); atributos.push(m?{id:a.id,value_id:String(m.id)}:{id:a.id,value_name:t}); });
+    const falta=st.attrs.filter(a=>a.obrig&&!atributos.find(x=>x.id===a.id));
+    if(falta.length&&!confirm('Faltam campos obrigatórios: '+falta.map(a=>a.nome).join(', ')+'.\nO Mercado Livre pode recusar. Publicar mesmo assim?'))return;
     const btn=$('#mok'); btn.disabled=true; btn.textContent='Publicando…';
+    const cat=st.cats.find(x=>x.id===st.cat)||{};
     try{
-      const res=await api('/ml/publicar',{method:'POST',body:{pecaId:p.id,titulo:$('#mtit').value,preco:$('#mpre').value,desc:$('#mdesc').value,tipo:$('#mtipo').value,categoria:d.categoria}});
+      const res=await api('/ml/publicar',{method:'POST',body:{pecaId:p.id,titulo:$('#mtit').value,preco:$('#mpre').value,desc:$('#mdesc').value,tipo:$('#mtipo').value,categoria:st.cat,caminho:cat.caminho||'',atributos}});
       fecha();
       modal(`<h3>✅ Anúncio publicado!</h3>
        <p>Código no Mercado Livre: <b>${esc(res.id)}</b>${res.status?` · status: ${esc(res.status)}`:''}</p>
        ${res.permalink?`<p><a href="${esc(res.permalink)}" target="_blank" rel="noopener" class="btn p">Ver anúncio no Mercado Livre</a></p>`:''}
-       <p class="small mut">A peça foi marcada como anunciada (ML).</p>
+       <p class="small mut">A peça foi marcada como anunciada e a categoria ficou salva para as próximas parecidas.</p>
        <div class="top" style="margin-top:12px"><button class="btn" id="fok">Fechar</button></div>`);
-      $('#fok').onclick=()=>{ fecha(); go('estoque'); };
+      $('#fok').onclick=()=>{ fecha(); if(S.view==='integracoes')integracoes(); };
     }catch(e){ btn.disabled=false; btn.textContent='🛒 Publicar de verdade'; toast(e.message); }
   };
 }
