@@ -10,3 +10,9 @@ pillow
 numpy
 huggingface_hub>=0.30
 safetensors
+opencv-python-headless>=4.9
+spandrel>=0.4
+onnxruntime>=1.18
+timm
+kornia
+einops

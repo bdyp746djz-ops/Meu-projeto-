@@ -153,6 +153,7 @@ async function api(request, env, url) {
   if (mt && m === 'POST') return repeteVideo(mt[1], env);
   if (p === '/api/agente/status' && m === 'GET') return json(await agenteResumo(env));
   if (p === '/api/ia/comandos' && m === 'GET') return json(await comandosIA(env));
+  if (p === '/api/ia/foto' && m === 'POST') return criaFotoIA(request, env);
   if (p === '/api/ia/comandos' && m === 'POST') return salvaComandosIA(request, env, user);
   if (p === '/api/agente/instalador' && m === 'GET') return agenteInstalador(env, url, user);
   if (p === '/api/agente/chave' && m === 'POST') return agenteNovaChave(env, user);
@@ -1015,7 +1016,8 @@ async function subirFoto(pecaId, request, env) {
   const ct = request.headers.get('content-type') || 'image/jpeg';
   if (!ct.startsWith('image/')) return bad('envie uma imagem');
   const ext = ct.includes('png') ? 'png' : ct.includes('webp') ? 'webp' : 'jpg';
-  const key = `pecas/${pecaId}/${uid()}.${ext}`;
+  const marca = new URL(request.url).searchParams.get('ia');
+  const key = `pecas/${pecaId}/${marca === 'arte' ? 'arte-' : marca ? 'ia-' : ''}${uid()}.${ext}`;
   await env.FOTOS.put(key, request.body, { httpMetadata: { contentType: ct } });
   const fotos = JSON.parse(peca.fotos || '[]');
   fotos.push(key);
@@ -1035,8 +1037,9 @@ let videosOk = false;
 async function garanteVideos(env) {
   if (videosOk) return;
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS videos (id TEXT PRIMARY KEY, peca_id TEXT NOT NULL, status TEXT NOT NULL, prompt TEXT,
-    foto_key TEXT, video_key TEXT, erro TEXT, progresso TEXT, modelo TEXT, criado_em INTEGER NOT NULL, atualizado_em INTEGER)`).run();
+    foto_key TEXT, video_key TEXT, erro TEXT, progresso TEXT, modelo TEXT, criado_em INTEGER NOT NULL, atualizado_em INTEGER, tipo TEXT DEFAULT 'video', detalhe TEXT)`).run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_videos_peca ON videos(peca_id)').run();
+  for (const c of ["tipo TEXT DEFAULT 'video'", 'detalhe TEXT']) { try { await env.DB.prepare('ALTER TABLE videos ADD COLUMN ' + c).run(); } catch { /* já existe */ } }
   videosOk = true;
 }
 const hexAleatorio = n => [...crypto.getRandomValues(new Uint8Array(n))].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -1086,7 +1089,9 @@ async function agenteApi(p, m, request, env, url) {
     const v = await env.DB.prepare("SELECT * FROM videos WHERE status='fila' ORDER BY criado_em LIMIT 1").first();
     if (!v) return json({ job: null });
     await env.DB.prepare("UPDATE videos SET status='gerando', progresso='o PC começou a gerar', atualizado_em=? WHERE id=?").bind(now(), v.id).run();
-    return json({ job: { id: v.id, foto_url: url.origin + '/api/foto/' + v.foto_key, prompt: v.prompt, negativo: NEG_VIDEO, segundos: 10 } });
+    if (v.tipo === 'foto') { let opcoes = {}; try { opcoes = JSON.parse(v.prompt || '{}'); } catch { /* sem opções */ }
+      return json({ job: { id: v.id, tipo: 'foto', foto_url: url.origin + '/api/foto/' + v.foto_key, opcoes } }); }
+    return json({ job: { id: v.id, tipo: 'video', foto_url: url.origin + '/api/foto/' + v.foto_key, prompt: v.prompt, negativo: NEG_VIDEO, segundos: 10 } });
   }
   let mt = p.match(/^\/api\/agente\/progresso\/([\w-]+)$/);
   if (mt && m === 'POST') {
@@ -1097,8 +1102,21 @@ async function agenteApi(p, m, request, env, url) {
   }
   mt = p.match(/^\/api\/agente\/video\/([\w-]+)$/);
   if (mt && m === 'POST') {
-    const v = await env.DB.prepare('SELECT id,peca_id FROM videos WHERE id=?').bind(mt[1]).first();
+    const v = await env.DB.prepare('SELECT id,peca_id,tipo FROM videos WHERE id=?').bind(mt[1]).first();
     if (!v) return bad('pedido não encontrado', 404);
+    if (v.tipo === 'foto') {   // foto melhorada no PC: vira a 1ª foto da peça (troca a versão IA anterior, se houver)
+      if (!(request.headers.get('content-type') || '').startsWith('image/')) return bad('envie uma imagem');
+      const key = `pecas/${v.peca_id}/ia-pc-${uid()}.jpg`;
+      await env.FOTOS.put(key, request.body, { httpMetadata: { contentType: 'image/jpeg' } });
+      const pc = await env.DB.prepare('SELECT fotos FROM pecas WHERE id=?').bind(v.peca_id).first();
+      let fs = []; try { fs = JSON.parse((pc && pc.fotos) || '[]'); } catch { /* vazio */ }
+      if (fs.length && /\/ia-/.test(fs[0])) fs[0] = key; else fs.unshift(key);
+      await env.DB.prepare('UPDATE pecas SET fotos=?, atualizado_em=? WHERE id=?').bind(JSON.stringify(fs.slice(0, 12)), now(), v.peca_id).run();
+      await env.DB.prepare("UPDATE videos SET status='pronto', video_key=?, detalhe=?, erro=NULL, progresso=NULL, atualizado_em=? WHERE id=?")
+        .bind(key, (url.searchParams.get('detalhe') || '').slice(0, 300) || null, now(), v.id).run();
+      await setCfg(env, 'agente_visto', String(now()));
+      return json({ ok: true, key });
+    }
     if (!(request.headers.get('content-type') || '').startsWith('video/')) return bad('envie um vídeo mp4');
     const key = `videos/${v.peca_id}/${uid()}.mp4`;
     await env.FOTOS.put(key, request.body, { httpMetadata: { contentType: 'video/mp4' } });
@@ -1124,16 +1142,33 @@ async function criaVideo(request, env) {
   const foto = b.foto_key && fotos.includes(b.foto_key) ? b.foto_key : fotos[0];
   if (!foto) return bad('a peça precisa de pelo menos uma foto');
   if (!(await getCfg(env, 'agente_token'))) return bad('instale o gerador no PC primeiro (Anúncios ML → Gerador de vídeo)');
-  const ja = await env.DB.prepare("SELECT id FROM videos WHERE peca_id=? AND status IN ('fila','gerando')").bind(pc.id).first();
+  const ja = await env.DB.prepare("SELECT id FROM videos WHERE peca_id=? AND status IN ('fila','gerando') AND COALESCE(tipo,'video')='video'").bind(pc.id).first();
   if (ja) return bad('já tem um vídeo dessa peça sendo gerado', 409);
   const id = uid();
   await env.DB.prepare('INSERT INTO videos (id,peca_id,status,prompt,foto_key,criado_em,atualizado_em) VALUES (?,?,?,?,?,?,?)')
     .bind(id, pc.id, 'fila', await promptVideo(pc, env), foto, now(), now()).run();
   return json({ ok: true, id });
 }
+// foto melhorada no PC (recorte BiRefNet + melhoria + luz, com trava de integridade)
+async function criaFotoIA(request, env) {
+  await garanteVideos(env);
+  const b = await request.json().catch(() => ({}));
+  const row = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(b.peca_id || '').first();
+  if (!row) return bad('peça não encontrada', 404);
+  const pc = parsePeca(row), fotos = pc.fotos || [];
+  const origem = fotos.find(k => !/\/(ia|arte)-/.test(k)) || fotos[0];   // sempre parte da foto original
+  if (!origem) return bad('a peça precisa de pelo menos uma foto');
+  if (!(await getCfg(env, 'agente_token'))) return bad('instale o gerador no PC primeiro (Anúncios ML → Gerador de vídeo)');
+  const ja = await env.DB.prepare("SELECT id FROM videos WHERE peca_id=? AND status IN ('fila','gerando') AND tipo='foto'").bind(pc.id).first();
+  if (ja) return json({ ok: true, id: ja.id, ja: true });
+  const id = uid();
+  await env.DB.prepare("INSERT INTO videos (id,peca_id,status,prompt,foto_key,criado_em,atualizado_em,tipo) VALUES (?,?,?,?,?,?,?,'foto')")
+    .bind(id, pc.id, 'fila', JSON.stringify(b.opcoes || {}).slice(0, 2000), origem, now(), now()).run();
+  return json({ ok: true, id });
+}
 async function listaVideos(url, env) {
   await garanteVideos(env);
-  const r = await env.DB.prepare('SELECT id,status,video_key,erro,progresso,modelo,criado_em,atualizado_em FROM videos WHERE peca_id=? ORDER BY criado_em DESC LIMIT 5').bind(url.searchParams.get('peca') || '').all();
+  const r = await env.DB.prepare("SELECT id,status,video_key,erro,progresso,modelo,criado_em,atualizado_em,COALESCE(tipo,'video') tipo,detalhe FROM videos WHERE peca_id=? ORDER BY criado_em DESC LIMIT 10").bind(url.searchParams.get('peca') || '').all();
   const fila = (await env.DB.prepare("SELECT COUNT(*) n FROM videos WHERE status='fila'").first()).n;
   return json({ videos: r.results, fila, agente: await agenteResumo(env) });
 }
@@ -1223,7 +1258,7 @@ if not exist "venv\Scripts\python.exe" (
 )
 echo  Instalando a IA (na primeira vez pode levar de 10 a 30 minutos)...
 "venv\Scripts\python.exe" -m pip install --upgrade pip
-"venv\Scripts\python.exe" -m pip install torch --index-url https://download.pytorch.org/whl/%CU%
+"venv\Scripts\python.exe" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/%CU%
 "venv\Scripts\python.exe" -m pip install -r requirements.txt
 if errorlevel 1 (
   echo  [ERRO] Falhou ao instalar as bibliotecas. Tire um print desta tela e mande pro suporte.

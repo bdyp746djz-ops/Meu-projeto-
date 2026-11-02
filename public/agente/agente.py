@@ -8,7 +8,7 @@ que chama o sistema.
 """
 import io, json, os, sys, tempfile, time, traceback, urllib.error, urllib.request
 
-VERSAO = '1.1'
+VERSAO = '1.2'
 PASTA = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(PASTA, 'config.json'), encoding='utf-8-sig') as f:
     CFG = json.load(f)
@@ -58,6 +58,42 @@ def atualiza_programa():
 
 
 atualiza_programa()
+
+
+def garante_dependencias():
+    # programa atualizado pode precisar de bibliotecas novas: instala sozinho
+    import importlib
+    import subprocess
+    faltando = []
+    for mod in ('cv2', 'spandrel', 'onnxruntime', 'timm', 'kornia', 'einops'):
+        try:
+            importlib.import_module(mod)
+        except Exception:
+            faltando.append(mod)
+    if faltando:
+        log('Instalando componentes novos da IA de fotos:', ', '.join(faltando), '(só na 1ª vez)...')
+        try:
+            arq = os.path.join(PASTA, 'requirements.txt')
+            with open(arq, 'wb') as f:
+                f.write(baixa(SERVIDOR + '/agente/requirements.txt'))
+            subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '-r', arq], check=False, timeout=3600)
+        except Exception as e:
+            log('Não consegui instalar tudo agora:', e)
+    try:
+        importlib.import_module('torchvision')
+    except Exception:
+        try:
+            import torch as _t
+            v = _t.__version__.split('+')[0].split('.')
+            cu = 'cu' + (_t.version.cuda or '12.4').replace('.', '')
+            log('Instalando torchvision (só na 1ª vez)...')
+            subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', f'torchvision==0.{int(v[1]) + 15}.{v[2] if len(v) > 2 else 0}',
+                            '--index-url', f'https://download.pytorch.org/whl/{cu}'], check=False, timeout=3600)
+        except Exception as e:
+            log('Não consegui instalar o torchvision:', e)
+
+
+garante_dependencias()
 
 
 try:
@@ -212,6 +248,228 @@ def gera(job):
     return arq, time.time() - t0
 
 
+# ---------- FOTO: recorte (BiRefNet) + melhoria (Real-ESRGAN) + luz, com trava de integridade ----------
+SEG = None   # ('birefnet', modelo) ou ('u2netp', sessão onnx)
+SR = None    # modelo Real-ESRGAN, ou False se não deu pra carregar
+
+
+def carrega_seg():
+    global SEG
+    if SEG is not None:
+        return SEG
+    try:
+        from transformers import AutoModelForImageSegmentation
+        log('Carregando o recorte BiRefNet (na 1ª vez baixa ~1 GB)...')
+        m = AutoModelForImageSegmentation.from_pretrained('ZhengPeng7/BiRefNet', trust_remote_code=True)
+        torch.set_float32_matmul_precision('high')
+        m.to('cuda').eval().half()
+        SEG = ('birefnet', m)
+    except Exception as e:
+        log('BiRefNet indisponível, usando o recorte leve (u2netp):', str(e)[:160])
+        import onnxruntime as ort
+        arq = os.path.join(PASTA, 'u2netp.onnx')
+        if not os.path.exists(arq):
+            with open(arq, 'wb') as f:
+                f.write(baixa(SERVIDOR + '/ia/u2netp.onnx'))
+        SEG = ('u2netp', ort.InferenceSession(arq, providers=['CPUExecutionProvider']))
+    return SEG
+
+
+def mascara(img):
+    import numpy as np
+    from PIL import Image
+    tipo, m = carrega_seg()
+    media, desvio = np.array([0.485, 0.456, 0.406], np.float32), np.array([0.229, 0.224, 0.225], np.float32)
+    if tipo == 'birefnet':
+        x = (np.asarray(img.resize((1024, 1024), Image.BILINEAR), dtype=np.float32) / 255.0 - media) / desvio
+        t = torch.from_numpy(x.transpose(2, 0, 1).copy()).unsqueeze(0).to('cuda').half()
+        with torch.no_grad():
+            pred = m(t)[-1].sigmoid().float().cpu().numpy()[0, 0]
+    else:
+        a = np.asarray(img.resize((320, 320), Image.BILINEAR), dtype=np.float32)
+        a = (a / max(1.0, float(a.max())) - media) / desvio
+        out = m.run(None, {m.get_inputs()[0].name: a.transpose(2, 0, 1)[None].astype(np.float32)})[0][0, 0]
+        pred = (out - out.min()) / max(1e-6, float(out.max() - out.min()))
+    mk = Image.fromarray((pred * 255).clip(0, 255).astype('uint8')).resize(img.size, Image.BILINEAR)
+    return np.asarray(mk, dtype=np.float32) / 255.0, tipo
+
+
+def carrega_sr():
+    global SR
+    if SR is not None:
+        return SR
+    try:
+        from spandrel import ModelLoader
+        arq = os.path.join(PASTA, 'RealESRGAN_x4plus.pth')
+        if not os.path.exists(arq):
+            log('Baixando o modelo de melhoria Real-ESRGAN (64 MB)...')
+            with open(arq + '.tmp', 'wb') as f:
+                f.write(baixa('https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth'))
+            os.replace(arq + '.tmp', arq)
+        m = ModelLoader().load_from_file(arq)
+        m.to('cuda').eval()
+        if getattr(m, 'supports_half', False):
+            m.half()
+        SR = m
+    except Exception as e:
+        log('Melhoria Real-ESRGAN indisponível (segue sem ela):', str(e)[:160])
+        SR = False
+    return SR
+
+
+def super_resolucao(arr):
+    # arr: HxWx3 float32 0..1 -> 4x maior, em blocos pra caber em qualquer placa
+    import numpy as np
+    sr = carrega_sr()
+    if not sr:
+        return None
+    esc = int(getattr(sr, 'scale', 4))
+    dt = torch.float16 if getattr(sr, 'supports_half', False) else torch.float32
+    h, w, _ = arr.shape
+    T, ov = 192, 16
+    out = np.zeros((h * esc, w * esc, 3), np.float32)
+    for y in range(0, h, T):
+        for x in range(0, w, T):
+            y0, x0, y1, x1 = max(0, y - ov), max(0, x - ov), min(h, y + T + ov), min(w, x + T + ov)
+            t = torch.from_numpy(arr[y0:y1, x0:x1].transpose(2, 0, 1).copy())[None].to('cuda', dt)
+            with torch.no_grad():
+                r = sr(t).float().clamp(0, 1).cpu().numpy()[0].transpose(1, 2, 0)
+            ye, xe = min(y + T, h), min(x + T, w)
+            out[y * esc:ye * esc, x * esc:xe * esc] = r[(y - y0) * esc:(ye - y0) * esc, (x - x0) * esc:(xe - x0) * esc]
+    return out
+
+
+def estrutura_igual(a, b, m):
+    # "integridade": quanto a estrutura (contornos, letras, furos) continua igual, ignorando brilho. 0..1
+    import cv2
+    import numpy as np
+    a, b = a.astype(np.float32), b.astype(np.float32)
+    g = lambda z: cv2.GaussianBlur(z, (11, 11), 1.5)
+    ma, mb = g(a), g(b)
+    va, vb, cab = g(a * a) - ma * ma, g(b * b) - mb * mb, g(a * b) - ma * mb
+    C3 = ((0.03 * 255) ** 2) / 2
+    # só o termo de estrutura do SSIM (correlação local): não muda com brilho nem contraste,
+    # só cai se contornos, letras ou furos mudarem de lugar ou de forma
+    st = (cab + C3) / (np.sqrt(np.maximum(va, 0) * np.maximum(vb, 0)) + C3)
+    sel = m > 0.5
+    return float(np.clip(st[sel], 0, 1).mean()) if sel.any() else 1.0
+
+
+def tons(rgb, alfa, op):
+    # luz e cor só na peça, sem mexer em forma nem detalhe
+    import cv2
+    import numpy as np
+    m = alfa > 0.5
+    if not m.any():
+        return rgb
+    if op.get('cor'):
+        med = rgb[m].mean(axis=0)
+        alvo = med.mean()
+        f = 1 + np.clip((alvo / np.maximum(1, med) - 1) * 0.3, -0.06, 0.06)
+        rgb = rgb * f
+    if op.get('realce', True) is not False:
+        lum = rgb[..., 0] * 0.299 + rgb[..., 1] * 0.587 + rgb[..., 2] * 0.114
+        lo, hi = np.percentile(lum[m], 2), np.percentile(lum[m], 98)
+        g = min(1.6, max(1.0, 225 / max(1, hi - lo))) * float(op.get('contraste', 1))
+        off = max(0, 18 - lo * g) + float(op.get('claro', 0))
+        rgb = (rgb - lo) * g + lo + off
+        lab = cv2.cvtColor(np.clip(rgb, 0, 255).astype(np.uint8), cv2.COLOR_RGB2LAB)
+        L = lab[..., 0]
+        cl = cv2.createCLAHE(clipLimit=1.6, tileGridSize=(8, 8)).apply(L)   # clareia as partes escuras da peça
+        lab[..., 0] = np.where(m, (0.5 * L + 0.5 * cl), L).astype(np.uint8)
+        rgb = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB).astype(np.float32)
+    if op.get('reflexos'):
+        lum = rgb[..., 0] * 0.299 + rgb[..., 1] * 0.587 + rgb[..., 2] * 0.114
+        f = np.where((lum > 222) & m, (222 + (lum - 222) * 0.35) / np.maximum(lum, 1), 1.0)
+        rgb = rgb * f[..., None]
+    return np.clip(rgb, 0, 255)
+
+
+def processa_foto(job):
+    import cv2
+    import numpy as np
+    from PIL import Image, ImageOps
+    op = job.get('opcoes') or {}
+    img = ImageOps.exif_transpose(Image.open(io.BytesIO(baixa(job['foto_url'])))).convert('RGB')
+    try:
+        req('POST', '/api/agente/progresso/' + job['id'], {'texto': 'recortando a peça'})
+    except Exception:
+        pass
+    alfa, seg_nome = mascara(img)
+    corte = float(op.get('corte', 0.2))
+    alfa = np.clip((alfa - corte) / 0.5, 0, 1)
+    ys, xs = np.where(alfa > 0.5)
+    if len(ys) < alfa.size * 0.01:
+        raise RuntimeError('a IA não encontrou a peça nessa foto')
+    y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+    rgb = np.asarray(img, dtype=np.float32)[y0:y1, x0:x1]
+    a = alfa[y0:y1, x0:x1]
+    original = rgb.copy()
+    giro = int(op.get('girar', 0)) % 360
+    if op.get('espelhar'):
+        rgb, a, original = rgb[:, ::-1], a[:, ::-1], original[:, ::-1]
+    if giro in (90, 180, 270):
+        k = {90: 3, 180: 2, 270: 1}[giro]
+        rgb, a, original = np.rot90(rgb, k), np.rot90(a, k), np.rot90(original, k)
+    rgb, a, original = np.ascontiguousarray(rgb), np.ascontiguousarray(a), np.ascontiguousarray(original)
+    try:
+        req('POST', '/api/agente/progresso/' + job['id'], {'texto': 'melhorando a qualidade e a luz'})
+    except Exception:
+        pass
+    rgb = tons(rgb, a, op)
+    h, w = a.shape
+    T = 1200
+    oc = float(op.get('ocupa', 0.84))
+    s = min(T * oc / w, T * oc / h)
+    dw, dh = max(1, int(round(w * s))), max(1, int(round(h * s)))
+    etapas = ['recorte ' + ('BiRefNet' if seg_nome == 'birefnet' else 'leve')]
+    base = None
+    if s > 1.15:   # foto pequena: aumenta com IA, se a estrutura continuar igual
+        try:
+            sr = super_resolucao(rgb / 255.0)
+            if sr is not None:
+                volta = cv2.resize(sr * 255.0, (w, h), interpolation=cv2.INTER_AREA)
+                cinza = lambda z: cv2.cvtColor(np.clip(z, 0, 255).astype(np.uint8), cv2.COLOR_RGB2GRAY)
+                integ = estrutura_igual(cinza(rgb), cinza(volta), a)
+                if integ >= 0.85:
+                    base = cv2.resize(sr * 255.0, (dw, dh), interpolation=cv2.INTER_AREA)
+                    etapas.append(f'Real-ESRGAN (aprovado {integ * 100:.0f}%)')
+                else:
+                    etapas.append(f'Real-ESRGAN recusado (mudaria a peça: {integ * 100:.0f}%)')
+        except Exception as e:
+            etapas.append('sem Real-ESRGAN (' + str(e)[:60] + ')')
+    if base is None:
+        base = cv2.resize(rgb, (dw, dh), interpolation=cv2.INTER_LANCZOS4 if s > 1 else cv2.INTER_AREA)
+        if op.get('ruido'):
+            base = cv2.fastNlMeansDenoisingColored(np.clip(base, 0, 255).astype(np.uint8), None, 3, 3, 7, 21).astype(np.float32)
+    if op.get('nitidez'):
+        blur = cv2.GaussianBlur(base, (0, 0), 1.0)
+        base = base + 0.5 * (base - blur)
+    base = np.clip(base, 0, 255)
+    am = cv2.resize(a, (dw, dh), interpolation=cv2.INTER_LINEAR)
+    am = cv2.GaussianBlur(am, (3, 3), 0)[..., None]
+    fundo = op.get('fundo') or '#ffffff'
+    cor = np.array([int(fundo[i:i + 2], 16) for i in (1, 3, 5)], np.float32)
+    tela = np.ones((T, T, 3), np.float32) * cor
+    px, py = (T - dw) // 2, (T - dh) // 2
+    if op.get('sombra'):
+        sombra = np.zeros((T, T), np.float32)
+        cv2.ellipse(sombra, (T // 2, py + int(dh * 0.985)), (int(dw * 0.45), max(4, int(dh * 0.05))), 0, 0, 360, 1.0, -1)
+        sombra = cv2.GaussianBlur(sombra, (0, 0), 18) * 0.25
+        tela = tela * (1 - sombra[..., None])
+    reg = tela[py:py + dh, px:px + dw]
+    tela[py:py + dh, px:px + dw] = reg * (1 - am) + base * am
+    # integridade final (estrutura da peça pronta x original), sem contar brilho
+    cinza = lambda z: cv2.cvtColor(np.clip(z, 0, 255).astype(np.uint8), cv2.COLOR_RGB2GRAY)
+    final_peq = cv2.resize(base, (w, h), interpolation=cv2.INTER_AREA)
+    integ = estrutura_igual(cinza(original), cinza(final_peq), a)
+    etapas.append('luz e cor ajustadas')
+    etapas.append(f'integridade {integ * 100:.0f}%')
+    buf = io.BytesIO()
+    Image.fromarray(np.clip(tela, 0, 255).astype(np.uint8)).save(buf, 'JPEG', quality=93)
+    return buf.getvalue(), ' · '.join(etapas)
+
+
 def main():
     log(f'Gerador de vídeo Rafa Busca Peças v{VERSAO}')
     log(f'Placa: {GPU} ({VRAM:.0f} GB) — modelo: {"Wan 2.2" if MODELO == "wan" else "LTX-Video"}')
@@ -223,6 +481,21 @@ def main():
             job = r.get('job') if isinstance(r, dict) else None
             if not job:
                 time.sleep(8)
+                continue
+            if job.get('tipo') == 'foto':
+                log('Nova foto para melhorar:', job['id'])
+                try:
+                    t0 = time.time()
+                    dados, detalhe = processa_foto(job)
+                    import urllib.parse
+                    req('POST', '/api/agente/video/' + job['id'] + '?detalhe=' + urllib.parse.quote(detalhe), dados, tipo='image/jpeg', timeout=120)
+                    log(f'Foto pronta ({time.time() - t0:.0f} s): {detalhe}')
+                except Exception as e:
+                    traceback.print_exc()
+                    try:
+                        req('POST', '/api/agente/erro/' + job['id'], {'erro': f'{type(e).__name__}: {e}'[:480]})
+                    except Exception:
+                        pass
                 continue
             log('Novo pedido de vídeo:', job['id'])
             try:

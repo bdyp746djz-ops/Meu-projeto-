@@ -586,7 +586,7 @@ function abrePeca(id){
      <button class="btn" id="da">📣 Anúncio</button>${p.ml_id&&p.ml_status!=='closed'?'':'<button class="btn p" id="dml">🛒 Publicar no ML</button>'}<button class="btn" id="de">✏️ Editar</button>
      <button class="btn" id="dpm">💲 Preço de mercado</button><button class="btn" id="dia">✨ Fotos com IA</button><button class="btn" id="detq">🏷️ Etiqueta</button><button class="btn" id="ddup">🔁 Duplicar</button>
      <button class="btn" id="dx" style="color:var(--red)">Excluir</button></div>
-   <div class="mlbox" id="vidbox"><b>🎬 Vídeo com IA</b><div class="small mut" id="vidinfo" style="margin-top:6px">Carregando…</div></div>
+   <div class="mlbox" id="vidbox"><b>🎬 Vídeo e 📷 foto com IA (no PC)</b><div class="small mut" id="vidinfo" style="margin-top:6px">Carregando…</div></div>
    ${p.ml_id?`<div class="mlbox" id="mlbox"><div class="top" style="margin:0 0 6px"><b>Anúncio no Mercado Livre</b><span class="tag" id="mlst">${esc(stML(p.ml_status))}</span></div><div class="small mut" id="mlinfo">Consultando o anúncio…</div><div class="mlact" id="mlact"></div></div>`:''}`);
   if(p.ml_id)caixaAnuncio(p);
   if($('#vidbox'))caixaVideo(p);
@@ -694,12 +694,14 @@ async function fotosIA(p){
   if(!(p.fotos||[]).length)return toast('A peça não tem foto');
   const c=await cmdIA(), mem=memArte(p.nome)||{}, admin=S.user&&S.user.papel==='admin';
   const st={ z:mem.zona||zonaDe(p.nome), ponto:mem.ponto||null, fb:null, arte:null };
+  const origem=(p.fotos.find(k=>!/\/(ia|arte)-/.test(k))||p.fotos[0]);   // trabalha sempre a partir da foto original
   modal(`<h3 style="margin:0 28px 6px 0">✨ Fotos com IA</h3><div class="small mut">${esc(p.nome)}</div>
    <div class="iaprev"><figure><div id="ifb" class="iaph"><span class="spin-s"></span> recortando…</div><figcaption><label><input type="checkbox" id="iu1" checked style="width:auto"> Usar como 1ª foto</label></figcaption></figure>
      <figure><div id="iar" class="iaph">…</div><figcaption><label><input type="checkbox" id="iu2" style="width:auto"> Adicionar arte no final</label></figcaption></figure></div>
    <label class="f">✍️ Comando da foto<textarea id="ift" rows="3">${esc(c.foto||'')}</textarea></label>
    <div class="small" id="ifok"></div>
-   <div class="top" style="margin:6px 0 12px;gap:8px"><button class="btn sm" id="ifap">Aplicar na foto</button></div>
+   <div class="top" style="margin:6px 0 12px;gap:8px"><button class="btn sm" id="ifap">Aplicar na foto</button><button class="btn sm p" id="ifpc">🖥️ Melhorar no PC (IA forte)</button></div>
+   <div class="small mut" style="margin-top:-6px">No PC: recorte BiRefNet + melhoria de qualidade (Real-ESRGAN) + luz, com trava de integridade. Fica pronta sozinha e vira a 1ª foto.</div>
    <label class="f">Onde fica no carro<select id="izona"><option value="">— escolha ou toque no carro —</option>${Object.entries(ZONAS).map(([k,v])=>`<option value="${k}">${esc(v.n)}</option>`).join('')}</select></label>
    <label class="f">✍️ Comando da arte<textarea id="iat" rows="3">${esc((c.arte||'').split('{peca}').join([p.nome,[p.marca,p.modelo,p.ano].filter(Boolean).join(' '),p.pn].filter(Boolean).join(' '))+(mem.instr?'\n'+mem.instr:''))}</textarea></label>
    <div class="small mut">Ajustes que dá pra escrever (um por linha): <b>legenda: …</b> · <b>título: …</b> · <b>lado: direito</b> · <b>local: porta</b> · <b>destaque azul</b> · <b>sem veículo</b>. E <b>toque no desenho do carro</b> para marcar o lugar exato.</div>
@@ -714,7 +716,7 @@ async function fotosIA(p){
   const fazFoto=async()=>{ const r=leComandoFoto($('#ift').value);
     $('#ifok').innerHTML=`✅ Vou aplicar: ${esc(r.ok.join(' · '))}<br>${PRESERVA}${r.branco?'':'<div style="color:var(--amber)">⚠️ O ML pede fundo branco na 1ª foto.</div>'}`;
     $('#ifb').innerHTML='<span class="spin-s"></span> recortando…'; $('#iok').disabled=true;
-    try{ st.fb=await fotoFundoBranco('/api/foto/'+p.fotos[0],r.op); $('#ifb').innerHTML=`<img src="${URL.createObjectURL(st.fb.blob)}">`; }
+    try{ st.fb=await fotoFundoBranco('/api/foto/'+origem,r.op); $('#ifb').innerHTML=`<img src="${URL.createObjectURL(st.fb.blob)}">`; }
     catch(e){ st.fb=null; $('#ifb').innerHTML='<p class="small" style="color:var(--red);padding:10px">⚠️ '+esc(e.message)+'</p>'; }
     $('#iok').disabled=!st.fb; };
   let primeira=true;
@@ -727,14 +729,15 @@ async function fotosIA(p){
     $('#iarimg').onclick=e=>{ const b=e.target.getBoundingClientRect(), X=(e.clientX-b.left)/b.width*1200, Y=(e.clientY-b.top)/b.height*1200;
       if(Y<500||Y>960)return toast('Toque em cima do desenho do carro'); st.ponto={x:Math.round(X),y:Math.round(Y-130)}; toast('Local marcado'); fazArte(); }; };
   $('#ifap').onclick=async()=>{ await fazFoto(); await fazArte(); };
+  $('#ifpc').onclick=async()=>{ try{ const r=await api('/ia/foto',{method:'POST',body:{peca_id:p.id,opcoes:leComandoFoto($('#ift').value).op}}); toast(r.ja?'Essa foto já está na fila do PC':'🖥️ Foto enviada pro PC — fica pronta sozinha'); abrePeca(p.id); }catch(e){ toast(e.message); } };
   $('#iaap').onclick=fazArte;
   $('#izona').onchange=e=>{ st.z=e.target.value||null; st.ponto=null; fazArte(); };
   $('#ivolta').onclick=()=>abrePeca(p.id);
   $('#iok').onclick=async()=>{ const b=$('#iok'); b.disabled=true; b.textContent='Enviando…';
-    try{ const sobe=async blob=>{ const r=await fetch('/api/pecas/'+p.id+'/foto',{method:'POST',headers:{'content-type':'image/jpeg'},body:blob}); const j=await r.json(); if(!j.key)throw new Error(j.erro||'falha ao enviar foto'); return j.key; };
+    try{ const sobe=async(blob,marca)=>{ const r=await fetch('/api/pecas/'+p.id+'/foto?ia='+marca,{method:'POST',headers:{'content-type':'image/jpeg'},body:blob}); const j=await r.json(); if(!j.key)throw new Error(j.erro||'falha ao enviar foto'); return j.key; };
       let ordem=[...p.fotos];
-      if($('#iu1').checked)ordem=[await sobe(st.fb.blob),...ordem];
-      if(st.arte&&$('#iu2').checked&&!$('#iu2').disabled)ordem=[...ordem,await sobe(st.arte)];
+      if($('#iu1').checked){ const k=await sobe(st.fb.blob,'1'); ordem=ordem.length&&/\/ia-/.test(ordem[0])?[k,...ordem.slice(1)]:[k,...ordem]; }
+      if(st.arte&&$('#iu2').checked&&!$('#iu2').disabled)ordem=[...ordem.filter(k=>!/\/arte-/.test(k)),await sobe(st.arte,'arte')];
       ordem=ordem.slice(0,12);
       await api('/pecas/'+p.id,{method:'PATCH',body:{fotos:ordem}}); p.fotos=ordem;
       if($('#iamem').checked)salvaMemArte(p.nome,{zona:st.z,ponto:st.ponto,instr:arteExtra()});
@@ -766,8 +769,13 @@ async function caixaVideo(p){
   const el=$('#vidinfo'); if(!el)return; clearTimeout(window._vidT);
   let d; try{ d=await api('/videos?peca='+p.id); }catch(e){ el.innerHTML='⚠️ '+esc(e.message); return; }
   if(!$('#vidinfo'))return;
+  const fj=d.videos.filter(x=>x.tipo==='foto'), fpend=fj.find(x=>x.status==='fila'||x.status==='gerando'), fok=fj.find(x=>x.status==='pronto'), ferr=fj[0]&&fj[0].status==='erro'?fj[0]:null;
+  d.videos=d.videos.filter(x=>x.tipo!=='foto');
   const v=d.videos[0], ag=d.agente||{}, pc=ag.configurado?(ag.online?`🟢 PC conectado${ag.gpu?' ('+esc(ag.gpu)+')':''}`:`🔴 PC desligado ou gerador fechado (visto ${quandoFoi(ag.visto)})`):'⚪ Gerador ainda não instalado no PC';
   let h=`<div style="margin-bottom:6px">${pc}</div>`;
+  if(fpend)h+=`<div style="margin-bottom:8px"><span class="spin-s"></span><b>📷 Foto sendo melhorada no PC</b>${fpend.progresso?' — '+esc(fpend.progresso):fpend.status==='fila'?' — na fila':''}</div>`;
+  else if(ferr)h+=`<div style="margin-bottom:8px;color:var(--red)">📷 A melhoria da foto deu erro: ${esc(ferr.erro||'')} <button class="btn sm" data-vr="${ferr.id}">Tentar de novo</button></div>`;
+  else if(fok&&Date.now()-fok.atualizado_em<3*864e5)h+=`<div style="margin-bottom:8px">✅ <b>Foto melhorada no PC</b>${fok.detalhe?' — '+esc(fok.detalhe):''}</div>`;
   const pronto=d.videos.find(x=>x.status==='pronto');
   if(v&&(v.status==='fila'||v.status==='gerando')) h+=`<div><span class="spin-s"></span><b>${ST_VID[v.status]}</b>${v.progresso?' — '+esc(v.progresso):''}${v.status==='fila'&&d.fila>1?' · '+d.fila+' na fila':''}</div>${!ag.online?'<div class="small" style="color:var(--amber);margin-top:4px">Ligue o PC e abra o "Gerador de video Rafa" na Área de Trabalho.</div>':''}`;
   else if(v&&v.status==='erro') h+=`<div style="color:var(--red)">⚠️ ${esc(v.erro||'erro')}</div><div class="mlact"><button class="btn sm" data-vr="${v.id}">Tentar de novo</button></div>`;
@@ -779,7 +787,7 @@ async function caixaVideo(p){
   el.innerHTML=h;
   if($('#vgera'))$('#vgera').onclick=async()=>{ try{ await api('/videos',{method:'POST',body:{peca_id:p.id}}); toast('Pedido enviado pro PC'); caixaVideo(p); }catch(e){ toast(e.message); } };
   el.querySelectorAll('[data-vr]').forEach(b=>b.onclick=async()=>{ await api('/videos/'+b.dataset.vr+'/repetir',{method:'POST'}); caixaVideo(p); });
-  if(v&&(v.status==='fila'||v.status==='gerando'))window._vidT=setTimeout(()=>caixaVideo(p),8000);
+  if((v&&(v.status==='fila'||v.status==='gerando'))||fpend)window._vidT=setTimeout(async()=>{ if(fpend){ try{ const {peca}=await api('/pecas/'+p.id); if(peca&&JSON.stringify(peca.fotos)!==JSON.stringify(p.fotos)){ Object.assign(p,peca); const i=S.pecas.findIndex(x=>x.id===p.id); if(i>=0)S.pecas[i]=p; if($('#vidbox'))return abrePeca(p.id); } }catch(_){ } } caixaVideo(p); },8000);
 }
 // painel do gerador de vídeo (Anúncios ML)
 async function cartaoGerador(){
@@ -922,7 +930,8 @@ async function nova(){
       <label class="btn sm" style="margin-top:8px">📷 Adicionar fotos<input type="file" accept="image/*" multiple id="pfoto" hidden></label>
       <button type="button" class="btn sm" id="iafb" style="margin-top:8px">✨ Fundo branco agora</button>
       <div class="chk2" style="margin-top:8px"><label><input type="checkbox" id="iaf" ${iaPref('iaFundo')?'checked':''}> ✨ Foto principal com fundo branco automático (IA)</label>
-        <label><input type="checkbox" id="iaa" ${iaPref('iaArte')?'checked':''}> 🖼️ Arte "onde fica no carro" ao salvar</label></div>
+        <label><input type="checkbox" id="iaa" ${iaPref('iaArte')?'checked':''}> 🖼️ Arte "onde fica no carro" ao salvar</label>
+        <label id="iapcl" style="display:none"><input type="checkbox" id="iapc" ${iaPref('iaPC')?'checked':''}> 🖥️ Melhorar a foto no PC com IA forte (recorte, qualidade, luz; troca a do celular quando ficar pronta)</label></div>
       <div class="small mut" id="iast" style="margin-top:6px"></div></div>
   </div><div class="top" style="margin-top:16px">
     <button class="btn p" type="submit">${S.ui.editId?'Salvar':'Cadastrar'}</button>
@@ -936,6 +945,8 @@ async function nova(){
   $('#pfoto').onchange=async e=>{ for(const f of [...e.target.files]){ if(S.ui.fotos.length>=12)break; try{ S.ui.fotos.push({blob:await shrink(f)}); }catch{} } e.target.value=''; drawThumbs();
     if(iaPref('iaFundo')&&!S.ui.fotos.some(f=>f.ia==='fundo'))iaFundoPrincipal(false); };
   $('#iaf').onchange=e=>iaSet('iaFundo',e.target.checked); $('#iaa').onchange=e=>iaSet('iaArte',e.target.checked);
+  $('#iapc').onchange=e=>iaSet('iaPC',e.target.checked);
+  api('/agente/status').then(a=>{ S.agente=a; if(a.configurado&&$('#iapcl'))$('#iapcl').style.display=''; }).catch(()=>{});
   $('#iafb').onclick=()=>iaFundoPrincipal(true);
   $('#pf').onsubmit=salvaPeca;
 }
@@ -1237,9 +1248,11 @@ async function salvaPeca(e){
     if(editando) peca=(await api('/pecas/'+S.ui.editId,{method:'PATCH',body})).peca;
     else peca=(await api('/pecas',{method:'POST',body})).peca;
     if(S.ui.fotos.some(f=>f.blob)){ const ordem=[];
-      for(const f of S.ui.fotos){ if(f.key){ ordem.push(f.key); continue; } const r=await fetch('/api/pecas/'+peca.id+'/foto',{method:'POST',headers:{'content-type':'image/jpeg'},body:f.blob}); const j=await r.json().catch(()=>({})); if(j.key)ordem.push(j.key); }
+      for(const f of S.ui.fotos){ if(f.key){ ordem.push(f.key); continue; } const r=await fetch('/api/pecas/'+peca.id+'/foto'+(f.ia==='arte'?'?ia=arte':f.ia?'?ia=1':''),{method:'POST',headers:{'content-type':'image/jpeg'},body:f.blob}); const j=await r.json().catch(()=>({})); if(j.key)ordem.push(j.key); }
       await api('/pecas/'+peca.id,{method:'PATCH',body:{fotos:ordem}}); }
     toast(editando?'Peça atualizada':'Peça '+cod(peca.codigo)+' cadastrada');
+    if(!editando&&iaPref('iaPC')&&S.agente&&S.agente.configurado&&S.ui.fotos.length){
+      try{ const c=await cmdIA(); await api('/ia/foto',{method:'POST',body:{peca_id:peca.id,opcoes:leComandoFoto(c.foto).op}}); toast('🖥️ Foto enviada pro PC melhorar com IA'); }catch(_){ } }
     const manter=!editando && $('#outra') && $('#outra').checked;
     S.ui.editId=null; S.ui.fotos=[]; S.ui.recorte=null;
     if(manter){ await nova(); ['marca','modelo','ano','veiculo','local_id'].forEach(k=>{ const el=$('#pf').elements[k]; if(el) el.value=body[k]||''; }); $('#pf').elements.nome.focus(); }
