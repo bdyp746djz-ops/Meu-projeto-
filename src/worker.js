@@ -171,6 +171,10 @@ async function api(request, env, url) {
   if (p === '/api/agente/instalador' && m === 'GET') return agenteInstalador(env, url, user);
   if (p === '/api/agente/chave' && m === 'POST') return agenteNovaChave(env, user);
   if (p === '/api/ml/expedicao' && m === 'GET') return mlExpedicao(env);
+  // importar anúncios da conta do ML para o sistema (com fotos e ficha técnica)
+  if (p === '/api/ml/importar' && m === 'GET') return mlImportLista(url, env, user);
+  mt = p.match(/^\/api\/ml\/importar\/(MLB\d+)$/i);
+  if (mt && m === 'POST') return mlImportaItem(mt[1].toUpperCase(), request, env, user);
   mt = p.match(/^\/api\/ml\/dce\/(\d+)$/);
   if (mt && (m === 'GET' || m === 'POST')) return mlDce(mt[1], m, env, user);
   mt = p.match(/^\/api\/ml\/dce\/(\d+)\/doc\/([\w-]+)$/);
@@ -878,7 +882,7 @@ let colsPecasOk = false;
 async function garanteColsPecas(env) {
   if (colsPecasOk) return;
   for (const c of ['custo REAL', 'qualidade TEXT', 'seguranca INTEGER DEFAULT 0', 'rastreavel INTEGER DEFAULT 0', 'peso_g INTEGER',
-    'alt_cm REAL', 'larg_cm REAL', 'comp_cm REAL', 'video TEXT', 'etq_em INTEGER', 'ml_status TEXT', 'ml_em INTEGER', 'ml_cat TEXT', 'ml_cat_nome TEXT']) {
+    'alt_cm REAL', 'larg_cm REAL', 'comp_cm REAL', 'video TEXT', 'etq_em INTEGER', 'ml_status TEXT', 'ml_em INTEGER', 'ml_cat TEXT', 'ml_cat_nome TEXT', 'ml_attrs TEXT']) {
     try { await env.DB.prepare('ALTER TABLE pecas ADD COLUMN ' + c).run(); } catch { /* já existe */ }
   }
   colsPecasOk = true;
@@ -982,7 +986,9 @@ async function criaPeca(request, env, user) {
   await garanteColsPecas(env);
   const b = await request.json();
   if (!b.nome) return bad('nome é obrigatório');
-  const id = uid();
+  return getPeca(await inserePeca(env, b, user), env);
+}
+async function inserePeca(env, b, user, id = uid()) {
   const codigo = b.codigo ? parseInt(b.codigo) : await proxCodigo(env); // permite manter código do iBR na importação
   await env.DB.prepare(
     `INSERT INTO pecas (id,codigo,nome,marca,modelo,ano,pn,cond,veiculo,preco,qtd,local_id,obs,busca,fotos,ml,ml_link,olx,olx_link,criado_em,criado_por,
@@ -993,7 +999,85 @@ async function criaPeca(request, env, user) {
     buscaDe({ ...b, codigo }), JSON.stringify(b.fotos || []), b.ml ? 1 : 0, b.ml_link || null, b.olx ? 1 : 0, b.olx_link || null, now(), (user && user.id) || null,
     numOuNull(b.custo), b.qualidade || null, b.seguranca ? 1 : 0, b.rastreavel ? 1 : 0, numOuNull(b.peso_g), numOuNull(b.alt_cm), numOuNull(b.larg_cm),
     numOuNull(b.comp_cm), b.video || null, b.ml_cat || null, b.ml_cat_nome || null).run();
-  return getPeca(id, env);
+  return id;
+}
+// ---------- importar anúncios do Mercado Livre (os seus) para o sistema ----------
+async function mlImportLista(url, env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  const token = await mlToken(env);
+  if (!token) return bad('conecte o Mercado Livre primeiro');
+  const seller = await getCfg(env, 'ml_user_id');
+  if (!seller) return bad('reconecte o Mercado Livre (falta o número da conta)');
+  await garanteColsPecas(env);
+  const st = url.searchParams.get('status'), offset = Math.max(0, parseInt(url.searchParams.get('offset')) || 0);
+  const lim = Math.min(50, Math.max(1, parseInt(url.searchParams.get('limit')) || 50));
+  const s = await mlReq(token, 'GET', `/users/${seller}/items/search?limit=${lim}&offset=${offset}` + (['active', 'paused', 'closed'].includes(st) ? '&status=' + st : ''));
+  const ids = s.results || [], itens = [];
+  for (let i = 0; i < ids.length; i += 20) {
+    const r = await mlReq(token, 'GET', '/items?ids=' + ids.slice(i, i + 20).join(',') + '&attributes=id,title,price,available_quantity,sold_quantity,status,thumbnail,secure_thumbnail,permalink,pictures');
+    for (const x of r) if (x && x.body && x.body.id) itens.push(x.body);
+  }
+  const ja = {};
+  if (ids.length) {
+    const r = await env.DB.prepare(`SELECT id,codigo,ml_id FROM pecas WHERE ml_id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
+    for (const p of r.results) ja[p.ml_id] = { id: p.id, codigo: p.codigo };
+  }
+  return json({ total: (s.paging && s.paging.total) || itens.length, offset, limite: lim,
+    itens: itens.map(x => ({ id: x.id, titulo: x.title, preco: x.price, qtd: x.available_quantity, vendidos: x.sold_quantity, status: x.status,
+      foto: x.secure_thumbnail || x.thumbnail || null, link: x.permalink, nfotos: (x.pictures || []).length, peca: ja[x.id] || null })) });
+}
+// valor de um atributo do ML: "10 cm" → 10 (em cm), "1,5 kg" → 1500 (em g)
+function mlMedida(a, alvo) {
+  if (!a) return null;
+  let n = a.value_struct && a.value_struct.number, u = a.value_struct && a.value_struct.unit;
+  if (n == null) { const m = String(a.value_name || '').replace(',', '.').match(/([\d.]+)\s*([a-zA-Z]*)/); if (!m) return null; n = Number(m[1]); u = m[2]; }
+  u = String(u || '').toLowerCase(); if (!isFinite(n)) return null;
+  if (alvo === 'g') return Math.round(u === 'kg' ? n * 1000 : u === 'mg' ? n / 1000 : n);
+  return Math.round((u === 'mm' ? n / 10 : u === 'm' ? n * 100 : n) * 10) / 10;
+}
+async function mlImportaItem(mlId, request, env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  const token = await mlToken(env);
+  if (!token) return bad('conecte o Mercado Livre primeiro');
+  await garanteColsPecas(env);
+  const b = await request.json().catch(() => ({}));
+  const ja = await env.DB.prepare('SELECT id,codigo FROM pecas WHERE ml_id=?').bind(mlId).first();
+  if (ja) return json({ ok: true, ja: true, peca: ja });
+  const it = await mlReq(token, 'GET', '/items/' + encodeURIComponent(mlId));
+  const seller = await getCfg(env, 'ml_user_id');
+  if (seller && it.seller_id && String(it.seller_id) !== String(seller)) return bad('esse anúncio não é da sua conta do Mercado Livre');
+  let desc = ''; try { desc = String((await mlReq(token, 'GET', '/items/' + encodeURIComponent(mlId) + '/description')).plain_text || '').trim(); } catch { /* sem descrição */ }
+  let catNome = null;
+  if (it.category_id) { try { const c = await mlReq(token, 'GET', '/categories/' + it.category_id); catNome = (c.path_from_root || []).map(x => x.name).join(' › ') || c.name || null; } catch { /* sem nome */ } }
+  const at = {}; for (const a of it.attributes || []) at[a.id] = a;
+  const val = (...ks) => { for (const k of ks) { const v = at[k] && at[k].value_name; if (v && !/^n[ãa]o se aplica$/i.test(v)) return String(v).trim(); } return ''; };
+  const id = uid();
+  // fotos: baixa cada uma do ML (a maior que tiver) e guarda como foto original da peça
+  const fotos = []; let falhas = 0;
+  for (const pic of (it.pictures || []).slice(0, 12)) {
+    const src = pic.secure_url || pic.url; if (!src) continue;
+    try {
+      const r = await fetch(src);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const ct = (r.headers.get('content-type') || 'image/jpeg').split(';')[0];
+      const ext = ct.includes('png') ? 'png' : ct.includes('webp') ? 'webp' : 'jpg';
+      const key = `pecas/${id}/${uid()}.${ext}`;
+      await env.FOTOS.put(key, await r.arrayBuffer(), { httpMetadata: { contentType: ct } });
+      fotos.push(key);
+    } catch { falhas++; }
+  }
+  // ficha técnica completa do anúncio (nome e valor de cada característica)
+  const attrs = (it.attributes || []).filter(a => a.value_name).map(a => [a.id, a.name || a.id, String(a.value_name).slice(0, 200)]);
+  const cond = it.condition === 'new' ? 'Nova' : it.condition === 'used' ? 'Usada' : it.condition === 'refurbished' ? 'Recondicionada' : null;
+  const dados = { nome: String(it.title || mlId).slice(0, 200), marca: val('BRAND') || null, modelo: val('MODEL') || null, ano: val('VEHICLE_YEAR', 'YEAR') || null,
+    pn: val('PART_NUMBER', 'OEM', 'ORIGINAL_PART_NUMBER', 'MPN') || null, cond, preco: Number(it.price) || 0, qtd: parseInt(it.available_quantity) || 0,
+    local_id: b.local_id || null, obs: desc ? desc.slice(0, 4000) : null, fotos, ml: it.status !== 'closed', ml_link: it.permalink || null,
+    peso_g: mlMedida(at.SELLER_PACKAGE_WEIGHT, 'g'), alt_cm: mlMedida(at.SELLER_PACKAGE_HEIGHT), larg_cm: mlMedida(at.SELLER_PACKAGE_WIDTH), comp_cm: mlMedida(at.SELLER_PACKAGE_LENGTH),
+    ml_cat: it.category_id || null, ml_cat_nome: catNome };
+  await inserePeca(env, dados, user, id);
+  await env.DB.prepare('UPDATE pecas SET ml_id=?, ml_status=?, ml_em=?, ml_attrs=? WHERE id=?').bind(mlId, it.status || null, now(), JSON.stringify(attrs), id).run();
+  const p = await env.DB.prepare('SELECT id,codigo FROM pecas WHERE id=?').bind(id).first();
+  return json({ ok: true, peca: p, fotos: fotos.length, falhas, caracteristicas: attrs.length });
 }
 // edição em massa: muda preço, local ou marcação de anúncio de várias peças de uma vez
 async function editaMassa(request, env) {

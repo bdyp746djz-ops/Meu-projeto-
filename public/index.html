@@ -634,6 +634,7 @@ function abrePeca(id){
    ${p.qualidade||p.custo!=null||p.seguranca||p.rastreavel?`<tr><th>Qualidade / custo</th><td>${p.qualidade?'<span class="tag">Qualidade '+esc(p.qualidade)+'</span> ':''}${p.custo!=null&&p.custo!==''?'Custo '+brl(p.custo)+' ':''}${p.seguranca?'<span class="tag zero">Segurança</span> ':''}${p.rastreavel?'<span class="tag">Rastreável</span>':''}</td></tr>`:''}
    ${p.peso_g||p.alt_cm||p.larg_cm||p.comp_cm?`<tr><th>Embalagem</th><td>${p.peso_g?esc(p.peso_g)+' g':''}${p.alt_cm||p.larg_cm||p.comp_cm?' · '+[p.alt_cm,p.larg_cm,p.comp_cm].map(v=>v||'?').join(' × ')+' cm':''}</td></tr>`:''}
    ${p.ml_cat?`<tr><th>Categoria ML</th><td>${esc(p.ml_cat_nome||p.ml_cat)}</td></tr>`:''}
+   ${(()=>{ const at=attrsML(p); return at.length?`<tr><th>Ficha técnica</th><td><details><summary>${at.length} característica(s) do anúncio</summary>${at.map(a=>`<div><b>${esc(a[1])}:</b> ${esc(a[2])}</div>`).join('')}</details></td></tr>`:''; })()}
    <tr><th>Localização</th><td>${p.local_id&&S.locais[p.local_id]?'📍 '+esc(locPath(p.local_id)):'<span class="tag zero">sem localização</span>'}</td></tr>
    ${p.obs?`<tr><th>Obs.</th><td>${esc(p.obs)}</td></tr>`:''}</table>
    ${p.ml_id&&p.ml_status!=='closed'?'':barraPront(p)}
@@ -718,6 +719,60 @@ function moverUma(p){
       if(confirm('A etiqueta mostra a localização. Imprimir a etiqueta nova desta peça?'))abreGerador([itemPeca(p)]);
       if(S.view==='ficha')fichaPeca(); }catch(e){ toast(e.message); } };
 }
+// ficha técnica que veio do anúncio do ML: [[id, nome, valor], ...]
+function attrsML(p){ try{ const a=typeof p.ml_attrs==='string'?JSON.parse(p.ml_attrs||'[]'):(p.ml_attrs||[]); return Array.isArray(a)?a:[]; }catch(_){ return []; } }
+// ---------- Importar anúncios do Mercado Livre para o sistema ----------
+async function importarML(){
+  await carregaLocais();
+  const st={status:'active',offset:0,lim:50,itens:[],total:0,sel:new Map(),rodando:false};
+  modal(`<h3>⬇️ Importar anúncios do Mercado Livre</h3>
+   <p class="small mut">Cria as peças no sistema com <b>todas as fotos</b>, título, preço, estoque, condição, marca, modelo, part number, embalagem, categoria, descrição e a <b>ficha técnica completa</b> do anúncio. O anúncio fica ligado à peça: vender no sistema atualiza o estoque no ML. Nada muda no Mercado Livre.</p>
+   <div class="filters">${[['active','Ativos'],['paused','Pausados'],['todos','Todos']].map(([k,l])=>`<button class="chip" data-ist="${k}">${l}</button>`).join('')}</div>
+   <label class="f">Guardar as peças em (opcional)<select id="imloc"><option value="">— sem localização —</option>${locOptions('')}</select></label>
+   <div class="small" style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="impag" style="width:18px;height:18px;flex:none;margin:0"> Marcar todos desta página</label><button class="btn sm" id="imtodos">Marcar todos os anúncios</button><span class="mut" id="imcont"></span></div>
+   <div id="imlista"><p class="small mut">Carregando os seus anúncios…</p></div>
+   <div id="improg" class="small" style="margin-top:8px"></div>
+   <div class="top" style="margin-top:12px"><button class="btn p" id="imok" disabled>Importar</button><button class="btn" id="imcc">Fechar</button></div>`);
+  const conta=()=>{ const n=st.sel.size; if($('#imok')){ $('#imok').disabled=!n||st.rodando; $('#imok').textContent=n?`Importar ${n} anúncio(s)`:'Importar'; } if($('#imcont'))$('#imcont').textContent=n?n+' marcado(s)':''; };
+  const pinta=()=>{ const el=$('#imlista'); if(!el)return;
+    document.querySelectorAll('[data-ist]').forEach(b=>b.classList.toggle('on',b.dataset.ist===st.status));
+    el.innerHTML=st.itens.length?st.itens.map(x=>`<label class="sel small" style="align-items:center;gap:8px;${x.peca?'opacity:.6':''}">
+        <input type="checkbox" data-imid="${esc(x.id)}" ${x.peca?'disabled':st.sel.has(x.id)?'checked':''} style="width:20px;height:20px;flex:none;margin:0">
+        ${x.foto?`<img src="${esc(x.foto)}" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:4px;flex:none">`:''}
+        <span style="flex:1"><b>${esc(x.titulo)}</b><br><span class="mut">${brl(x.preco)} · ${x.qtd} em estoque · ${x.vendidos||0} vendido(s) · ${x.nfotos} foto(s) · ${esc(stML(x.status))} · ${esc(x.id)}</span>
+        ${x.peca?`<br><span style="color:var(--ok)">✔ já está no sistema (${cod(x.peca.codigo)})</span>`:''}</span></label>`).join('')
+      +`<div class="top small" style="margin-top:8px"><span class="mut">Mostrando ${st.offset+1}–${st.offset+st.itens.length} de ${st.total}</span>
+        ${st.offset>0?'<button class="btn sm" id="imant">‹ Anteriores</button>':''}${st.offset+st.lim<st.total?'<button class="btn sm" id="improx">Próximos ›</button>':''}</div>`
+      :'<p class="small mut">Nenhum anúncio encontrado com esse filtro.</p>';
+    el.querySelectorAll('[data-imid]').forEach(c=>c.onchange=()=>{ const x=st.itens.find(i=>i.id===c.dataset.imid); if(c.checked)st.sel.set(x.id,x.titulo); else st.sel.delete(x.id); conta(); });
+    if($('#imant'))$('#imant').onclick=()=>carrega(st.offset-st.lim); if($('#improx'))$('#improx').onclick=()=>carrega(st.offset+st.lim);
+    if($('#impag'))$('#impag').checked=st.itens.filter(x=>!x.peca).length>0&&st.itens.filter(x=>!x.peca).every(x=>st.sel.has(x.id));
+    conta(); };
+  const busca=(off,lim)=>api(`/ml/importar?status=${st.status}&offset=${off}&limit=${lim||st.lim}`);
+  const carrega=async off=>{ if($('#imlista'))$('#imlista').innerHTML='<p class="small mut">Carregando…</p>';
+    try{ const r=await busca(Math.max(0,off)); Object.assign(st,{offset:r.offset,total:r.total,itens:r.itens}); pinta(); }
+    catch(e){ if($('#imlista'))$('#imlista').innerHTML='<p class="small" style="color:var(--red)">⚠️ '+esc(e.message)+'</p>'; } };
+  document.querySelectorAll('[data-ist]').forEach(b=>b.onclick=()=>{ st.status=b.dataset.ist; carrega(0); });
+  $('#impag').onchange=e=>{ st.itens.filter(x=>!x.peca).forEach(x=>e.target.checked?st.sel.set(x.id,x.titulo):st.sel.delete(x.id)); pinta(); };
+  $('#imtodos').onclick=async()=>{ const b=$('#imtodos'); b.disabled=true;
+    try{ for(let off=0;off<Math.min(st.total,1000);off+=50){ b.textContent=`Lendo ${Math.min(off+50,st.total)} de ${st.total}…`; const r=await busca(off,50); r.itens.filter(x=>!x.peca).forEach(x=>st.sel.set(x.id,x.titulo)); }
+      if(st.total>1000)toast('O ML só deixa listar 1.000 anúncios por filtro: importe e depois use o filtro Pausados/Ativos para o resto');
+    }catch(e){ toast(e.message); } if($('#imtodos')){ b.disabled=false; b.textContent='Marcar todos os anúncios'; } pinta(); };
+  $('#imcc').onclick=fecha;
+  $('#imok').onclick=async()=>{ if(!st.sel.size)return; st.rodando=true; conta();
+    const fila=[...st.sel.entries()], loc=$('#imloc').value, res={ok:0,ja:0,fotos:0,falhas:0,erros:[]};
+    for(let i=0;i<fila.length;i++){ const [id,tit]=fila[i];
+      if($('#improg'))$('#improg').innerHTML=`<span class="spin-s"></span><b>Importando ${i+1} de ${fila.length}:</b> ${esc(tit||id)} (não feche esta tela)`;
+      try{ const r=await api('/ml/importar/'+id,{method:'POST',body:{local_id:loc||undefined}}); if(r.ja)res.ja++; else { res.ok++; res.fotos+=r.fotos||0; res.falhas+=r.falhas||0; } st.sel.delete(id); }
+      catch(e){ res.erros.push(id+': '+e.message); } }
+    st.rodando=false;
+    const msg=`✅ ${res.ok} peça(s) importada(s) com ${res.fotos} foto(s)`+(res.ja?` · ${res.ja} já estavam no sistema`:'')+(res.falhas?` · ${res.falhas} foto(s) não baixaram do ML`:'')+(res.erros.length?` · ⚠️ ${res.erros.length} com erro`:'');
+    toast(msg); if($('#improg'))$('#improg').innerHTML=esc(msg)+(res.erros.length?'<br><span style="color:var(--red)">'+res.erros.map(esc).join('<br>')+'</span>':'');
+    try{ const {pecas}=await api('/pecas?todas=1'); S.pecas=pecas; }catch(_){ }
+    if($('#imlista'))carrega(st.offset);
+    if(S.view==='integracoes'&&!$('#imlista'))integracoes(); };
+  carrega(0);
+}
 // embalagens prontas: [nome, peso g, altura, largura, comprimento cm]
 const EMB_PRESETS=[['Pequena (até 1 kg)',800,10,15,20],['Média (até 3 kg)',2500,20,25,35],['Grande (até 8 kg)',7000,30,40,50],['Extra (até 15 kg)',14000,40,50,70]];
 async function publicarML(p){
@@ -753,7 +808,7 @@ async function publicarML(p){
    <div class="top" style="margin-top:12px"><button class="btn p" id="mok">🛒 Publicar de verdade</button><button class="btn" id="mcc">Cancelar</button></div>`);
   $('#mpm').onclick=e=>{ e.preventDefault(); pesquisaPreco(p,$('#mpmx'),v=>{ $('#mpre').value=v; toast('Preço do anúncio: '+brl(v)+' (o da peça não muda)'); }); };
   const valorDe=a=>{ if(a.id in st.vals)return st.vals[a.id]; const c=st.cats.find(x=>x.id===st.cat)||{}; const pv=(c.previstos||{})[a.id];
-    if(pv&&pv.nome)return pv.nome; if(daPeca[a.id])return String(daPeca[a.id]);
+    if(pv&&pv.nome)return pv.nome; if(daPeca[a.id])return String(daPeca[a.id]); const fm=attrsML(p).find(x=>x[0]===a.id); if(fm)return fm[2];
     if(a.id==='EMPTY_GTIN_REASON'){ const v=a.valores.find(x=>/n[aã]o tem c[oó]digo|sem c[oó]digo/i.test(x.nome)); if(v)return v.nome; }
     return ''; };
   const campo=a=>{ const v=valorDe(a); let inp;
@@ -1538,6 +1593,7 @@ async function integracoes(){
      <div class="dp-ops">
        <span class="dp-op">Mostrar: <select id="mmos"><option value="todas">Todas</option><option value="pub">Publicadas</option><option value="nao">Não publicadas</option></select></span>
        <span class="dp-st ${ml.conectado?'ok':''}"><span class="material-icons">${ml.conectado?'check_circle':'error_outline'}</span>${ml.conectado?esc(ml.nickname||'Conectado'):'Desconectado'}</span>
+       ${ml.conectado&&admin?'<button class="dp-gerar dp-azul" id="mimp"><span class="material-icons">download</span>IMPORTAR DO ML</button>':''}
        <button class="dp-gerar dp-azul" id="mcfg"><span class="material-icons">settings</span>CONEXÃO</button>
      </div></div>
    ${flash}${ml.conectado?'':cartaoML(ml,admin)}
@@ -1569,6 +1625,7 @@ async function integracoes(){
   $('#mq').oninput=e=>{ ui.mlQ=e.target.value; desenha(); };
   $('#mmos').onchange=e=>{ ui.mlMos=e.target.value; desenha(); };
   $('#mcfg').onclick=()=>{ modal(cartaoML(ml,admin)); ligaML(ml,integracoes); };
+  if($('#mimp'))$('#mimp').onclick=importarML;
   cartaoVeo(); cartaoGerador();
   ligaML(ml,integracoes);
   desenha();
