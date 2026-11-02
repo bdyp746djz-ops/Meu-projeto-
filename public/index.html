@@ -72,6 +72,48 @@ nav.bottom{display:none}
  nav.bottom a .i{color:inherit;font-size:22px;width:auto}
  nav.bottom a.on{background:transparent;color:var(--pri)}
 }
+/* lista no estilo Drive Parts (etiquetas) */
+.dp-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:#e8e8e8;margin:-22px -26px 18px;padding:10px 26px}
+.dp-busca{flex:1;min-width:200px;display:flex;align-items:center;gap:10px;color:#757575;margin:0}
+.dp-busca input{border:0;background:transparent;padding:9px 0;font-size:15px}
+.dp-busca input:focus{box-shadow:none}
+.dp-ops{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.dp-op{display:flex;align-items:center;gap:6px;color:#757575;font-size:13.5px;white-space:nowrap}
+.dp-op select{width:auto;border:0;padding:4px 2px;color:#424242;font-size:13.5px;background:transparent}
+.dp-op select:focus{box-shadow:none}
+.dp-gerar{display:inline-flex;align-items:center;gap:6px;background:#4caf50;color:#fff;border:0;border-radius:2px;padding:9px 14px;font-weight:500;font-size:13px;letter-spacing:.02em;cursor:pointer;box-shadow:var(--sh)}
+.dp-gerar:hover{filter:brightness(1.07)}
+.dp-gerar .material-icons{font-size:17px}
+.dp-gerar .n{background:rgba(255,255,255,.28);border-radius:9px;padding:0 7px;font-size:12px}
+.dp-mini{max-width:960px;margin:0 auto 8px;font-size:13px;color:#9e9e9e;text-align:right}
+.dp-mini a{color:var(--pri);cursor:pointer}
+.dp-lista{background:#fff;box-shadow:var(--sh);border-radius:2px;margin:0 auto;max-width:960px}
+.dp-row{display:flex;align-items:center;gap:18px;padding:16px 22px;border-bottom:1px solid #eee;cursor:pointer}
+.dp-row:last-child{border-bottom:0}
+.dp-row:hover{background:#fafafa}
+.dp-ft{width:84px;height:84px;flex-shrink:0;background:#eceff1;display:grid;place-items:center;color:#90a4ae;overflow:hidden;position:relative}
+.dp-ft img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.dp-ft .material-icons{font-size:36px}
+.dp-tx{flex:1;min-width:0}
+.dp-tt{color:#1e88e5;font-size:15px;line-height:1.3}
+.dp-sb{color:#9e9e9e;font-size:13px;margin-top:4px;line-height:1.4}
+.dp-ck{width:36px;height:36px;border-radius:50%;border:0;background:#9e9e9e;color:#fff;display:grid;place-items:center;cursor:pointer;flex-shrink:0;padding:0}
+.dp-ck .material-icons{font-size:20px}
+.dp-row.on .dp-ck{background:#eeeeee;color:#757575}
+.dp-chk{max-height:52vh;overflow:auto;padding:4px 0}
+.dp-ci{display:flex;align-items:center;gap:14px;padding:6px 4px;color:#616161;font-size:14px;cursor:pointer}
+.dp-ci input{width:18px;height:18px;margin:0;flex-shrink:0}
+.dp-cfg{display:flex;gap:18px;flex-wrap:wrap;padding:12px 4px 4px;border-top:1px solid #eee;margin-top:8px;font-size:13px;color:#757575;align-items:center}
+.dp-cfg input{width:62px;display:inline-block;text-align:center}
+.dp-rod{display:flex;justify-content:center;gap:30px;border-top:1px solid #eee;margin-top:10px;padding:14px 0 2px}
+.dp-tb{display:inline-flex;align-items:center;gap:5px;background:none;border:0;color:#424242;font-size:14px;letter-spacing:.03em;cursor:pointer;padding:6px}
+.dp-tb .material-icons{font-size:17px}
+@media(max-width:760px){
+ .dp-bar{margin:-14px -12px 12px;padding:8px 12px}
+ .dp-ops{gap:10px;width:100%}.dp-gerar{margin-left:auto}
+ .dp-row{padding:12px;gap:12px}.dp-ft{width:58px;height:58px}
+ .dp-tt{font-size:14px}.dp-sb{font-size:12px}
+}
 /* componentes */
 .btn{border:1px solid #d0d0d0;background:#fff;border-radius:var(--rad);padding:9px 16px;cursor:pointer;font-weight:500;color:var(--ink);text-decoration:none;display:inline-block;transition:filter .13s,box-shadow .13s,background .13s}
 .btn:hover{background:#f5f5f5}
@@ -313,8 +355,8 @@ function renderBulk(){
   $('#bpreco').onclick=bulkPreco; $('#blocal').onclick=bulkLocal; $('#bml').onclick=bulkML; $('#betq').onclick=bulkEtiqueta;
   $('#bclear').onclick=()=>{ S.ui.sel=new Set(); estoque(); };
 }
-function bulkEtiqueta(){ const d=[...S.ui.sel].map(id=>S.pecas.find(p=>p.id===id)).filter(Boolean).map(labelPeca);
-  if(!d.length)return toast('Selecione peças'); imprimeLabels(d); }
+function bulkEtiqueta(){ const its=[...S.ui.sel].map(id=>S.pecas.find(p=>p.id===id)).filter(Boolean).map(itemPeca);
+  if(!its.length)return toast('Selecione peças'); abreGerador(its); }
 function bulkPreco(){ modal(`<h3>Alterar preço de ${S.ui.sel.size} peça(s)</h3><label class="f">Novo preço (R$)<input id="bp" type="number" step="0.01" min="0"></label>
   <div class="top" style="margin-top:12px"><button class="btn p" id="ok">Aplicar</button><button class="btn" id="cc">Cancelar</button></div>`);
   $('#cc').onclick=fecha; $('#ok').onclick=async()=>{ await api('/pecas/massa',{method:'POST',body:{ids:[...S.ui.sel],set:{preco:$('#bp').value}}}); fecha(); toast('Preço alterado'); S.ui.sel=new Set(); estoque(); }; }
@@ -352,11 +394,12 @@ function abrePeca(id){
    <div class="top" style="margin-top:14px;flex-wrap:wrap;gap:8px">
      <button class="btn g" id="dv" ${q>0?'':'disabled'}>💰 Vender</button>
      <button class="btn" id="da">📣 Anúncio</button><button class="btn p" id="dml">🛒 Publicar no ML</button><button class="btn" id="de">✏️ Editar</button>
-     <button class="btn" id="ddup">🔁 Duplicar</button>
+     <button class="btn" id="detq">🏷️ Etiqueta</button><button class="btn" id="ddup">🔁 Duplicar</button>
      <button class="btn" id="dx" style="color:var(--red)">Excluir</button></div>`);
   $('#dv').onclick=()=>vender(p); $('#da').onclick=()=>anuncio(p); $('#de').onclick=()=>editar(p.id);
   $('#dml').onclick=()=>publicarML(p);
   $('#ddup').onclick=()=>duplicar(p);
+  $('#detq').onclick=()=>abreGerador([itemPeca(p)]);
   $('#dx').onclick=()=>{ if(confirm('Excluir '+p.nome+'?')) api('/pecas/'+id,{method:'DELETE'}).then(()=>{ fecha(); toast('Peça excluída'); listaEstoque(); }); };
 }
 async function publicarML(p){
@@ -623,61 +666,140 @@ function renomear(id){ const l=S.locais[id]; modal(`<h3>Editar local</h3><label 
 async function excluirLocal(id){ try{ await api('/locais/'+id,{method:'DELETE'}); toast('Excluído'); locais(); }catch(e){ toast(e.message); } }
 
 // ---------- Etiquetas ----------
-async function etiquetas(){
-  await carregaLocais(); const { pecas }=await api('/pecas'); S.pecas=pecas;
-  const tipo=S.ui.etqTipo;
-  const lista=tipo==='pecas'?pecas.map(p=>[p.id,cod(p.codigo)+' · '+p.nome]):Object.keys(S.locais).map(id=>[id,locPath(id)]).sort((a,b)=>a[1].localeCompare(b[1],'pt',{numeric:true}));
-  $('#main').innerHTML=`<div class="top"><h2>Etiquetas</h2></div>
-   <div class="filters"><button class="chip ${tipo==='pecas'?'on':''}" data-t="pecas">Peças</button><button class="chip ${tipo==='locais'?'on':''}" data-t="locais">Prateleiras/caixas</button></div>
-   <div class="top" style="align-items:flex-start;gap:14px;flex-wrap:wrap">
-    <div class="card" style="flex:1;min-width:240px;max-height:420px;overflow:auto">
-      <div class="small" style="margin-bottom:6px"><a id="todas" style="cursor:pointer;color:var(--red)">marcar todas</a> · <a id="limpar" style="cursor:pointer;color:var(--red)">limpar</a> · <span class="mut">${S.ui.etqSel.size} selec.</span></div>
-      ${lista.length?lista.map(([id,t])=>`<label class="sel small"><input type="checkbox" data-sel="${id}" ${S.ui.etqSel.has(id)?'checked':''} style="width:auto"> ${esc(t)}</label>`).join(''):'<div class="mut small">Nada cadastrado.</div>'}
-    </div>
-    <div style="flex:2;min-width:260px">
-      <div class="small" style="margin-bottom:8px">Tamanho da sua etiqueta (mm):
-        <input id="etqw" type="number" min="20" value="${S.ui.etqW||100}" style="width:62px;display:inline-block"> largura ×
-        <input id="etqh" type="number" min="15" value="${S.ui.etqH||50}" style="width:62px;display:inline-block"> altura</div>
-      <button class="btn p" id="imp">🖨️ Imprimir selecionadas</button>
-      <p class="small mut" style="margin-top:6px">Impressora térmica (Zebra): uma etiqueta por vez, deitada, preenchendo tudo. Na janela de impressão escolha a sua impressora e imprima em 100% (sem "ajustar à página").</p>
-      <div id="prev" class="labels" style="margin-top:12px"></div></div></div>`;
-  document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{ S.ui.etqTipo=b.dataset.t; S.ui.etqSel=new Set(); etiquetas(); });
-  document.querySelectorAll('[data-sel]').forEach(c=>c.onclick=()=>{ c.checked?S.ui.etqSel.add(c.dataset.sel):S.ui.etqSel.delete(c.dataset.sel); previewEtq(); });
-  $('#todas').onclick=()=>{ lista.forEach(([id])=>S.ui.etqSel.add(id)); etiquetas(); };
-  $('#limpar').onclick=()=>{ S.ui.etqSel=new Set(); etiquetas(); };
-  $('#imp').onclick=imprimeEtq;
-  if($('#etqw'))$('#etqw').onchange=e=>{ S.ui.etqW=e.target.value; };
-  if($('#etqh'))$('#etqh').onchange=e=>{ S.ui.etqH=e.target.value; };
-  previewEtq();
+// ---------- Etiquetas (lista + "Gerador de Etiquetas" em PDF) ----------
+const LOJA='Rafa Busca Peças', SITE='rafabuscapecas';
+const nrm=x=>String(x??'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+const dataBR=ms=>ms?new Date(Number(ms)).toLocaleDateString('pt-BR'):'—';
+function itemPeca(p){
+  const veic=([(p.marca||'').toUpperCase(),p.modelo].filter(Boolean).join(' ')+(p.ano?' - '+p.ano:'')).trim();
+  const c=String(p.codigo).padStart(6,'0'), linhas=[];
+  if(p.pn)linhas.push('PN:'+p.pn); else if(p.veiculo)linhas.push('Sucata:'+p.veiculo);
+  linhas.push('Cod:'+c);
+  return { tipo:'peca', rotulo:cod(p.codigo)+' · '+p.nome, qr:'P:'+c, loja:LOJA, titulo:veic||p.nome, linhas, rodape:veic?p.nome:'' };
 }
-function qrSVG(text){ if(typeof qrcode!=='function')return '<svg viewBox="0 0 10 10"><rect width="10" height="10" fill="#eee"/></svg>';
-  const q=qrcode(0,'M'); q.addData(text); q.make(); const n=q.getModuleCount(); let d='';
-  for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(q.isDark(r,c))d+=`M${c} ${r}h1v1h-1z`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 ${n+4} ${n+4}" shape-rendering="crispEdges"><rect x="-2" y="-2" width="${n+4}" height="${n+4}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`; }
-function labelPeca(p){ return {qr:'P:'+String(p.codigo).padStart(6,'0'),big:cod(p.codigo),l1:p.nome,l2:[p.marca,p.modelo,p.ano].filter(Boolean).join(' '),l3:p.local_id&&S.locais[p.local_id]?locPath(p.local_id):'',price:brl(p.preco)}; }
-function etqData(){ const t=S.ui.etqTipo;
-  if(t==='pecas')return [...S.ui.etqSel].map(id=>S.pecas.find(p=>p.id===id)).filter(Boolean).map(labelPeca);
-  return [...S.ui.etqSel].filter(id=>S.locais[id]).map(id=>({qr:'L:'+id,big:S.locais[id].nome,l1:locPath(id),l2:'',l3:'',price:''})); }
-function previewEtq(){ const el=$('#prev'); if(!el)return; const d=etqData();
-  el.innerHTML=d.length?d.map(l=>`<div class="lbl">${qrSVG(l.qr)}<div class="t"><b>${esc(l.big)}</b>${esc(l.l1)}<br><span class="mut">${esc(l.l2)}</span>${l.l3?'<br>📍 '+esc(l.l3):''}${l.price?'<br><b>'+esc(l.price)+'</b>':''}</div></div>`).join(''):'<div class="empty">Selecione itens ao lado.</div>'; }
-function imprimeEtq(){ const d=etqData(); if(!d.length)return toast('Selecione itens'); imprimeLabels(d); }
-function imprimeLabels(d){ if(!d||!d.length)return toast('Selecione itens');
-  // impressora térmica: 1 etiqueta por página, deitada, preenchendo a etiqueta toda
-  const W=Math.max(20,parseInt(S.ui.etqW)||100), H=Math.max(15,parseInt(S.ui.etqH)||50);
-  const qr=Math.max(8,Math.min(H-3, W*0.42));
-  const fB=Math.max(8,Math.round(H/3.2)), fT=Math.max(6,Math.round(H/4.5));
-  const w=window.open('','_blank'); w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Etiquetas</title><style>
-@page{size:${W}mm ${H}mm;margin:0}
-*{box-sizing:border-box}
-html,body{margin:0}
-body{font-family:Arial,sans-serif}
-.e{width:${W}mm;height:${H}mm;display:flex;gap:1.5mm;align-items:center;padding:1.5mm;overflow:hidden;page-break-after:always}
-.e:last-child{page-break-after:auto}
-.e svg{width:${qr}mm;height:${qr}mm;flex-shrink:0}
-.t{flex:1;font-size:${fT}pt;line-height:1.15;overflow:hidden;word-break:break-word}
-.t b{font-size:${fB}pt;display:block;line-height:1.1}
-.t .pr{font-weight:bold;font-size:${fB}pt}
-</style></head><body>${d.map(l=>`<div class="e">${qrSVG(l.qr)}<div class="t"><b>${esc(l.big)}</b>${esc(l.l1)}${l.l2?'<br>'+esc(l.l2):''}${l.l3?'<br>'+esc(l.l3):''}${l.price?'<br><span class="pr">'+esc(l.price)+'</span>':''}</div></div>`).join('')}<script>onload=()=>setTimeout(()=>print(),300)<\/script></body></html>`); w.document.close(); }
+function itemLocal(id){ const cam=locPath(id).split(' › '); const ult=cam.pop(); return { tipo:'local', rotulo:locPath(id), qr:'L:'+id, acima:cam.join(' > '), grande:ult }; }
+async function etiquetas(){
+  await carregaLocais(); const { pecas }=await api('/pecas?todas=1'); S.pecas=pecas;
+  const ui=S.ui; ui.etqTipo=ui.etqTipo||'pecas'; ui.etqOrd=ui.etqOrd||'nome'; ui.etqMos=ui.etqMos||'ativos'; ui.etqQ=ui.etqQ||'';
+  const ehP=ui.etqTipo==='pecas';
+  $('#main').innerHTML=`<div class="dp-bar">
+     <label class="dp-busca"><span class="material-icons">search</span><input id="eq" placeholder="${ehP?'Procurar por peça...':'Procurar por localização...'}" value="${esc(ui.etqQ)}" autocomplete="off"></label>
+     <div class="dp-ops">
+       <span class="dp-op">Tipo: <select id="etipo"><option value="pecas" ${ehP?'selected':''}>Peças</option><option value="locais" ${ehP?'':'selected'}>Localizações</option></select></span>
+       ${ehP?`<span class="dp-op">Ordenar: <select id="eord"><option value="nome">Nome (A-Z)</option><option value="recentes">Mais recentes</option><option value="codigo">Código</option></select></span>
+       <span class="dp-op">Mostrar: <select id="emos"><option value="ativos">Ativos</option><option value="todos">Todos</option><option value="esgotados">Esgotados</option></select></span>`:''}
+       <button class="dp-gerar" id="egerar"><span class="material-icons">content_copy</span>GERAR ETIQUETAS<span class="n" id="en"></span></button>
+     </div></div>
+   <div class="dp-mini"><a id="etodos">Marcar todos</a> · <a id="elimpa">Limpar seleção</a></div>
+   <div class="dp-lista" id="elista"></div>`;
+  if(ehP){ $('#eord').value=ui.etqOrd; $('#emos').value=ui.etqMos; }
+  let vis=[];
+  const linha=(id,foto,tit,sub)=>{ const on=ui.etqSel.has(id); return `<div class="dp-row${on?' on':''}" data-id="${id}"><div class="dp-ft">${foto}</div><div class="dp-tx"><div class="dp-tt">${esc(tit)}</div><div class="dp-sb">${esc(sub)}</div></div><button class="dp-ck" title="Selecionar"><span class="material-icons">${on?'check':'crop_square'}</span></button></div>`; };
+  const conta=()=>{ const n=ui.etqSel.size; $('#en').textContent=n?n:''; $('#en').style.display=n?'':'none'; };
+  const desenha=()=>{
+    const q=nrm(ui.etqQ).split(/\s+/).filter(Boolean);
+    let html='';
+    if(ehP){
+      let l=S.pecas.filter(p=>ui.etqMos==='todos'||(ui.etqMos==='ativos'?(Number(p.qtd)||0)>0:(Number(p.qtd)||0)<=0));
+      if(q.length)l=l.filter(p=>{ const t=nrm([p.nome,p.marca,p.modelo,p.ano,p.pn,p.veiculo,cod(p.codigo)].join(' ')); return q.every(w=>t.includes(w)); });
+      l.sort(ui.etqOrd==='recentes'?(a,b)=>(b.criado_em||0)-(a.criado_em||0):ui.etqOrd==='codigo'?(a,b)=>a.codigo-b.codigo:(a,b)=>String(a.nome).localeCompare(String(b.nome),'pt',{numeric:true}));
+      vis=l.map(p=>p.id);
+      html=l.map(p=>{ const v=([(p.marca||'').toUpperCase(),p.modelo].filter(Boolean).join(' ')+(p.ano?' - '+p.ano:'')).trim();
+        const sub=[v,'Data de cadastro: '+dataBR(p.criado_em),'Cod: '+String(p.codigo).padStart(6,'0'),p.pn?'PN: '+p.pn:''].filter(Boolean).join(' | ');
+        return linha(p.id,p.fotos&&p.fotos[0]?`<img src="/api/foto/${p.fotos[0]}" loading="lazy" alt="">`:'<span class="material-icons">build</span>',p.nome,sub); }).join('');
+    } else {
+      let l=Object.keys(S.locais).map(id=>[id,locPath(id)]);
+      if(q.length)l=l.filter(([,c])=>q.every(w=>nrm(c).includes(w)));
+      l.sort((a,b)=>a[1].localeCompare(b[1],'pt',{numeric:true}));
+      vis=l.map(x=>x[0]);
+      html=l.map(([id,c])=>{ const n=ocupacaoTotal(id); return linha(id,'<span class="material-icons">inventory_2</span>',S.locais[id].nome,c+' | '+n+' peça(s)'); }).join('');
+    }
+    $('#elista').innerHTML=html||`<div class="empty">${ehP?'Nenhuma peça encontrada.':'Nenhuma localização cadastrada.'}</div>`;
+    document.querySelectorAll('.dp-row').forEach(r=>r.onclick=()=>{ const id=r.dataset.id, on=!ui.etqSel.has(id); on?ui.etqSel.add(id):ui.etqSel.delete(id);
+      r.classList.toggle('on',on); r.querySelector('.dp-ck .material-icons').textContent=on?'check':'crop_square'; conta(); });
+    conta();
+  };
+  $('#eq').oninput=e=>{ ui.etqQ=e.target.value; desenha(); };
+  $('#etipo').onchange=e=>{ ui.etqTipo=e.target.value; ui.etqSel=new Set(); ui.etqQ=''; etiquetas(); };
+  if(ehP){ $('#eord').onchange=e=>{ ui.etqOrd=e.target.value; desenha(); }; $('#emos').onchange=e=>{ ui.etqMos=e.target.value; desenha(); }; }
+  $('#etodos').onclick=()=>{ vis.forEach(id=>ui.etqSel.add(id)); desenha(); };
+  $('#elimpa').onclick=()=>{ ui.etqSel=new Set(); desenha(); };
+  $('#egerar').onclick=()=>{ const its=ehP?[...ui.etqSel].map(id=>S.pecas.find(p=>p.id===id)).filter(Boolean).map(itemPeca):[...ui.etqSel].filter(id=>S.locais[id]).map(itemLocal); abreGerador(its); };
+  desenha();
+}
+// janela "Gerar etiquetas": confere a lista, cópias e tamanho → IMPRIMIR abre o PDF
+function abreGerador(itens){
+  if(!itens.length)return toast('Selecione ao menos um item na lista');
+  const W=parseFloat(S.ui.etqW)||100, H=parseFloat(S.ui.etqH)||50;
+  modal(`<div class="dp-chk">${itens.map((it,i)=>`<label class="dp-ci"><input type="checkbox" data-i="${i}" checked> ${esc(it.rotulo)}</label>`).join('')}</div>
+   <div class="dp-cfg"><label>Cópias de cada <input id="gcop" type="number" min="1" max="50" value="1"></label>
+     <label>Tamanho da etiqueta (mm) <input id="gw" type="number" min="20" value="${W}"> × <input id="gh" type="number" min="15" value="${H}"></label></div>
+   <div class="dp-rod"><button class="dp-tb" id="gimp"><span class="material-icons">add_circle_outline</span>IMPRIMIR</button><button class="dp-tb" id="gfec"><span class="material-icons">highlight_off</span>FECHAR</button></div>`);
+  $('#gfec').onclick=fecha;
+  $('#gimp').onclick=async()=>{
+    const sel=[...document.querySelectorAll('.dp-ci input')].filter(c=>c.checked).map(c=>itens[+c.dataset.i]);
+    if(!sel.length)return toast('Marque ao menos uma etiqueta');
+    S.ui.etqW=$('#gw').value; S.ui.etqH=$('#gh').value;
+    const cop=Math.min(50,Math.max(1,parseInt($('#gcop').value,10)||1));
+    const win=window.open('','_blank'); if(win){ try{ win.document.write('<title>Gerador de Etiquetas</title><p style="font-family:sans-serif;padding:20px">Gerando etiquetas…</p>'); }catch(_){} }
+    try{ const url=await gerarPDF(sel,cop);
+      if(win&&!win.closed) win.location.href=url; else { const a=document.createElement('a'); a.href=url; a.download='etiquetas.pdf'; document.body.appendChild(a); a.click(); a.remove(); }
+      fecha(); }
+    catch(e){ if(win)win.close(); toast('Erro: '+e.message); }
+  };
+}
+let pdfPromessa=null;
+function carregaPDF(){ if(window.jspdf)return Promise.resolve();
+  if(!pdfPromessa)pdfPromessa=new Promise((ok,err)=>{ const sc=document.createElement('script'); sc.src='/jspdf.umd.min.js'; sc.onload=ok; sc.onerror=()=>{ pdfPromessa=null; err(new Error('não carregou o gerador de PDF')); }; document.head.appendChild(sc); });
+  return pdfPromessa; }
+const PT=0.3528; // 1 ponto em mm
+const pdfTxt=x=>String(x??'').replace(/›/g,'>').replace(/[^\x20-\x7E -ÿ]/g,'').trim();
+async function gerarPDF(itens,copias){
+  await carregaPDF();
+  const W=Math.max(20,parseFloat(S.ui.etqW)||100), H=Math.max(15,parseFloat(S.ui.etqH)||50), ori=W>=H?'landscape':'portrait';
+  const doc=new window.jspdf.jsPDF({orientation:ori,unit:'mm',format:[W,H]});
+  doc.setProperties({title:'Gerador de Etiquetas',creator:LOJA});
+  let n=0;
+  for(const it of itens)for(let c=0;c<(copias||1);c++){ if(n++)doc.addPage([W,H],ori); it.tipo==='local'?desenhaLocal(doc,it,W,H):desenhaPeca(doc,it,W,H); }
+  return doc.output('bloburl');
+}
+function qrPDF(doc,txt,x,y,t){ const q=qrcode(0,'M'); q.addData(txt); q.make(); const n=q.getModuleCount(), m=t/n; doc.setFillColor(0,0,0);
+  for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(q.isDark(r,c))doc.rect(x+c*m,y+r*m,m+0.02,m+0.02,'F'); }
+// escreve um bloco de linhas centralizado na altura, reduzindo a fonte até caber
+function blocoTexto(doc,partes,x,w,H,pad){
+  // 1º: cada linha longa encolhe sozinha (até 60%) pra caber no nº de linhas dela
+  for(const pt of partes){ pt.k=1; const t=pdfTxt(pt.t); if(!t)continue; doc.setFont('helvetica',pt.bold?'bold':'normal');
+    while(pt.k>0.6){ doc.setFontSize(pt.size*pt.k); if(doc.splitTextToSize(t,w).length<=(pt.max||2))break; pt.k-=0.04; } }
+  // 2º: se o bloco não couber na altura, reduz tudo junto
+  for(let k=1;;k-=0.05){
+    const lin=[]; let alt=0, estourou=false, ultimo=k<=0.42;
+    for(const pt of partes){ const t=pdfTxt(pt.t); if(!t)continue; const fs=pt.size*pt.k*k;
+      doc.setFont('helvetica',pt.bold?'bold':'normal'); doc.setFontSize(fs);
+      let ls=doc.splitTextToSize(t,w); const mx=pt.max||2;
+      if(ls.length>mx){ estourou=true; if(ultimo){ ls=ls.slice(0,mx); ls[mx-1]=ls[mx-1].replace(/\s*\S{0,3}$/,'')+'...'; } }
+      for(const l of ls){ lin.push({l,fs,b:pt.bold}); alt+=fs*PT*1.2; } }
+    if((alt<=H-2*pad&&!estourou)||ultimo){ let y=Math.max(pad,(H-alt)/2);
+      for(const L of lin){ doc.setFont('helvetica',L.b?'bold':'normal'); doc.setFontSize(L.fs); doc.text(L.l,x,y+L.fs*PT*0.92); y+=L.fs*PT*1.2; }
+      return; }
+  }
+}
+// etiqueta de peça: loja, veículo em negrito, PN/sucata, código, peça · QR à direita · site na vertical
+function desenhaPeca(doc,it,W,H){
+  const pad=Math.min(W,H)*0.06, vt=H*0.09, q=Math.min(H-2*pad,W*0.33);
+  const qx=W-pad-vt-q; qrPDF(doc,it.qr,qx,(H-q)/2,q);
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); const w10=doc.getTextWidth(SITE);
+  const fsv=Math.min(10*(H-2*pad)*0.78/w10, vt/(0.72*PT)); doc.setFontSize(fsv); const sw=doc.getTextWidth(SITE);
+  doc.text(SITE, W-pad-vt+(vt-fsv*PT*0.72)/2, (H-sw)/2, {angle:-90});
+  const k=H/50;
+  blocoTexto(doc,[{t:it.loja,size:10*k,max:1},{t:it.titulo,size:14*k,bold:true,max:2},...it.linhas.map(l=>({t:l,size:10*k,max:1})),{t:it.rodape,size:11*k,max:2}],pad,qx-pad*1.8,H,pad);
+}
+// etiqueta de caixa/prateleira: QR à esquerda, caminho e nome grande
+function desenhaLocal(doc,it,W,H){
+  const pad=Math.min(W,H)*0.06, q=Math.min(H-2*pad,W*0.42);
+  qrPDF(doc,it.qr,pad,(H-q)/2,q);
+  const x=pad+q+pad*1.5, k=H/50;
+  blocoTexto(doc,[{t:it.acima,size:13*k,bold:true,max:2},{t:it.grande,size:32*k,bold:true,max:2}],x,W-x-pad,H,pad);
+}
 
 // ---------- Vendas ----------
 async function vendas(){
