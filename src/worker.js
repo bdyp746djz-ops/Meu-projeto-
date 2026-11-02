@@ -1131,7 +1131,8 @@ async function agenteApi(p, m, request, env, url) {
   if (p === '/api/agente/proximo' && m === 'POST') {
     const info = await request.json().catch(() => ({}));
     await setCfg(env, 'agente_visto', String(now()));
-    await setCfg(env, 'agente_info', JSON.stringify({ gpu: String(info.gpu || '').slice(0, 80), vram: Number(info.vram) || null, modelo: String(info.modelo || '').slice(0, 20), versao: String(info.versao || '').slice(0, 20) }));
+    await setCfg(env, 'agente_info', JSON.stringify({ gpu: String(info.gpu || '').slice(0, 80), vram: Number(info.vram) || null, modelo: String(info.modelo || '').slice(0, 20), versao: String(info.versao || '').slice(0, 20), aviso: String(info.aviso || '').slice(0, 240) || null }));
+    if (info.pausado) return json({ job: null });   // PC com problema (ex.: Windows bloqueando a IA): não entrega pedidos
     // pedido parado há mais de 3 h (PC desligou no meio) volta pra fila
     await env.DB.prepare("UPDATE videos SET status='fila' WHERE status='gerando' AND atualizado_em < ?").bind(now() - 3 * 3600e3).run();
     const v = await env.DB.prepare("SELECT * FROM videos WHERE status='fila' ORDER BY criado_em LIMIT 1").first();

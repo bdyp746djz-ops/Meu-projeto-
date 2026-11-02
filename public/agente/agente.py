@@ -12,7 +12,7 @@ roteador: é o PC que chama o sistema.
 """
 import importlib, io, json, os, subprocess, sys, tempfile, time, traceback, urllib.error, urllib.parse, urllib.request, zipfile
 
-VERSAO = '2.1'
+VERSAO = '2.2'
 PASTA = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(PASTA, 'config.json'), encoding='utf-8-sig') as f:
     CFG = json.load(f)
@@ -149,6 +149,71 @@ def garante_dependencias():
 
 
 garante_dependencias()
+
+
+# ---------- o Windows (Controle de Aplicativo Inteligente) pode bloquear as bibliotecas ----------
+def testa_bibliotecas():
+    # testa num processo separado: um import que falhou não dá pra repetir no mesmo processo
+    try:
+        r = subprocess.run([sys.executable, '-c', 'import numpy, cv2, PIL, imageio, onnxruntime'],
+                           capture_output=True, text=True, timeout=300, encoding='utf-8', errors='replace')
+        return r.returncode == 0, (r.stderr or '') + (r.stdout or '')
+    except Exception as e:
+        return False, str(e)
+
+
+def bloqueado_pelo_windows(txt):
+    t = txt.lower()
+    return 'controle de aplicativo' in t or 'application control' in t or '4551' in t
+
+
+AVISO_WINDOWS = '''
+==================================================================
+  O WINDOWS ESTA BLOQUEANDO A IA DESTE PC
+  O "Controle de Aplicativo Inteligente" nao deixa as bibliotecas
+  do Python funcionarem. Para liberar:
+   1. Aperte a tecla Windows e digite: Seguranca do Windows
+   2. Abra "Controle de aplicativos e do navegador"
+   3. "Controle de Aplicativo Inteligente" > Configuracoes > Desativado
+  Pode deixar esta janela aberta: quando liberar, o gerador
+  comeca sozinho (se nao comecar, reinicie o PC).
+==================================================================
+'''
+
+
+def espera_liberar():
+    ok, err = testa_bibliotecas()
+    if ok:
+        return
+    if not bloqueado_pelo_windows(err):
+        # instalação quebrada: tenta reinstalar uma vez
+        log('As bibliotecas da IA não abriram. Reinstalando (pode levar alguns minutos)...')
+        nome = 'requirements.txt' if MODO_VIDEO == 'ia' else 'requirements-leve.txt'
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--force-reinstall', '-r', os.path.join(PASTA, nome)], check=False, timeout=3600)
+        ok, err = testa_bibliotecas()
+        if ok:
+            log('Pronto. Reiniciando o gerador...')
+            os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)] + sys.argv[1:])
+    windows = bloqueado_pelo_windows(err)
+    if windows:
+        print(AVISO_WINDOWS, flush=True)
+        aviso = 'O Windows (Controle de Aplicativo Inteligente) está bloqueando a IA neste PC. Desative em Segurança do Windows.'
+    else:
+        linhas = [l for l in err.strip().splitlines() if l.strip()]
+        aviso = 'As bibliotecas da IA não abrem neste PC: ' + (linhas[-1][:150] if linhas else 'erro desconhecido')
+        log(aviso)
+    info = {'gpu': GPU, 'vram': round(VRAM, 1), 'modelo': MODELO, 'versao': VERSAO, 'pausado': True, 'aviso': aviso}
+    while True:
+        try:
+            req('POST', '/api/agente/proximo', info, timeout=30)   # avisa o sistema (e não pega pedidos)
+        except Exception:
+            pass
+        time.sleep(30)
+        ok, err = testa_bibliotecas()
+        if ok:
+            log('Liberado! Reiniciando o gerador...')
+            os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)] + sys.argv[1:])
+
 
 # tamanho do vídeo (vertical 9:16, bom pra Clips/Reels) e ajustes por modelo
 if MODELO == 'wan':
@@ -628,6 +693,7 @@ def sem_suspender():
 def main():
     sem_suspender()
     log(f'Gerador de vídeo Rafa Busca Peças v{VERSAO}')
+    espera_liberar()
     log(f'Placa: {GPU}' + (f' ({VRAM:.0f} GB)' if VRAM else '') + ' — vídeo: ' + {'wan': 'IA Wan 2.2', 'ltx': 'IA LTX-Video', 'cinema': 'cinematográfico com a foto real'}[MODELO])
     log('Deixe esta janela aberta. Os pedidos de vídeo feitos no sistema aparecem aqui.')
     info = {'gpu': GPU, 'vram': round(VRAM, 1), 'modelo': MODELO, 'versao': VERSAO}
