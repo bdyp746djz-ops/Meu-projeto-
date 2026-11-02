@@ -475,6 +475,18 @@ async function atualizaLocal(id, request, env) {
   const txt = v => { v = String(v ?? '').trim(); return v ? v.slice(0, 500) : null; };
   if ('sigla' in b) { sets.push('sigla=?'); binds.push(txt(b.sigla) && txt(b.sigla).toUpperCase().slice(0, 12)); }
   if ('regras' in b) { sets.push('regras=?'); binds.push(txt(b.regras)); }
+  if ('pai' in b) {
+    // mover o local para dentro de outro (ou para a raiz), sem criar ciclo
+    const novo = b.pai || null;
+    if (novo === id) return bad('um local não pode ficar dentro dele mesmo');
+    if (novo) {
+      const ex = await env.DB.prepare('SELECT id FROM locais WHERE id=?').bind(novo).first();
+      if (!ex) return bad('local de destino não existe');
+      const sub = await env.DB.prepare('WITH RECURSIVE sub(id) AS (SELECT ? UNION ALL SELECT l.id FROM locais l JOIN sub ON l.pai=sub.id) SELECT id FROM sub').bind(id).all();
+      if (sub.results.some(r => r.id === novo)) return bad('não dá pra mover um local para dentro de um local que está dentro dele');
+    }
+    sets.push('pai=?'); binds.push(novo);
+  }
   if (b.nome != null && b.nome !== '') { sets.push('nome=?'); binds.push(b.nome); }
   if ('capacidade' in b) { sets.push('capacidade=?'); binds.push(capVal(b.capacidade)); }
   if (!sets.length) return json({ ok: true });

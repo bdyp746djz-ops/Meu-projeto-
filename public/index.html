@@ -144,7 +144,7 @@ nav.bottom{display:none}
 .lc-b{width:36px;height:36px;border:0;background:none;border-radius:50%;color:#757575;display:grid;place-items:center;cursor:pointer;padding:0}
 .lc-b:hover{background:#eee;color:var(--ink)}
 .lc-b .material-icons{font-size:20px}
-@media(max-width:760px){.lc-row{flex-wrap:wrap;padding-left:calc(6px + var(--d,0)*12px)}.lc-ac{width:100%;justify-content:flex-end}.lc-b{width:34px;height:34px}}
+@media(max-width:760px){.lc-row{padding-left:calc(6px + var(--d,0)*12px)}.lc-b{width:34px;height:34px}.lc-pn{font-size:13.5px}}
 .mlsec{margin:14px 0 4px;padding-top:12px;border-top:1px solid #eee}
 .mlcats{display:flex;flex-direction:column;gap:6px;margin:8px 0}
 .mlcat{display:flex;gap:10px;align-items:flex-start;padding:9px 11px;border:1px solid #e0e0e0;border-radius:var(--rad);cursor:pointer;font-size:13.5px;line-height:1.35}
@@ -153,6 +153,23 @@ nav.bottom{display:none}
 .mlbusca{display:flex;gap:8px;align-items:center}
 .mlattrs{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:0 16px}
 .mlmais{margin-top:8px}.mlmais summary{cursor:pointer;color:var(--pri);font-size:13px;padding:6px 0}
+.lc-pc{cursor:pointer;background:#fcfcfc}
+.lc-pc:hover{background:#f3f6ff}
+.lc-ft{width:36px;height:36px;flex-shrink:0;border-radius:4px;overflow:hidden;background:#eceff1;color:#90a4ae;display:grid;place-items:center;position:relative}
+.lc-ft img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.lc-ft .material-icons{font-size:20px}
+.lc-pn{font-size:14px;color:#1e88e5}
+.lc-ir{color:#bdbdbd;flex-shrink:0}
+.lc-sep{padding:10px 14px 6px;font-size:12px;font-weight:500;color:#9e9e9e;text-transform:uppercase;letter-spacing:.04em;background:#fafafa;border-bottom:1px solid #eee}
+.lc-mnu{position:fixed;z-index:70;background:#fff;border-radius:4px;box-shadow:var(--sh2);padding:6px 0;min-width:250px;max-width:94vw}
+.lc-mnu button{display:flex;align-items:center;gap:14px;width:100%;border:0;background:none;padding:10px 16px;font-size:14.5px;color:var(--ink);cursor:pointer;text-align:left}
+.lc-mnu button:hover{background:#f5f5f5}
+.lc-mnu button .material-icons{color:#757575;font-size:21px}
+.lc-mnu button.red,.lc-mnu button.red .material-icons{color:var(--red)}
+.lc-mnu button:disabled{opacity:.4;cursor:default}
+.rel-tot{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 12px}
+.rel-tot div{flex:1;min-width:120px;background:var(--pri-t);border-radius:var(--rad);padding:8px 12px}
+.rel-tot span{display:block;font-size:12px;color:var(--mut)}.rel-tot b{font-size:18px}
 /* componentes */
 .btn{border:1px solid #d0d0d0;background:#fff;border-radius:var(--rad);padding:9px 16px;cursor:pointer;font-weight:500;color:var(--ink);text-decoration:none;display:inline-block;transition:filter .13s,box-shadow .13s,background .13s}
 .btn:hover{background:#f5f5f5}
@@ -753,10 +770,12 @@ function melhorCaixa(raiz){ const f=folhasDe(raiz);
   const com=f.filter(l=>l.capacidade&&(Number(l.ocupacao)||0)<l.capacidade).sort((a,b)=>(b.capacidade-(Number(b.ocupacao)||0))-(a.capacidade-(Number(a.ocupacao)||0)));
   return com[0]||f.find(l=>!l.capacidade)||null; }
 async function locais(){
-  await carregaLocais();
+  const [,pr]=await Promise.all([carregaLocais(),api('/pecas?todas=1')]); S.pecas=pr.pecas;
+  S.ui._porLocal={}; for(const p of S.pecas){ if(p.local_id&&(Number(p.qtd)||0)>0)(S.ui._porLocal[p.local_id]=S.ui._porLocal[p.local_id]||[]).push(p); }
+  Object.values(S.ui._porLocal).forEach(l=>l.sort((a,b)=>a.codigo-b.codigo));
   const ui=S.ui; ui.locQ=ui.locQ||'';
   $('#main').innerHTML=`<div class="dp-bar">
-     <label class="dp-busca"><span class="material-icons">search</span><input id="lq" placeholder="Procurar localização..." value="${esc(ui.locQ)}" autocomplete="off"></label>
+     <label class="dp-busca"><span class="material-icons">search</span><input id="lq" placeholder="Procurar local ou peça..." value="${esc(ui.locQ)}" autocomplete="off"></label>
      <div class="dp-ops">
        <button class="dp-gerar dp-azul" id="lint"><span class="material-icons">auto_awesome</span>LOCALIZAÇÃO INTELIGENTE</button>
        <button class="dp-gerar" id="addr"><span class="material-icons">add</span>GALPÃO / PÁTIO</button>
@@ -765,7 +784,9 @@ async function locais(){
   const desenha=()=>{
     const q=nrm(ui.locQ).split(/\s+/).filter(Boolean); let html;
     if(q.length){ const l=Object.keys(S.locais).filter(id=>{ const t=nrm(locPath(id)+' '+codigoTxt(id)+' '+(S.locais[id].regras||'')); return q.every(w=>t.includes(w)); }).sort((a,b)=>locPath(a).localeCompare(locPath(b),'pt',{numeric:true}));
-      html=l.map(id=>nodeHTML(id,0,true)).join(''); }
+      html=l.map(id=>nodeHTML(id,0,true)).join('');
+      const ps=S.pecas.filter(p=>p.local_id&&S.locais[p.local_id]&&(Number(p.qtd)||0)>0&&q.every(w=>nrm([p.nome,p.marca,p.modelo,p.pn,cod(p.codigo)].join(' ')).includes(w))).slice(0,60);
+      if(ps.length)html+=`<div class="lc-sep">Peças encontradas</div>`+ps.map(p=>linhaPeca(p,0,true)).join(''); }
     else html=locChildren('').map(l=>nodeHTML(l.id,0)).join('');
     $('#llista').innerHTML=html||`<div class="empty">${q.length?'Nada encontrado.':'Nenhuma localização ainda. Comece criando um Galpão/Pátio.'}</div>`;
     bindTree();
@@ -776,7 +797,12 @@ async function locais(){
   S.ui._redesenhaLoc=desenha; desenha();
 }
 function ocupacaoTotal(id){ let t=Number(S.locais[id]&&S.locais[id].ocupacao)||0; for(const c of locChildren(id)) t+=ocupacaoTotal(c.id); return t; }
-function nodeHTML(id,d,plano){ const l=S.locais[id],ch=locChildren(id),open=S.ui.open.has(id),folha=!ch.length;
+function pecasDentro(id,tudo){ const r=[...(S.ui._porLocal&&S.ui._porLocal[id]||[])]; if(tudo)locChildren(id).forEach(c=>r.push(...pecasDentro(c.id,true))); return r; }
+function linhaPeca(p,d,comLocal){ const foto=p.fotos&&p.fotos[0]?`<img src="/api/foto/${p.fotos[0]}" loading="lazy" alt="">`:'<span class="material-icons">build</span>';
+  return `<div class="lc-row lc-pc" style="--d:${d}" data-pc="${p.id}"><span class="lc-tg"></span><span class="lc-ft">${foto}</span>
+    <div class="lc-tx"><div class="lc-pn">${cod(p.codigo)} · ${esc(p.nome)}</div><div class="lc-sb">${brl(p.preco)} · ${Number(p.qtd)||0} un${p.ml?' · <span style="color:var(--ok)">ML</span>':''}${comLocal?` · 📍 ${esc(codigoTxt(p.local_id))}`:''}</div></div>
+    <span class="material-icons lc-ir">chevron_right</span></div>`; }
+function nodeHTML(id,d,plano){ const l=S.locais[id],ch=locChildren(id),open=S.ui.open.has(id),folha=!ch.length,ps=pecasDentro(id),abre=(ch.length||ps.length)&&!plano;
   let info;
   if(folha&&l.capacidade){ const dir=Number(l.ocupacao)||0, cap=l.capacidade, pct=Math.min(100,Math.round(dir/cap*100));
     const cor=pct>=100?'var(--red)':pct>=80?'var(--amber)':'var(--ok)';
@@ -785,24 +811,86 @@ function nodeHTML(id,d,plano){ const l=S.locais[id],ch=locChildren(id),open=S.ui
   const rg=regrasDe(l);
   const ic=folha&&depth(id)>0?'inventory_2':ICON_NIVEL[Math.min(depth(id),2)];
   return `<div class="lc-row" style="--d:${plano?0:d}">
-    <span class="lc-tg material-icons" ${ch.length&&!plano?`data-tg="${id}"`:''}>${ch.length&&!plano?(open?'expand_more':'chevron_right'):''}</span>
+    <span class="lc-tg material-icons" ${abre?`data-tg="${id}"`:''}>${abre?(open?'expand_more':'chevron_right'):''}</span>
     <span class="material-icons lc-ic">${ic}</span>
     <div class="lc-tx"><div class="lc-nm">${esc(plano?locPath(id):l.nome)} <span class="lc-sig">${esc(codigoTxt(id))}</span></div>
       <div class="lc-sb">${info}${rg.length?` <span class="lc-rg" title="Regras de localização automática"><span class="material-icons">auto_awesome</span>${esc(rg.join(', '))}</span>`:''}</div></div>
-    <div class="lc-ac">
-      <button class="lc-b" data-add="${id}" title="Criar dentro"><span class="material-icons">add</span></button>
-      <button class="lc-b" data-etq="${id}" title="Etiqueta"><span class="material-icons">qr_code_2</span></button>
-      <button class="lc-b" data-ren="${id}" title="Editar / regras"><span class="material-icons">edit</span></button>
-      <button class="lc-b" data-del="${id}" title="Excluir"><span class="material-icons">delete_outline</span></button></div></div>
-    ${ch.length&&open&&!plano?ch.map(c=>nodeHTML(c.id,d+1)).join(''):''}`; }
+    <div class="lc-ac"><button class="lc-b" data-mnu="${id}" title="Opções"><span class="material-icons">more_vert</span></button></div></div>
+    ${abre&&open?ch.map(c=>nodeHTML(c.id,d+1)).join('')+ps.map(p=>linhaPeca(p,d+1)).join(''):''}`; }
 function bindTree(){
   const red=()=>S.ui._redesenhaLoc?S.ui._redesenhaLoc():locais();
   document.querySelectorAll('[data-tg]').forEach(e=>e.onclick=()=>{ const id=e.dataset.tg; S.ui.open.has(id)?S.ui.open.delete(id):S.ui.open.add(id); red(); });
   document.querySelectorAll('[data-go]').forEach(e=>e.onclick=()=>{ S.ui.loc=e.dataset.go; S.ui.q=''; S.ui.status='todos'; go('estoque'); });
-  document.querySelectorAll('[data-add]').forEach(e=>e.onclick=()=>novoLocal(e.dataset.add));
-  document.querySelectorAll('[data-etq]').forEach(e=>e.onclick=()=>abreGerador([itemLocal(e.dataset.etq)]));
-  document.querySelectorAll('[data-ren]').forEach(e=>e.onclick=()=>renomear(e.dataset.ren));
-  document.querySelectorAll('[data-del]').forEach(e=>e.onclick=()=>excluirLocal(e.dataset.del));
+  document.querySelectorAll('[data-pc]').forEach(e=>e.onclick=()=>abrePeca(e.dataset.pc));
+  document.querySelectorAll('[data-mnu]').forEach(e=>e.onclick=ev=>{ ev.stopPropagation(); menuLocal(e.dataset.mnu,e); });
+}
+// menu ⋮ de cada local (como o do iBR)
+function fechaMenu(){ const m=document.getElementById('lcmnu'); if(m)m.remove(); document.removeEventListener('click',fechaMenu); }
+function menuLocal(id,btn){
+  fechaMenu();
+  const ps=pecasDentro(id,true), sub=Object.keys(S.locais).filter(x=>x!==id&&locPath(x).startsWith(locPath(id)+' › '));
+  const it=[['add','Adicionar dentro','add'],['edit','Editar / regras','edit'],['mvl','Mover este local','drive_file_move'],
+    ['mvp',`Mover as peças daqui (${ps.length})`,'swap_horiz',!ps.length],['etl','Imprimir etiqueta do local','qr_code_2'],
+    ['eti',`Imprimir etiquetas dos locais internos (${sub.length})`,'account_tree',!sub.length],['etp',`Imprimir etiquetas das peças (${ps.length})`,'print',!ps.length],
+    ['rel','Peças relacionadas','inventory'],['del','Excluir','delete_outline']];
+  const m=document.createElement('div'); m.id='lcmnu'; m.className='lc-mnu';
+  m.innerHTML=it.map(([k,t,ic,off])=>`<button data-k="${k}" ${off?'disabled':''} class="${k==='del'?'red':''}"><span class="material-icons">${ic}</span>${esc(t)}</button>`).join('');
+  document.body.appendChild(m);
+  const r=btn.getBoundingClientRect(), mw=m.offsetWidth, mh=m.offsetHeight;
+  m.style.left=Math.max(8,Math.min(innerWidth-mw-8,r.right-mw))+'px';
+  m.style.top=Math.max(8,(r.bottom+mh+8>innerHeight?r.top-mh-4:r.bottom+4))+'px';
+  m.onclick=ev=>{ const b=ev.target.closest('button[data-k]'); if(!b||b.disabled)return; ev.stopPropagation(); fechaMenu(); const k=b.dataset.k;
+    if(k==='add')novoLocal(id); else if(k==='edit')renomear(id); else if(k==='mvl')moverLocal(id); else if(k==='mvp')moverPecas(id,ps);
+    else if(k==='etl')abreGerador([itemLocal(id)]); else if(k==='eti')abreGerador(sub.sort((a,b)=>locPath(a).localeCompare(locPath(b),'pt',{numeric:true})).map(itemLocal));
+    else if(k==='etp')abreGerador(ps.map(itemPeca)); else if(k==='rel')pecasRelacionadas(id); else if(k==='del'&&confirm('Excluir '+locPath(id)+'?'))excluirLocal(id); };
+  setTimeout(()=>document.addEventListener('click',fechaMenu),0);
+}
+// opções de destino (sem o próprio local e o que está dentro dele)
+function optsDestino(excluir){ const bloq=excluir?new Set([excluir,...Object.keys(S.locais).filter(x=>locPath(x).startsWith(locPath(excluir)+' › '))]):new Set();
+  return Object.keys(S.locais).filter(x=>!bloq.has(x)).map(x=>[x,locPath(x)]).sort((a,b)=>a[1].localeCompare(b[1],'pt',{numeric:true})).map(([x,c])=>`<option value="${x}">${esc(codigoTxt(x))} — ${esc(c)}</option>`).join(''); }
+function moverLocal(id){
+  modal(`<h3>Mover local</h3><p class="small mut">${esc(locPath(id))} — leva junto tudo que está dentro.</p>
+   <label class="f">Colocar dentro de<select id="mvd"><option value="">— nível principal (sem pai) —</option>${optsDestino(id)}</select></label>
+   <div class="top" style="margin-top:14px"><button class="btn p" id="ok">Mover</button><button class="btn" id="cc">Cancelar</button></div>`);
+  $('#mvd').value=S.locais[id].pai||''; $('#cc').onclick=fecha;
+  $('#ok').onclick=async()=>{ try{ await api('/locais/'+id,{method:'PATCH',body:{pai:$('#mvd').value||null}}); fecha(); toast('Local movido'); locais(); }catch(e){ toast(e.message); } };
+}
+function moverPecas(id,ps){
+  modal(`<h3>Mover ${ps.length} peça(s)</h3><p class="small mut">De ${esc(locPath(id))} (inclui os locais internos).</p>
+   <label class="f">Para<select id="mvd"><option value="">— escolha o destino —</option>${optsDestino(null)}</select></label>
+   <div class="top" style="margin-top:14px"><button class="btn p" id="ok">Mover</button><button class="btn" id="cc">Cancelar</button></div>`);
+  $('#cc').onclick=fecha;
+  $('#ok').onclick=async()=>{ const dst=$('#mvd').value; if(!dst)return toast('Escolha o destino');
+    try{ await api('/mover',{method:'POST',body:{ids:ps.map(p=>p.id),local_id:dst}}); fecha(); toast(ps.length+' peça(s) movida(s) para '+codigoTxt(dst)); locais(); }catch(e){ toast(e.message); } };
+}
+// peças relacionadas: totais, lista, imprimir relação e desvincular
+function pecasRelacionadas(id){
+  const ps=pecasDentro(id,true), tq=ps.reduce((a,p)=>a+(Number(p.qtd)||0),0), tv=ps.reduce((a,p)=>a+(Number(p.preco)||0)*(Number(p.qtd)||0),0);
+  modal(`<h3>Peças relacionadas</h3><p class="small mut">${esc(codigoTxt(id))} — ${esc(locPath(id))}</p>
+   <div class="rel-tot"><div><span>Total de peças</span><b>${tq}</b></div><div><span>Valor total de venda</span><b>${brl(tv)}</b></div><div><span>Cadastros</span><b>${ps.length}</b></div></div>
+   ${ps.length?`<div class="tw" style="max-height:48vh;overflow:auto"><table><tr><th style="width:30px"><input type="checkbox" id="rtodos" style="width:auto"></th><th>Código</th><th>Local</th><th>Descrição</th><th>Qtd</th><th>Preço</th></tr>
+     ${ps.map(p=>`<tr><td><input type="checkbox" data-rp="${p.id}" style="width:auto"></td><td>${cod(p.codigo)}</td><td class="small">${esc(codigoTxt(p.local_id))}</td><td>${esc(p.nome)}</td><td>${Number(p.qtd)||0}</td><td>${brl(p.preco)}</td></tr>`).join('')}</table></div>`
+     :'<div class="empty">Nenhuma peça guardada aqui.</div>'}
+   <div class="top" style="margin-top:14px;flex-wrap:wrap"><button class="btn" id="rfe">Fechar</button><button class="btn p" id="rim" ${ps.length?'':'disabled'}>Imprimir relação</button><button class="btn" id="rde" disabled>Desvincular</button></div>`);
+  const marcados=()=>[...document.querySelectorAll('[data-rp]')].filter(c=>c.checked).map(c=>c.dataset.rp);
+  const at=()=>{ const n=marcados().length; $('#rde').disabled=!n; $('#rde').textContent=n?`Desvincular (${n})`:'Desvincular'; };
+  document.querySelectorAll('[data-rp]').forEach(c=>c.onchange=at);
+  if($('#rtodos'))$('#rtodos').onchange=e=>{ document.querySelectorAll('[data-rp]').forEach(c=>c.checked=e.target.checked); at(); };
+  $('#rfe').onclick=fecha;
+  $('#rim').onclick=()=>imprimeRelacao(id,ps,tq,tv);
+  $('#rde').onclick=async()=>{ const ids=marcados(); if(!ids.length||!confirm(`Tirar ${ids.length} peça(s) deste local? Elas ficam "sem localização".`))return;
+    try{ await api('/mover',{method:'POST',body:{ids,local_id:''}}); fecha(); toast(ids.length+' peça(s) desvinculada(s)'); locais(); }catch(e){ toast(e.message); } };
+}
+function imprimeRelacao(id,ps,tq,tv){
+  const w=window.open('','_blank'); if(!w)return toast('Libere a abertura de janelas para imprimir');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Relação de peças — ${esc(codigoTxt(id))}</title><style>
+   body{font-family:Arial,sans-serif;margin:18mm 14mm;color:#111}h1{font-size:18px;margin:0 0 2px}p{margin:0 0 10px;color:#555;font-size:12px}
+   table{width:100%;border-collapse:collapse;font-size:12px}th,td{border-bottom:1px solid #ccc;padding:5px 6px;text-align:left}th{background:#eee}
+   .tot{margin-top:10px;font-size:13px}.tot b{margin-right:18px}</style></head><body>
+   <h1>Relação de peças — ${esc(codigoTxt(id))}</h1><p>${esc(locPath(id))} · ${esc(LOJA)} · ${new Date().toLocaleString('pt-BR')}</p>
+   <table><tr><th>Código</th><th>Local</th><th>Descrição</th><th>Qtd</th><th>Preço</th></tr>${ps.map(p=>`<tr><td>${cod(p.codigo)}</td><td>${esc(codigoTxt(p.local_id))}</td><td>${esc(p.nome)}</td><td>${Number(p.qtd)||0}</td><td>${brl(p.preco)}</td></tr>`).join('')}</table>
+   <div class="tot"><b>Total de peças: ${tq}</b><b>Valor total de venda: ${brl(tv)}</b></div>
+   <script>onload=()=>setTimeout(()=>print(),300)<\/script></body></html>`); w.document.close();
 }
 // visão geral das regras
 function telaRegras(){
