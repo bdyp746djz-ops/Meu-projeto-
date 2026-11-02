@@ -316,8 +316,11 @@ const S = { user:null, view:'painel', pecas:[], locais:{}, ui:{ q:'', loc:'', st
 const VIEWS = [['painel','home','Início','Início'],['etiquetas','label','Etiquetas','Etiquetas'],['download','file_download','Download Estoque','Download'],['nova','view_list','Cadastro de Peças','Cadastrar'],['estoque','search','Consulta de Peças','Consulta'],['locais','place','Localização','Locais'],['mover','swap_horiz','Movimentar','Mover'],['vendas','shopping_cart','Vendas','Vendas'],['integracoes','store','Anúncios ML','ML']];
 
 // ---------- boot / auth ----------
+let codigoDoLink=null; // /p/000123 ou /l/<id> vindo do QR lido pela câmera do celular
 async function boot(){
   if(location.pathname==='/api/ml/callback'){ return mlFinaliza(); }
+  const lk=location.pathname.match(/^\/(p|l)\/([^/]+)\/?$/i);
+  if(lk){ codigoDoLink=lk[1].toUpperCase()+':'+decodeURIComponent(lk[2]); history.replaceState(null,'','/'); }
   try{ const { user } = await api('/me'); S.user=user; shell(); }
   catch{ login(false); }
 }
@@ -334,6 +337,7 @@ function login(primeiro){
   $('#root').innerHTML = `<div class="center"><form class="authcard" id="f">
     <div class="brand"><span class="logo">🔧</span> Rafa Busca Peças</div>
     <h3>${primeiro?'Criar acesso do administrador':'Entrar'}</h3>
+    ${codigoDoLink&&!primeiro?`<p class="small mut">Entre para ver ${codigoDoLink[0]==='P'?'a peça '+esc(codigoDoLink.slice(2)):'a localização'}.</p>`:''}
     ${primeiro?'<label class="f">Seu nome</label><input name="nome" placeholder="Ex.: Rafael">':''}
     <label class="f">Login</label><input name="login" autocomplete="username" required>
     <label class="f">Senha</label><input name="senha" type="password" autocomplete="${primeiro?'new-password':'current-password'}" required>
@@ -368,6 +372,7 @@ function shell(){
   $('#scanbtn').onclick=escanear;
   $('#gbusca').onkeydown=e=>{ if(e.key==='Enter'){ S.ui.q=e.target.value.trim(); S.ui.status='todos'; S.ui.loc=''; e.target.blur(); go('estoque'); } };
   renderNav(); go(location.hash.indexOf('integracoes')>=0 ? 'integracoes' : S.view);
+  if(codigoDoLink){ const c=codigoDoLink; codigoDoLink=null; tratarCodigo(c); }
 }
 function renderNav(){
   const link=curto=>([k,i,l,c])=>`<a data-v="${k}" class="${k===S.view?'on':''}"><span class="i material-icons">${i}</span>${curto?c:l}</a>`;
@@ -1603,9 +1608,16 @@ function itemPeca(p){
   const c=String(p.codigo).padStart(6,'0'), linhas=[];
   if(p.pn)linhas.push('PN:'+p.pn); else if(p.veiculo)linhas.push('Sucata:'+p.veiculo);
   linhas.push('Cod:'+c);
-  return { tipo:'peca', id:p.id, rotulo:cod(p.codigo)+' · '+p.nome, qr:'P:'+c, loja:LOJA, titulo:veic||p.nome, linhas, rodape:veic?p.nome:'' };
+  const local=p.local_id&&S.locais[p.local_id]?codigoTxt(p.local_id):'';
+  return { tipo:'peca', id:p.id, rotulo:cod(p.codigo)+' · '+p.nome, qr:linkQR('p',c), loja:LOJA, titulo:veic||p.nome, linhas, local, rodape:veic?p.nome:'' };
 }
-function itemLocal(id){ const [cima,baixo]=codigoLocal(id); return { tipo:'local', rotulo:codigoTxt(id)+' — '+locPath(id), qr:'L:'+id, acima:cima, grande:baixo }; }
+function itemLocal(id){ const [cima,baixo]=codigoLocal(id); return { tipo:'local', rotulo:codigoTxt(id)+' — '+locPath(id), qr:linkQR('l',id), acima:cima, grande:baixo }; }
+// o QR leva um link: lido pela câmera do celular, abre a peça (ou a caixa) direto no sistema
+const linkQR=(t,v)=>location.origin+'/'+t+'/'+encodeURIComponent(v);
+// entende o que veio do leitor/câmera: link novo (…/p/000123), etiqueta antiga (P:000123) ou só o número
+// (aceita também ; e Ç no lugar de / e :, que é o que o leitor USB digita com o teclado ABNT2)
+function lePeca(v){ v=String(v||'').trim(); let m=v.match(/^0*(\d{1,9})$/)||v.match(/(?:^|[^a-z])p[^a-z0-9]{0,2}0*(\d{1,9})[^a-z0-9]{0,2}$/i); return m?parseInt(m[1],10):null; }
+function leLocal(v){ v=String(v||'').trim(); const m=v.match(/(?:^|[^a-z])l[^a-z0-9]{1,2}([\w-]+)[^\w-]{0,2}$/i); return m?decodeURIComponent(m[1]):null; }
 async function etiquetas(){
   await carregaLocais(); const { pecas }=await api('/pecas?todas=1'); S.pecas=pecas;
   const ui=S.ui; ui.etqTipo=ui.etqTipo||'pecas'; ui.etqOrd=ui.etqOrd||'nome'; ui.etqMos=ui.etqMos||'ativos'; ui.etqQ=ui.etqQ||'';
@@ -1716,13 +1728,13 @@ function blocoTexto(doc,partes,x,w,H,pad){
 }
 // etiqueta de peça: loja, veículo em negrito, PN/sucata, código, peça · QR à direita · site na vertical
 function desenhaPeca(doc,it,W,H){
-  const pad=Math.min(W,H)*0.06, vt=H*0.09, q=Math.min(H-2*pad,W*0.33);
-  const qx=W-pad-vt-q; qrPDF(doc,it.qr,qx,(H-q)/2,q);
+  const pad=Math.min(W,H)*0.06, vt=H*0.09, q=Math.min(H-2*pad,W*0.33), folga=q*0.1; // folga branca entre o QR e o texto (o leitor precisa)
+  const qx=W-pad-vt-folga-q; qrPDF(doc,it.qr,qx,(H-q)/2,q);
   doc.setFont('helvetica','bold'); doc.setFontSize(10); const w10=doc.getTextWidth(SITE);
   const fsv=Math.min(10*(H-2*pad)*0.78/w10, vt/(0.72*PT)); doc.setFontSize(fsv); const sw=doc.getTextWidth(SITE);
   doc.text(SITE, W-pad-vt+(vt-fsv*PT*0.72)/2, (H-sw)/2, {angle:-90});
   const k=H/50;
-  blocoTexto(doc,[{t:it.loja,size:10*k,max:1},{t:it.titulo,size:14*k,bold:true,max:2},...it.linhas.map(l=>({t:l,size:10*k,max:1})),{t:it.rodape,size:11*k,max:2}],pad,qx-pad*1.8,H,pad);
+  blocoTexto(doc,[{t:it.loja,size:10*k,max:1},{t:it.titulo,size:14*k,bold:true,max:2},...it.linhas.map(l=>({t:l,size:10*k,max:1})),{t:it.local?'Local: '+it.local:'',size:11*k,bold:true,max:1},{t:it.rodape,size:11*k,max:2}],pad,qx-folga-pad,H,pad);
 }
 // etiqueta de caixa/prateleira: QR à esquerda, caminho e nome grande
 function desenhaLocal(doc,it,W,H){
@@ -1770,8 +1782,7 @@ function renderMover(){
   $('#mdest').onchange=e=>{ MV.destino=e.target.value; atualizaMok(); };
   const scan=$('#mscan'); scan.focus();
   scan.onkeydown=async e=>{ if(e.key!=='Enter')return; e.preventDefault(); const v=scan.value.trim(); scan.value=''; if(!v)return;
-    const mm=v.match(/^(?:P[:\-]?)?0*(\d+)$/i); if(!mm){ toast('Use o número da peça'); scan.focus(); return; }
-    const codigo=parseInt(mm[1]);
+    const codigo=lePeca(v); if(codigo==null){ toast('Use o número da peça'); scan.focus(); return; }
     if(MV.fila.find(x=>Number(x.codigo)===codigo)){ toast('Já está na lista'); scan.focus(); return; }
     try{ const {peca}=await api('/peca-codigo/'+codigo); MV.fila.push(peca); renderFila(); }
     catch{ toast('Peça '+cod(codigo)+' não encontrada'); }
@@ -1799,7 +1810,7 @@ async function renderConferir(){
   const {pecas}=await api('/pecas?local='+MV.confBox); MV.confEsper=pecas.filter(p=>Number(p.qtd)>0);
   $('#cwrap').innerHTML=`<label class="f" style="margin-top:4px">Leia/digite as peças que estão na caixa<input id="cscan" placeholder="Ex.: 123" autocomplete="off"></label><div id="cres"></div>`;
   const scan=$('#cscan'); scan.focus();
-  scan.onkeydown=e=>{ if(e.key!=='Enter')return; e.preventDefault(); const v=scan.value.trim(); scan.value=''; const mm=v.match(/^(?:P[:\-]?)?0*(\d+)$/i); if(mm)MV.confAchadas.add(parseInt(mm[1])); renderConfRes(); scan.focus(); };
+  scan.onkeydown=e=>{ if(e.key!=='Enter')return; e.preventDefault(); const v=scan.value.trim(); scan.value=''; const cp=lePeca(v); if(cp!=null)MV.confAchadas.add(cp); renderConfRes(); scan.focus(); };
   renderConfRes();
 }
 function renderConfRes(){ const el=$('#cres'); if(!el)return; const esp=MV.confEsper||[];
@@ -1865,10 +1876,10 @@ async function escanear(){
 }
 // P:000123 = peça · L:<id> = localização · outro texto = busca
 async function tratarCodigo(t){
-  let m=t.match(/^P:?0*(\d+)$/i);
-  if(m){ try{ const { peca }=await api('/peca-codigo/'+parseInt(m[1],10)); await carregaLocais(); if(!S.pecas.find(x=>x.id===peca.id))S.pecas.push(peca); abrePeca(peca.id); }catch(e){ toast('Peça '+t+' não encontrada'); } return; }
-  m=t.match(/^L:(.+)$/i);
-  if(m){ await carregaLocais(); if(!S.locais[m[1]])return toast('Localização não encontrada'); S.ui.loc=m[1]; S.ui.q=''; S.ui.status='todos'; await go('estoque'); toast('📍 '+locPath(m[1])); return; }
+  const cp=/^\d+$/.test(t)?null:lePeca(t);
+  if(cp!=null){ try{ const { peca }=await api('/peca-codigo/'+cp); await carregaLocais(); if(!S.pecas.find(x=>x.id===peca.id))S.pecas.push(peca); abrePeca(peca.id); }catch(e){ toast('Peça '+cod(cp)+' não encontrada'); } return; }
+  const lc=leLocal(t);
+  if(lc){ await carregaLocais(); if(!S.locais[lc])return toast('Localização não encontrada'); S.ui.loc=lc; S.ui.q=''; S.ui.status='todos'; await go('estoque'); toast('📍 '+locPath(lc)); return; }
   S.ui.q=t; S.ui.status='todos'; S.ui.loc=''; go('estoque');
 }
 
