@@ -158,6 +158,10 @@ async function api(request, env, url) {
   if (p === '/api/agente/instalador' && m === 'GET') return agenteInstalador(env, url, user);
   if (p === '/api/agente/chave' && m === 'POST') return agenteNovaChave(env, user);
   if (p === '/api/ml/expedicao' && m === 'GET') return mlExpedicao(env);
+  mt = p.match(/^\/api\/ml\/dce\/(\d+)$/);
+  if (mt && (m === 'GET' || m === 'POST')) return mlDce(mt[1], m, env, user);
+  mt = p.match(/^\/api\/ml\/dce\/(\d+)\/doc\/([\w-]+)$/);
+  if (mt && m === 'GET') return mlDceDoc(mt[1], mt[2], url, env);
   mt = p.match(/^\/api\/ml\/etiqueta-envio\/(\d+)$/);
   if (mt && m === 'GET') return mlEtiquetaEnvio(mt[1], env);
 
@@ -704,6 +708,50 @@ async function mlExpedicao(env) {
     }),
   }));
   return json({ conectado: true, pedidos });
+}
+// ---------- DC-e (Declaração de Conteúdo eletrônica): vendedor sem nota fiscal libera a etiqueta ----------
+// documentação do ML: POST /mlb/order/{id}/dce/emission · GET /mlb/order/{id}/dce/info · GET .../dce/info/{dce_id}?doctype=pdf|xml|json
+function dceDocs(d) {   // acha os documentos na resposta, seja qual for o formato
+  const out = [], vistos = new Set();
+  const visita = (o, pai) => {
+    if (!o || typeof o !== 'object') return;
+    if (Array.isArray(o)) { o.forEach(x => visita(x, pai)); return; }
+    const id = o.dce_id ?? o.document_id ?? (/(dce|document|fiscal)/i.test(pai || '') ? o.id : undefined) ?? (o.access_key || o.chave ? o.id : undefined);
+    if (id != null && !vistos.has(String(id))) {
+      vistos.add(String(id));
+      out.push({ id: String(id), status: o.status || o.state || null, chave: o.access_key || o.key || o.chave || null, numero: o.number || o.numero || null });
+    }
+    for (const [k, v] of Object.entries(o)) if (v && typeof v === 'object') visita(v, k);
+  };
+  visita(d, 'dce');
+  return out.slice(0, 10);
+}
+async function mlDce(orderId, m, env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  const token = await mlToken(env);
+  if (!token) return bad('conecte o Mercado Livre primeiro');
+  const base = '/mlb/order/' + orderId + '/dce';
+  if (m === 'POST') {
+    let r;
+    try { r = await mlReq(token, 'POST', base + '/emission'); }
+    catch (e) {
+      if (!/body|json|content|payload/i.test(e.message)) return bad('o Mercado Livre recusou a DC-e: ' + e.message);
+      try { r = await mlReq(token, 'POST', base + '/emission', {}); } catch (e2) { return bad('o Mercado Livre recusou a DC-e: ' + e2.message); }
+    }
+    return json({ ok: true, resposta: r });
+  }
+  try {
+    const d = await mlReq(token, 'GET', base + '/info');
+    return json({ info: d, docs: dceDocs(d), status: (d && (d.status || d.state)) || null });
+  } catch (e) { return bad('não consegui consultar a DC-e: ' + e.message, /404|not.?found/i.test(e.message) ? 404 : 400); }
+}
+async function mlDceDoc(orderId, dceId, url, env) {
+  const token = await mlToken(env);
+  if (!token) return bad('conecte o Mercado Livre primeiro');
+  const fmt = url.searchParams.get('tipo') === 'xml' ? 'xml' : 'pdf';
+  const r = await fetch(ML_API + '/mlb/order/' + orderId + '/dce/info/' + encodeURIComponent(dceId) + '?doctype=' + fmt, { headers: { Authorization: 'Bearer ' + token } });
+  if (!r.ok) { const d = await r.json().catch(() => ({})); return bad('o Mercado Livre não liberou o documento: ' + (d.message || 'HTTP ' + r.status)); }
+  return new Response(r.body, { headers: { 'content-type': fmt === 'pdf' ? 'application/pdf' : 'application/xml', 'content-disposition': `inline; filename="dce-${orderId}.${fmt}"`, 'cache-control': 'no-store' } });
 }
 async function mlEtiquetaEnvio(shipId, env) {
   const token = await mlToken(env);
