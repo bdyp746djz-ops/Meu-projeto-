@@ -893,11 +893,13 @@ async function caixaVideo(p){
   d.videos=d.videos.filter(x=>x.tipo!=='foto');
   const v=d.videos[0], ag=d.agente||{}, pc=ag.configurado?(ag.online?`🟢 PC conectado${ag.gpu?' ('+esc(ag.gpu)+')':''}`:`🔴 PC desligado ou gerador fechado (visto ${quandoFoi(ag.visto)})`):'⚪ Gerador ainda não instalado no PC';
   let h=`<div style="margin-bottom:6px">${pc}</div>`;
+  const nEdit=(p.fotos||[]).filter(k=>/\/ia-/.test(k)).length;
+  if(nEdit&&!fpend)h+=`<div class="mlact" style="margin:0 0 8px"><button class="btn sm" id="vorig">↩️ Voltar à foto original${ag.configurado?' e refazer com IA':''}</button></div>`;
   if(fpend)h+=`<div style="margin-bottom:8px"><span class="spin-s"></span><b>📷 Foto sendo melhorada no PC</b>${fpend.progresso?' — '+esc(fpend.progresso):fpend.status==='fila'?' — na fila':''}</div>`;
   else if(ferr)h+=`<div style="margin-bottom:8px;color:var(--red)">📷 A melhoria da foto deu erro: ${esc(ferr.erro||'')} <button class="btn sm" data-vr="${ferr.id}">Tentar de novo</button></div>`;
   else if(fok&&Date.now()-fok.atualizado_em<3*864e5)h+=`<div style="margin-bottom:8px">✅ <b>Foto melhorada no PC</b>${fok.detalhe?' — '+esc(fok.detalhe):''}</div>`;
   const pronto=d.videos.find(x=>x.status==='pronto');
-  if(v&&(v.status==='fila'||v.status==='gerando')) h+=`<div><span class="spin-s"></span><b>${ST_VID[v.status]}</b>${v.progresso?' — '+esc(v.progresso):''}${v.status==='fila'&&d.fila>1?' · '+d.fila+' na fila':''}</div>${!ag.online?'<div class="small" style="color:var(--amber);margin-top:4px">Ligue o PC e abra o "Gerador de video Rafa" na Área de Trabalho.</div>':''}`;
+  if(v&&(v.status==='fila'||v.status==='gerando')) h+=`<div><span class="spin-s"></span><b>${ST_VID[v.status]}</b>${v.status==='fila'&&fpend?' — começa quando a foto ficar pronta':''}${v.progresso?' — '+esc(v.progresso):''}${v.status==='fila'&&d.fila>1?' · '+d.fila+' na fila':''}</div>${!ag.online?'<div class="small" style="color:var(--amber);margin-top:4px">Ligue o PC e abra o "Gerador de video Rafa" na Área de Trabalho.</div>':''}`;
   else if(v&&v.status==='erro') h+=`<div style="color:var(--red)">⚠️ ${esc(v.erro||'erro')}</div><div class="mlact"><button class="btn sm" data-vr="${v.id}">Tentar de novo</button></div>`;
   if(pronto) h+=`<video controls playsinline preload="metadata" src="/api/video/${esc(pronto.video_key)}#t=0.1" style="width:100%;max-height:420px;background:#000;border-radius:6px;margin-top:8px"></video>
     <div class="mlact"><a class="btn sm" href="/api/video/${esc(pronto.video_key)}" download="video-${cod(p.codigo).replace('#','')}.mp4"><span class="material-icons" style="font-size:16px;vertical-align:-3px">download</span> Baixar (pra postar como Clip no app do ML)</a></div>`;
@@ -906,6 +908,14 @@ async function caixaVideo(p){
     <div class="small mut" style="margin-top:4px">${ag.modelo==='cinema'?'Vídeo de 10 s feito com a foto real da peça (câmera se aproximando e luz de estúdio): a peça não muda.':'Usa a 1ª foto (a de fundo branco). Confira o vídeo antes de usar: a IA pode mudar detalhes da peça.'}</div>`;
   el.innerHTML=h;
   if($('#vgera'))$('#vgera').onclick=async()=>{ try{ await api('/videos',{method:'POST',body:{peca_id:p.id}}); toast('Pedido enviado pro PC'); caixaVideo(p); }catch(e){ toast(e.message); } };
+  if($('#vorig'))$('#vorig').onclick=async()=>{
+    if(!confirm(`Tirar ${nEdit===1?'a foto editada':'as '+nEdit+' fotos editadas'} e voltar à foto original?${p.ml_id?'\n• O anúncio no Mercado Livre também volta para a original.':''}${ag.configurado?'\n• Depois o PC refaz a edição com IA a partir da original e gera o vídeo com a foto nova'+(p.ml_id?' (e coloca a foto nova no anúncio)':'')+'.':''}`))return;
+    try{ const r=await api('/pecas/'+p.id+'/fotos-originais',{method:'POST',body:{ml:!!p.ml_id,refazer:!!ag.configurado}});
+      p.fotos=r.fotos; const i=S.pecas.findIndex(x=>x.id===p.id); if(i>=0)S.pecas[i]=p;
+      const m=['↩️ Foto original de volta']; if(r.ml)m.push(r.ml==='ok'?'anúncio do ML atualizado':'ML: '+r.ml);
+      if(r.foto)m.push('edição no PC: '+r.foto); if(r.video)m.push('vídeo: '+r.video); if(r.pc)m.push(r.pc);
+      toast(m.join(' · ')); abrePeca(p.id);
+    }catch(e){ toast(e.message); } };
   el.querySelectorAll('[data-vr]').forEach(b=>b.onclick=async()=>{ await api('/videos/'+b.dataset.vr+'/repetir',{method:'POST'}); caixaVideo(p); });
   if((v&&(v.status==='fila'||v.status==='gerando'))||fpend)window._vidT=setTimeout(async()=>{ if(fpend){ try{ const {peca}=await api('/pecas/'+p.id); if(peca&&JSON.stringify(peca.fotos)!==JSON.stringify(p.fotos)){ Object.assign(p,peca); const i=S.pecas.findIndex(x=>x.id===p.id); if(i>=0)S.pecas[i]=p; if($('#vidbox'))return abrePeca(p.id); } }catch(_){ } } caixaVideo(p); },8000);
 }

@@ -154,6 +154,8 @@ async function api(request, env, url) {
   if (p === '/api/agente/status' && m === 'GET') return json(await agenteResumo(env));
   if (p === '/api/ia/comandos' && m === 'GET') return json(await comandosIA(env));
   if (p === '/api/ia/foto' && m === 'POST') return criaFotoIA(request, env);
+  mt = p.match(/^\/api\/pecas\/([\w-]+)\/fotos-originais$/);
+  if (mt && m === 'POST') return fotosOriginais(mt[1], request, env, url);
   if (p === '/api/ia/comandos' && m === 'POST') return salvaComandosIA(request, env, user);
   if (p === '/api/agente/instalador' && m === 'GET') return agenteInstalador(env, url, user);
   if (p === '/api/agente/chave' && m === 'POST') return agenteNovaChave(env, user);
@@ -1135,8 +1137,14 @@ async function agenteApi(p, m, request, env, url) {
     if (info.pausado) return json({ job: null });   // PC com problema (ex.: Windows bloqueando a IA): não entrega pedidos
     // pedido parado há mais de 3 h (PC desligou no meio) volta pra fila
     await env.DB.prepare("UPDATE videos SET status='fila' WHERE status='gerando' AND atualizado_em < ?").bind(now() - 3 * 3600e3).run();
-    const v = await env.DB.prepare("SELECT * FROM videos WHERE status='fila' ORDER BY criado_em LIMIT 1").first();
+    const v = await env.DB.prepare("SELECT * FROM videos v WHERE status='fila' AND NOT (COALESCE(v.tipo,'video')='video' AND EXISTS (SELECT 1 FROM videos f WHERE f.peca_id=v.peca_id AND f.tipo='foto' AND f.status IN ('fila','gerando'))) ORDER BY criado_em LIMIT 1").first();
     if (!v) return json({ job: null });
+    if (v.tipo !== 'foto' && !/\/ia-/.test(v.foto_key || '')) {   // a foto foi melhorada no PC depois do pedido: o vídeo usa ela
+      const pc = await env.DB.prepare('SELECT fotos FROM pecas WHERE id=?').bind(v.peca_id).first();
+      let fs = []; try { fs = JSON.parse((pc && pc.fotos) || '[]'); } catch { /* sem fotos */ }
+      const melhor = fs.find(k => /\/ia-pc-/.test(k));
+      if (melhor) { v.foto_key = melhor; await env.DB.prepare('UPDATE videos SET foto_key=? WHERE id=?').bind(melhor, v.id).run(); }
+    }
     await env.DB.prepare("UPDATE videos SET status='gerando', progresso='o PC começou a gerar', atualizado_em=? WHERE id=?").bind(now(), v.id).run();
     if (v.tipo === 'foto') { let opcoes = {}; try { opcoes = JSON.parse(v.prompt || '{}'); } catch { /* sem opções */ }
       return json({ job: { id: v.id, tipo: 'foto', foto_url: url.origin + '/api/foto/' + v.foto_key, opcoes } }); }
@@ -1151,7 +1159,7 @@ async function agenteApi(p, m, request, env, url) {
   }
   mt = p.match(/^\/api\/agente\/video\/([\w-]+)$/);
   if (mt && m === 'POST') {
-    const v = await env.DB.prepare('SELECT id,peca_id,tipo FROM videos WHERE id=?').bind(mt[1]).first();
+    const v = await env.DB.prepare('SELECT id,peca_id,tipo,prompt FROM videos WHERE id=?').bind(mt[1]).first();
     if (!v) return bad('pedido não encontrado', 404);
     if (v.tipo === 'foto') {   // foto melhorada no PC: vira a 1ª foto da peça (troca a versão IA anterior, se houver)
       if (!(request.headers.get('content-type') || '').startsWith('image/')) return bad('envie uma imagem');
@@ -1161,8 +1169,14 @@ async function agenteApi(p, m, request, env, url) {
       let fs = []; try { fs = JSON.parse((pc && pc.fotos) || '[]'); } catch { /* vazio */ }
       if (fs.length && /\/ia-/.test(fs[0])) fs[0] = key; else fs.unshift(key);
       await env.DB.prepare('UPDATE pecas SET fotos=?, atualizado_em=? WHERE id=?').bind(JSON.stringify(fs.slice(0, 12)), now(), v.peca_id).run();
+      let det = (url.searchParams.get('detalhe') || '').slice(0, 260);
+      let op = {}; try { op = JSON.parse(v.prompt || '{}'); } catch { /* sem opções */ }
+      if (op.ml) {
+        const pm = await env.DB.prepare('SELECT ml_id FROM pecas WHERE id=?').bind(v.peca_id).first();
+        if (pm && pm.ml_id) { const res = await mlTrocaFotos(env, pm.ml_id, fs.slice(0, 12), url.origin); det += res === 'ok' ? ' · anúncio do ML atualizado' : ' · ML: ' + res.slice(0, 60); }
+      }
       await env.DB.prepare("UPDATE videos SET status='pronto', video_key=?, detalhe=?, erro=NULL, progresso=NULL, atualizado_em=? WHERE id=?")
-        .bind(key, (url.searchParams.get('detalhe') || '').slice(0, 300) || null, now(), v.id).run();
+        .bind(key, det || null, now(), v.id).run();
       await setCfg(env, 'agente_visto', String(now()));
       return json({ ok: true, key });
     }
@@ -1183,8 +1197,10 @@ async function agenteApi(p, m, request, env, url) {
   return bad('rota do gerador não encontrada', 404);
 }
 async function criaVideo(request, env) {
+  return novoVideo(env, await request.json().catch(() => ({})));
+}
+async function novoVideo(env, b) {
   await garanteVideos(env);
-  const b = await request.json().catch(() => ({}));
   const row = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(b.peca_id || '').first();
   if (!row) return bad('peça não encontrada', 404);
   const pc = parsePeca(row), fotos = pc.fotos || [];
@@ -1200,8 +1216,10 @@ async function criaVideo(request, env) {
 }
 // foto melhorada no PC (recorte BiRefNet + melhoria + luz, com trava de integridade)
 async function criaFotoIA(request, env) {
+  return novaFotoIA(env, await request.json().catch(() => ({})));
+}
+async function novaFotoIA(env, b) {
   await garanteVideos(env);
-  const b = await request.json().catch(() => ({}));
   const row = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(b.peca_id || '').first();
   if (!row) return bad('peça não encontrada', 404);
   const pc = parsePeca(row), fotos = pc.fotos || [];
@@ -1214,6 +1232,38 @@ async function criaFotoIA(request, env) {
   await env.DB.prepare("INSERT INTO videos (id,peca_id,status,prompt,foto_key,criado_em,atualizado_em,tipo) VALUES (?,?,?,?,?,?,?,'foto')")
     .bind(id, pc.id, 'fila', JSON.stringify(b.opcoes || {}).slice(0, 2000), origem, now(), now()).run();
   return json({ ok: true, id });
+}
+// tira as fotos editadas (ia-*) e deixa as originais; opcional: atualiza o anúncio do ML
+// e manda o PC refazer a edição (a partir da original) e depois o vídeo (com a foto já editada)
+async function fotosOriginais(pecaId, request, env, url) {
+  const b = await request.json().catch(() => ({}));
+  const row = await env.DB.prepare('SELECT id,fotos,ml_id FROM pecas WHERE id=?').bind(pecaId).first();
+  if (!row) return bad('peça não encontrada', 404);
+  let fs = []; try { fs = JSON.parse(row.fotos || '[]'); } catch { /* sem fotos */ }
+  const editadas = fs.filter(k => /\/ia-/.test(k)), ficam = fs.filter(k => !/\/ia-/.test(k));
+  if (!ficam.some(k => !/\/arte-/.test(k))) return bad('a foto original desta peça não ficou guardada no sistema — adicione a foto original de novo em Editar');
+  if (editadas.length) await env.DB.prepare('UPDATE pecas SET fotos=?, atualizado_em=? WHERE id=?').bind(JSON.stringify(ficam), now(), row.id).run();
+  const r = { ok: true, tiradas: editadas.length, fotos: ficam };
+  if (b.ml && row.ml_id) r.ml = await mlTrocaFotos(env, row.ml_id, ficam, url.origin);
+  if (b.refazer) {
+    if (!(await getCfg(env, 'agente_token'))) r.pc = 'o gerador não está instalado no PC';
+    else {
+      const jf = await (await novaFotoIA(env, { peca_id: row.id, opcoes: { ml: !!(b.ml && row.ml_id) } })).json();
+      r.foto = jf.erro ? 'erro: ' + jf.erro : 'na fila';
+      const jv = await (await novoVideo(env, { peca_id: row.id })).json();
+      r.video = jv.erro ? (/já tem/.test(jv.erro) ? 'já tinha um na fila' : 'erro: ' + jv.erro) : 'na fila';
+    }
+  }
+  return json(r);
+}
+// troca as fotos do anúncio no ML (não mexe em mais nada do anúncio)
+async function mlTrocaFotos(env, mlId, keys, origem) {
+  try {
+    const token = await mlToken(env);
+    if (!token) return 'erro: Mercado Livre não conectado';
+    await mlReq(token, 'PUT', '/items/' + encodeURIComponent(mlId), { pictures: keys.slice(0, 12).map(k => ({ source: origem + '/api/foto/' + k })) });
+    return 'ok';
+  } catch (e) { return 'erro: ' + String(e.message || e).slice(0, 200); }
 }
 async function listaVideos(url, env) {
   await garanteVideos(env);

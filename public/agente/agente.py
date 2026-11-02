@@ -12,7 +12,7 @@ roteador: é o PC que chama o sistema.
 """
 import importlib, io, json, os, subprocess, sys, tempfile, time, traceback, urllib.error, urllib.parse, urllib.request, zipfile
 
-VERSAO = '2.2'
+VERSAO = '2.3'
 PASTA = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(PASTA, 'config.json'), encoding='utf-8-sig') as f:
     CFG = json.load(f)
@@ -361,11 +361,17 @@ SR = None    # modelo Real-ESRGAN, ou False se não deu pra carregar
 
 def sessao_onnx(arq):
     import onnxruntime as ort
+    so = ort.SessionOptions()
+    so.enable_mem_pattern = False                          # exigido pelo DirectML (placa AMD/Intel)
+    so.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL   # idem
+    so.enable_cpu_mem_arena = False                        # devolve a memória depois de cada foto (com a reserva chegava a 12 GB)
     prov = [p for p in ('DmlExecutionProvider', 'CUDAExecutionProvider') if p in ort.get_available_providers()] + ['CPUExecutionProvider']
     try:
-        return ort.InferenceSession(arq, providers=prov)
-    except Exception:
-        return ort.InferenceSession(arq, providers=['CPUExecutionProvider'])
+        return ort.InferenceSession(arq, so, providers=prov)
+    except Exception as e:
+        if len(prov) > 1:
+            log('A placa de vídeo não aceitou a IA, usando o processador (mais lento):', str(e)[:160])
+        return ort.InferenceSession(arq, so, providers=['CPUExecutionProvider'])
 
 
 def carrega_seg():
