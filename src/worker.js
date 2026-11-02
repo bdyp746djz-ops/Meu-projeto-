@@ -1010,10 +1010,49 @@ async function inserePeca(env, b, user, id = uid()) {
 const erroPerg = e => /403|forbidden|scope|permission|not allowed|unauthorized/i.test(String(e.message))
   ? 'o Mercado Livre não liberou as perguntas para o seu app: no DevCenter do ML, ative a permissão "Comunicações pré e pós-venda" do aplicativo e conecte o ML de novo no sistema'
   : String(e.message);
+// perguntas recebidas pelo vendedor (a mesma lista do painel do ML); se esse endereço não existir, usa a busca geral
+async function mlBuscaPerguntas(token, seller, st, off, lim) {
+  const qs = `api_version=4&limit=${lim}&offset=${off}&sort_fields=date_created&sort_types=DESC` + (st ? '&status=' + st : '');
+  try { return await mlReq(token, 'GET', '/my/received_questions/search?' + qs); }
+  catch (e) { if (/403|forbidden|scope|permission|unauthorized/i.test(String(e.message))) throw e; }
+  return mlReq(token, 'GET', `/questions/search?seller_id=${seller}&` + qs);
+}
+async function mlItensResumo(token, ids, itens) {
+  const falta = [...new Set(ids.filter(id => id && !(id in itens)))];
+  for (let i = 0; i < falta.length; i += 20) {
+    const lote = falta.slice(i, i + 20);
+    try {
+      const r = await mlReq(token, 'GET', '/items?ids=' + lote.join(',') + '&attributes=id,title,secure_thumbnail,thumbnail,permalink,price,available_quantity,status');
+      for (const x of r) if (x && x.body && x.body.id) itens[x.body.id] = { id: x.body.id, titulo: x.body.title, foto: x.body.secure_thumbnail || x.body.thumbnail || null, link: x.body.permalink, preco: x.body.price, qtd: x.body.available_quantity, status: x.body.status };
+      for (const id of lote) if (!(id in itens)) itens[id] = null;   // anúncio não existe mais
+    } catch { for (const id of lote) if (!(id in itens)) itens[id] = undefined; }
+  }
+}
+// só o que aparece como pendente no ML: sem resposta, não removida/retida, e o anúncio ainda existe
+function motivoOculta(q, it) {
+  if (q.status !== 'UNANSWERED') return 'não está mais pendente no ML';
+  if (q.answer && q.answer.text) return 'já respondida';
+  if (q.deleted_from_listing || q.hold) return 'removida ou retida pelo ML';
+  if (it === null) return 'anúncio não existe mais';
+  if (it && ['closed', 'inactive', 'under_review'].includes(it.status)) return 'anúncio finalizado ou inativo';
+  return null;
+}
+async function mlPergPendentes(token, seller, off, quer, maxPag) {
+  const itens = {}, lista = [], ocultas = {}; let total = 0, o = off;
+  for (let pg = 0; pg < maxPag; pg++) {
+    const d = await mlBuscaPerguntas(token, seller, 'UNANSWERED', o, 50);
+    const qs = d.questions || []; total = d.total || 0;
+    await mlItensResumo(token, qs.map(q => q.item_id), itens);
+    for (const q of qs) { const m = motivoOculta(q, itens[q.item_id]); if (m) ocultas[m] = (ocultas[m] || 0) + 1; else lista.push(q); }
+    o += qs.length;
+    if (!qs.length || o >= total || lista.length >= quer) break;
+  }
+  return { lista, itens, ocultas, total, proximo: o < total ? o : null };
+}
 async function mlPergContagem(env) {
   const token = await mlToken(env), seller = await getCfg(env, 'ml_user_id');
   if (!token || !seller) return json({ conectado: false, n: 0 });
-  try { const d = await mlReq(token, 'GET', `/questions/search?seller_id=${seller}&status=UNANSWERED&api_version=4&limit=1`); return json({ conectado: true, n: d.total || 0 }); }
+  try { const r = await mlPergPendentes(token, seller, 0, 999, 3); return json({ conectado: true, n: r.lista.length, mais: r.proximo != null }); }
   catch (e) { return json({ conectado: true, n: 0, erro: erroPerg(e) }); }
 }
 async function caminhosLocais(env) {
@@ -1025,27 +1064,29 @@ async function mlPerguntas(url, env) {
   const token = await mlToken(env), seller = await getCfg(env, 'ml_user_id');
   if (!token || !seller) return bad('conecte o Mercado Livre primeiro');
   await garanteColsPecas(env);
-  const sq = url.searchParams.get('status'), st = sq === 'respondidas' ? 'ANSWERED' : sq === 'todas' ? '' : 'UNANSWERED';
-  const off = Math.max(0, parseInt(url.searchParams.get('offset')) || 0);
-  let d;
-  try { d = await mlReq(token, 'GET', `/questions/search?seller_id=${seller}&api_version=4&limit=30&offset=${off}&sort_fields=date_created&sort_types=DESC` + (st ? '&status=' + st : '')); }
-  catch (e) { return bad(erroPerg(e)); }
-  const qs = d.questions || [], ids = [...new Set(qs.map(q => q.item_id).filter(Boolean))], itens = {}, pecas = {};
-  for (let i = 0; i < ids.length; i += 20) {
-    try {
-      const r = await mlReq(token, 'GET', '/items?ids=' + ids.slice(i, i + 20).join(',') + '&attributes=id,title,secure_thumbnail,thumbnail,permalink,price,available_quantity,status');
-      for (const x of r) if (x && x.body && x.body.id) itens[x.body.id] = { id: x.body.id, titulo: x.body.title, foto: x.body.secure_thumbnail || x.body.thumbnail || null, link: x.body.permalink, preco: x.body.price, qtd: x.body.available_quantity, status: x.body.status };
-    } catch { /* sem detalhes do anúncio */ }
-  }
+  const sq = url.searchParams.get('status'), off = Math.max(0, parseInt(url.searchParams.get('offset')) || 0);
+  let qs, itens = {}, total, proximo, ocultas = {};
+  try {
+    if (sq === 'respondidas' || sq === 'todas') {
+      const d = await mlBuscaPerguntas(token, seller, sq === 'respondidas' ? 'ANSWERED' : '', off, 30);
+      qs = d.questions || []; total = d.total || qs.length; proximo = off + qs.length < total ? off + qs.length : null;
+      await mlItensResumo(token, qs.map(q => q.item_id), itens);
+    } else {
+      const r = await mlPergPendentes(token, seller, off, 30, 4);
+      qs = r.lista; itens = r.itens; ocultas = r.ocultas; total = r.total; proximo = r.proximo;
+    }
+  } catch (e) { return bad(erroPerg(e)); }
+  const ids = [...new Set(qs.map(q => q.item_id).filter(Boolean))], pecas = {};
   if (ids.length) {
     const caminho = await caminhosLocais(env);
     const r = await env.DB.prepare(`SELECT id,codigo,qtd,local_id,pn,ml_id FROM pecas WHERE ml_id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
     for (const p of r.results) pecas[p.ml_id] = { id: p.id, codigo: p.codigo, qtd: p.qtd, pn: p.pn, local: p.local_id ? caminho(p.local_id) : null };
   }
   const c = await veoCfg(env);
-  return json({ total: d.total || qs.length, offset: off, ia: c.chaves.length > 0,
-    perguntas: qs.map(q => ({ id: q.id, texto: q.text, data: q.date_created, status: q.status, item: itens[q.item_id] || { id: q.item_id }, peca: pecas[q.item_id] || null,
-      resposta: q.answer ? { texto: q.answer.text, data: q.answer.date_created } : null })) });
+  return json({ total, offset: off, proximo, ocultas, ia: c.chaves.length > 0,
+    perguntas: qs.sort((a, b) => new Date(b.date_created) - new Date(a.date_created)).map(q => ({ id: q.id, texto: q.text, data: q.date_created, status: q.status,
+      item: itens[q.item_id] || { id: q.item_id, status: itens[q.item_id] === null ? 'removido' : undefined }, peca: pecas[q.item_id] || null,
+      resposta: q.answer && q.answer.text ? { texto: q.answer.text, data: q.answer.date_created } : null, oculta: motivoOculta(q, itens[q.item_id]) })) });
 }
 async function mlResponde(id, request, env) {
   const token = await mlToken(env);
