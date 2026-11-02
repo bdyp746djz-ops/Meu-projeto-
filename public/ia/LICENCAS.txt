@@ -1,0 +1,9 @@
+Arquivos de IA usados para recortar o fundo das fotos (rodam no navegador):
+
+- u2netp.onnx — modelo U^2-Net (versão pequena), de Xuebin Qin et al.
+  https://github.com/xuebinqin/U-2-Net — Licença Apache-2.0.
+  Arquivo ONNX distribuído pelo projeto rembg (https://github.com/danielgatis/rembg, MIT).
+
+- ort.wasm.min.js, ort-wasm-simd-threaded.wasm, ort-wasm-simd-threaded.mjs —
+  ONNX Runtime Web 1.20.1, Microsoft — Licença MIT.
+  https://github.com/microsoft/onnxruntime

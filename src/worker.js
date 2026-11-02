@@ -494,7 +494,7 @@ async function mlItemAcao(pecaId, request, env, user) {
   if (user.papel !== 'admin') return bad('somente o administrador', 403);
   await garanteColsPecas(env);
   const { acao } = await request.json().catch(() => ({}));
-  const p = await env.DB.prepare('SELECT id,ml_id,qtd,preco FROM pecas WHERE id=?').bind(pecaId).first();
+  const p = await env.DB.prepare('SELECT id,ml_id,qtd,preco,fotos FROM pecas WHERE id=?').bind(pecaId).first();
   if (!p) return bad('peça não encontrada', 404);
   if (acao === 'desvincular') {
     await env.DB.prepare('UPDATE pecas SET ml=0, ml_id=NULL, ml_link=NULL, ml_status=NULL, atualizado_em=? WHERE id=?').bind(now(), p.id).run();
@@ -508,6 +508,12 @@ async function mlItemAcao(pecaId, request, env, user) {
   if (acao === 'pausar') corpo = { status: 'paused' };
   else if (acao === 'retomar') { if (q <= 0) return bad('a peça está sem estoque: ajuste a quantidade antes de reativar'); corpo = { status: 'active' }; }
   else if (acao === 'sincronizar') corpo = q > 0 ? { price: Number(p.preco) || 0, available_quantity: q } : null;
+  else if (acao === 'fotos') {
+    let ks = []; try { ks = JSON.parse(p.fotos || '[]'); } catch { /* sem fotos */ }
+    if (!ks.length) return bad('a peça não tem fotos');
+    const origem = new URL(request.url).origin;
+    corpo = { pictures: ks.slice(0, 12).map(k => ({ source: origem + '/api/foto/' + k })) };
+  }
   else if (acao === 'finalizar') {
     // PROTEÇÃO: o sistema nunca finaliza anúncio que já teve venda (perderia o histórico/reputação do anúncio)
     let it;

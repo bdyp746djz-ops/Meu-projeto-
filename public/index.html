@@ -210,6 +210,11 @@ nav.bottom{display:none}
 #mlcatv .mlcat{display:flex;align-items:center;gap:10px}
 .form.emb4{grid-template-columns:repeat(4,1fr)}
 @media(max-width:600px){.form.emb4{grid-template-columns:repeat(2,1fr)}}
+.iabadge{position:absolute;right:4px;bottom:4px;background:#3f51b5;color:#fff;font-size:9px;font-weight:700;border-radius:4px;padding:1px 4px}
+.iaprev{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}.iaprev figure{margin:0;border:1px solid #e0e0e0;border-radius:var(--rad);overflow:hidden;background:#fafafa}
+.iaprev img{width:100%;display:block;aspect-ratio:1;object-fit:contain;background:#fff}.iaprev figcaption{padding:8px;font-size:13px}
+.spin-s{display:inline-block;width:14px;height:14px;border:2px solid #c5cae9;border-top-color:var(--pri);border-radius:50%;animation:gira .8s linear infinite;vertical-align:-2px;margin-right:4px}
+@keyframes gira{to{transform:rotate(360deg)}}
 /* componentes */
 .btn{border:1px solid #d0d0d0;background:#fff;border-radius:var(--rad);padding:9px 16px;cursor:pointer;font-weight:500;color:var(--ink);text-decoration:none;display:inline-block;transition:filter .13s,box-shadow .13s,background .13s}
 .btn:hover{background:#f5f5f5}
@@ -578,13 +583,14 @@ function abrePeca(id){
    <div class="top" style="margin-top:14px;flex-wrap:wrap;gap:8px">
      <button class="btn g" id="dv" ${q>0?'':'disabled'}>💰 Vender</button>
      <button class="btn" id="da">📣 Anúncio</button>${p.ml_id&&p.ml_status!=='closed'?'':'<button class="btn p" id="dml">🛒 Publicar no ML</button>'}<button class="btn" id="de">✏️ Editar</button>
-     <button class="btn" id="dpm">💲 Preço de mercado</button><button class="btn" id="detq">🏷️ Etiqueta</button><button class="btn" id="ddup">🔁 Duplicar</button>
+     <button class="btn" id="dpm">💲 Preço de mercado</button><button class="btn" id="dia">✨ Fotos com IA</button><button class="btn" id="detq">🏷️ Etiqueta</button><button class="btn" id="ddup">🔁 Duplicar</button>
      <button class="btn" id="dx" style="color:var(--red)">Excluir</button></div>
    ${p.ml_id?`<div class="mlbox" id="mlbox"><div class="top" style="margin:0 0 6px"><b>Anúncio no Mercado Livre</b><span class="tag" id="mlst">${esc(stML(p.ml_status))}</span></div><div class="small mut" id="mlinfo">Consultando o anúncio…</div><div class="mlact" id="mlact"></div></div>`:''}`);
   if(p.ml_id)caixaAnuncio(p);
   $('#dv').onclick=()=>vender(p); $('#da').onclick=()=>anuncio(p); $('#de').onclick=()=>editar(p.id);
   if($('#dml'))$('#dml').onclick=()=>publicarML(p);
   $('#dpm').onclick=()=>precoMercado(p);
+  $('#dia').onclick=()=>fotosIA(p);
   $('#ddup').onclick=()=>duplicar(p);
   $('#detq').onclick=()=>abreGerador([itemPeca(p)]);
   $('#dx').onclick=()=>{ if(confirm('Excluir '+p.nome+'?')) api('/pecas/'+id,{method:'DELETE'}).then(()=>{ fecha(); toast('Peça excluída'); listaEstoque(); }); };
@@ -679,6 +685,36 @@ async function publicarML(p){
       $('#fok').onclick=()=>{ fecha(); if(S.view==='integracoes')integracoes(); };
     }catch(e){ btn.disabled=false; btn.textContent='🛒 Publicar de verdade'; toast(e.message); }
   };
+}
+// peça já cadastrada: gera fundo branco + arte, mostra antes de salvar, e (se quiser) atualiza o anúncio
+async function fotosIA(p){
+  if(!(p.fotos||[]).length)return toast('A peça não tem foto');
+  modal(`<h3 style="margin:0 28px 6px 0">✨ Fotos com IA</h3><div class="small mut">${esc(p.nome)}</div><div id="iax"><p class="small mut" style="margin-top:12px"><span class="spin-s"></span> Recortando a peça e montando a arte… (a 1ª vez demora um pouco mais)</p></div>`);
+  let fb, arte=null, z=zonaDe(p.nome);
+  try{ fb=await fotoFundoBranco('/api/foto/'+p.fotos[0]); }catch(e){ $('#iax').innerHTML='<p style="color:var(--red)">⚠️ '+esc(e.message)+'</p>'; return; }
+  const pinta=async()=>{ arte=z?await arteOndeFica(p,fb.recorte,z):null;
+    const u1=URL.createObjectURL(fb.blob), u2=arte?URL.createObjectURL(arte):'';
+    $('#iax').innerHTML=`<div class="iaprev"><figure><img src="${u1}"><figcaption><label><input type="checkbox" id="iu1" checked style="width:auto"> Usar como 1ª foto (fundo branco)</label></figcaption></figure>
+      <figure>${arte?`<img src="${u2}">`:'<div class="small mut" style="padding:20px">Não sei onde essa peça fica — escolha abaixo.</div>'}<figcaption><label><input type="checkbox" id="iu2" ${arte?'checked':''} ${arte?'':'disabled'} style="width:auto"> Adicionar arte no final</label></figcaption></figure></div>
+      <label class="f">Onde fica no carro<select id="izona"><option value="">— escolha —</option>${Object.entries(ZONAS).map(([k,v])=>`<option value="${k}" ${k===z?'selected':''}>${esc(v.n)}</option>`).join('')}</select></label>
+      ${p.ml_id&&p.ml_status!=='closed'?'<label class="small" style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="iuml" checked style="width:auto"> Atualizar também as fotos do anúncio no Mercado Livre</label>':''}
+      <p class="small mut">As fotos originais continuam na peça. A arte vai sempre no final (o ML pede foto principal limpa, sem texto).</p>
+      <div class="top" style="margin-top:12px"><button class="btn p" id="iok">Salvar fotos</button><button class="btn" id="ivolta">Voltar</button></div>`;
+    $('#izona').onchange=e=>{ z=e.target.value||null; pinta(); };
+    $('#ivolta').onclick=()=>abrePeca(p.id);
+    $('#iok').onclick=async()=>{ const b=$('#iok'); b.disabled=true; b.textContent='Enviando…';
+      try{ const sobe=async blob=>{ const r=await fetch('/api/pecas/'+p.id+'/foto',{method:'POST',headers:{'content-type':'image/jpeg'},body:blob}); const j=await r.json(); if(!j.key)throw new Error(j.erro||'falha ao enviar foto'); return j.key; };
+        let ordem=[...p.fotos];
+        if($('#iu1').checked)ordem=[await sobe(fb.blob),...ordem];
+        if(arte&&$('#iu2')&&$('#iu2').checked)ordem=[...ordem,await sobe(arte)];
+        ordem=ordem.slice(0,12);
+        await api('/pecas/'+p.id,{method:'PATCH',body:{fotos:ordem}}); p.fotos=ordem;
+        if($('#iuml')&&$('#iuml').checked){ try{ await api('/ml/item/'+p.id,{method:'POST',body:{acao:'fotos'}}); toast('Fotos salvas e enviadas ao anúncio do ML'); }catch(e){ toast('Fotos salvas; o ML recusou: '+e.message); } }
+        else toast('Fotos salvas');
+        abrePeca(p.id); if(S.view==='estoque')listaEstoque();
+      }catch(e){ b.disabled=false; b.textContent='Salvar fotos'; toast(e.message); } };
+  };
+  pinta();
 }
 // quão pronta a peça está pra virar anúncio
 function prontidao(p){
@@ -802,7 +838,11 @@ async function nova(){
     <label class="f full">Vídeo da peça (link do YouTube, opcional)<input name="video" value="${esc(p.video||'')}" placeholder="https://www.youtube.com/watch?v=..."></label>
     <div class="full"><div class="small mut" style="font-weight:600;margin-bottom:6px">Fotos (até 12) — a primeira é a principal; toque na ★ pra trocar</div>
       <div class="thumbs" id="thumbs"></div>
-      <label class="btn sm" style="margin-top:8px">📷 Adicionar fotos<input type="file" accept="image/*" multiple id="pfoto" hidden></label></div>
+      <label class="btn sm" style="margin-top:8px">📷 Adicionar fotos<input type="file" accept="image/*" multiple id="pfoto" hidden></label>
+      <button type="button" class="btn sm" id="iafb" style="margin-top:8px">✨ Fundo branco agora</button>
+      <div class="chk2" style="margin-top:8px"><label><input type="checkbox" id="iaf" ${iaPref('iaFundo')?'checked':''}> ✨ Foto principal com fundo branco automático (IA)</label>
+        <label><input type="checkbox" id="iaa" ${iaPref('iaArte')?'checked':''}> 🖼️ Arte "onde fica no carro" ao salvar</label></div>
+      <div class="small mut" id="iast" style="margin-top:6px"></div></div>
   </div><div class="top" style="margin-top:16px">
     <button class="btn p" type="submit">${S.ui.editId?'Salvar':'Cadastrar'}</button>
     ${S.ui.editId?'<button class="btn" type="button" id="canc">Cancelar</button>':'<label class="small"><input type="checkbox" id="outra" checked style="width:auto"> continuar na mesma sucata</label>'}
@@ -812,7 +852,10 @@ async function nova(){
   if($('#sugloc'))$('#sugloc').onclick=sugereCaixa;
   { const fn=$('#pf').elements.nome; fn.addEventListener('change',autoLocal); fn.addEventListener('blur',autoLocal); }
   bindSugestoes(); bindMics(); ligaCatForm();
-  $('#pfoto').onchange=async e=>{ for(const f of [...e.target.files]){ if(S.ui.fotos.length>=12)break; try{ S.ui.fotos.push({blob:await shrink(f)}); }catch{} } e.target.value=''; drawThumbs(); };
+  $('#pfoto').onchange=async e=>{ for(const f of [...e.target.files]){ if(S.ui.fotos.length>=12)break; try{ S.ui.fotos.push({blob:await shrink(f)}); }catch{} } e.target.value=''; drawThumbs();
+    if(iaPref('iaFundo')&&!S.ui.fotos.some(f=>f.ia==='fundo'))iaFundoPrincipal(false); };
+  $('#iaf').onchange=e=>iaSet('iaFundo',e.target.checked); $('#iaa').onchange=e=>iaSet('iaArte',e.target.checked);
+  $('#iafb').onclick=()=>iaFundoPrincipal(true);
   $('#pf').onsubmit=salvaPeca;
 }
 // sugestões enquanto digita o nome ou o part number (catálogo próprio; ML entra na Etapa 2)
@@ -860,12 +903,139 @@ function dicaLocal(cx,r){ const el=$('#locdica'); if(el)el.innerHTML=`📍 <b>${
 // localização inteligente: ao terminar de digitar o nome, se o local estiver vazio, escolhe pela regra
 function autoLocal(){ const f=$('#pf'); if(!f||f.elements.local_id.value)return; const r=regraPara(f.elements.nome.value); if(!r)return;
   const cx=melhorCaixa(r.l.id); if(cx){ f.elements.local_id.value=cx.id; dicaLocal(cx,r); } }
-function drawThumbs(){ const t=$('#thumbs'); if(!t)return; t.innerHTML=S.ui.fotos.map((f,i)=>`<div class="${i?'':'princ'}"><img src="${f.key?'/api/foto/'+f.key:URL.createObjectURL(f.blob)}"><button type="button" data-i="${i}">×</button><span class="star" data-p="${i}" title="${i?'Usar como principal':'Foto principal'}">★</span></div>`).join('');
+function drawThumbs(){ const t=$('#thumbs'); if(!t)return; t.innerHTML=S.ui.fotos.map((f,i)=>`<div class="${i?'':'princ'}"><img src="${f.key?'/api/foto/'+f.key:URL.createObjectURL(f.blob)}"><button type="button" data-i="${i}">×</button><span class="star" data-p="${i}" title="${i?'Usar como principal':'Foto principal'}">★</span>${f.ia?`<span class="iabadge">${f.ia==='arte'?'ARTE':'IA'}</span>`:''}</div>`).join('');
   t.querySelectorAll('button[data-i]').forEach(b=>b.onclick=()=>{ S.ui.fotos.splice(+b.dataset.i,1); drawThumbs(); });
   t.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{ const i=+b.dataset.p; if(!i)return; const [f]=S.ui.fotos.splice(i,1); S.ui.fotos.unshift(f); drawThumbs(); }); }
 function shrink(file){ return new Promise((res,rej)=>{ const img=new Image(),u=URL.createObjectURL(file);
-  img.onload=()=>{ const M=900,r=Math.min(1,M/Math.max(img.width,img.height)); const c=document.createElement('canvas'); c.width=img.width*r|0; c.height=img.height*r|0; c.getContext('2d').drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(u); c.toBlob(b=>res(b),'image/jpeg',0.72); };
+  img.onload=()=>{ const M=1600,r=Math.min(1,M/Math.max(img.width,img.height)); const c=document.createElement('canvas'); c.width=img.width*r|0; c.height=img.height*r|0; c.getContext('2d').drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(u); c.toBlob(b=>res(b),'image/jpeg',0.85); };
   img.onerror=()=>{ URL.revokeObjectURL(u); rej(); }; img.src=u; }); }
+// ---------- IA: fundo branco na foto (roda no aparelho, sem custo) ----------
+let ortProm=null, sesProm=null;
+function carregaORT(){ return ortProm||(ortProm=new Promise((ok,er)=>{ if(window.ort)return ok(window.ort); const s=document.createElement('script'); s.src='/ia/ort.wasm.min.js';
+  s.onload=()=>ok(window.ort); s.onerror=()=>{ ortProm=null; er(new Error('não consegui carregar a IA de recorte')); }; document.head.appendChild(s); })); }
+function sessaoFundo(){ if(!sesProm){ sesProm=(async()=>{ const ort=await carregaORT(); ort.env.wasm.wasmPaths='/ia/'; ort.env.wasm.numThreads=1;
+  return ort.InferenceSession.create('/ia/u2netp.onnx',{executionProviders:['wasm'],graphOptimizationLevel:'all'}); })(); sesProm.catch(()=>{ sesProm=null; }); } return sesProm; }
+async function carregaImg(src){ const im=new Image(); im.crossOrigin='anonymous'; im.src=src; await im.decode(); return im; }
+// máscara 320x320 (U²-Net): quanto cada ponto é "peça" (0..255 no alfa)
+async function mascaraPeca(img){
+  const S=320, c=document.createElement('canvas'); c.width=c.height=S; const x=c.getContext('2d'); x.drawImage(img,0,0,S,S);
+  const d=x.getImageData(0,0,S,S).data, f=new Float32Array(3*S*S), media=[0.485,0.456,0.406], dp=[0.229,0.224,0.225];
+  let mx=1; for(let i=0;i<d.length;i+=4)mx=Math.max(mx,d[i],d[i+1],d[i+2]);
+  for(let i=0,p=0;i<d.length;i+=4,p++)for(let k=0;k<3;k++)f[k*S*S+p]=(d[i+k]/mx-media[k])/dp[k];
+  const ses=await sessaoFundo(), ort=window.ort;
+  const r=await ses.run({[ses.inputNames[0]]:new ort.Tensor('float32',f,[1,3,S,S])}), m=r[ses.outputNames[0]].data;
+  let mn=Infinity, ma=-Infinity; for(const v of m){ if(v<mn)mn=v; if(v>ma)ma=v; }
+  const mc=document.createElement('canvas'); mc.width=mc.height=S; const mx2=mc.getContext('2d'), md=mx2.createImageData(S,S);
+  for(let p=0;p<S*S;p++){ md.data[p*4]=md.data[p*4+1]=md.data[p*4+2]=255; md.data[p*4+3]=Math.round(255*(m[p]-mn)/((ma-mn)||1)); }
+  mx2.putImageData(md,0,0); return mc;
+}
+// recorta a peça e devolve: foto 1200x1200 fundo branco (JPEG) + recorte transparente (pra arte)
+async function fotoFundoBranco(fonte){
+  const url=typeof fonte==='string'?fonte:URL.createObjectURL(fonte);
+  const img=await carregaImg(url), W=img.naturalWidth, H=img.naturalHeight, k=Math.min(1,1600/Math.max(W,H)), w=Math.round(W*k), h=Math.round(H*k);
+  const mc=await mascaraPeca(img);
+  const cut=document.createElement('canvas'); cut.width=w; cut.height=h; const cx=cut.getContext('2d'); cx.drawImage(img,0,0,w,h);
+  const mk=document.createElement('canvas'); mk.width=w; mk.height=h; const mkx=mk.getContext('2d'); mkx.imageSmoothingQuality='high'; mkx.drawImage(mc,0,0,w,h);
+  const md=mkx.getImageData(0,0,w,h).data, id=cx.getImageData(0,0,w,h);
+  let x0=w,y0=h,x1=-1,y1=-1,area=0;
+  for(let p=0,i=0;p<w*h;p++,i+=4){ let a=(md[i+3]/255-0.2)/0.5; a=a<0?0:a>1?1:a; id.data[i+3]=Math.round(a*255);
+    if(a>0.5){ area++; const xx=p%w, yy=(p/w)|0; if(xx<x0)x0=xx; if(xx>x1)x1=xx; if(yy<y0)y0=yy; if(yy>y1)y1=yy; } }
+  if(area<w*h*0.01)throw new Error('a IA não encontrou a peça nessa foto');
+  realcePeca(id.data);
+  cx.putImageData(id,0,0);
+  const bw=x1-x0+1, bh=y1-y0+1, rec=document.createElement('canvas'); rec.width=bw; rec.height=bh; rec.getContext('2d').drawImage(cut,x0,y0,bw,bh,0,0,bw,bh);
+  const T=1200, out=document.createElement('canvas'); out.width=out.height=T; const o=out.getContext('2d'); o.fillStyle='#fff'; o.fillRect(0,0,T,T);
+  const s=Math.min(T*0.84/bw,T*0.84/bh), dw=bw*s, dh=bh*s; o.imageSmoothingQuality='high'; o.drawImage(rec,(T-dw)/2,(T-dh)/2,dw,dh);
+  const blob=await new Promise(r=>out.toBlob(r,'image/jpeg',0.92));
+  if(typeof fonte!=='string')URL.revokeObjectURL(url);
+  return { blob, recorte:rec, cobertura:area/(w*h) };
+}
+// clareia/contrasta só a peça (fotos de desmanche costumam sair escuras)
+function realcePeca(d){
+  const hist=new Uint32Array(256); let n=0;
+  for(let i=0;i<d.length;i+=4){ if(d[i+3]<128)continue; hist[(d[i]*0.299+d[i+1]*0.587+d[i+2]*0.114)|0]++; n++; }
+  if(!n)return; let a=0,lo=0,hi=255;
+  for(let v=0;v<256;v++){ a+=hist[v]; if(a>=n*0.02){ lo=v; break; } } a=0;
+  for(let v=255;v>=0;v--){ a+=hist[v]; if(a>=n*0.02){ hi=v; break; } }
+  const g=Math.min(1.6,Math.max(1,225/Math.max(1,hi-lo))), off=Math.max(0,18-lo*g);
+  if(g<1.03&&off<2)return;
+  for(let i=0;i<d.length;i+=4)for(let k=0;k<3;k++){ const v=(d[i+k]-lo)*g+lo+off; d[i+k]=v<0?0:v>255?255:v; }
+}
+// ---------- arte "onde fica no carro" (desenho próprio, sem IA) ----------
+const ZONAS={cofre:{n:'Compartimento do motor',x:290,y:560},dianteira:{n:'Dianteira (faróis / para-choque)',x:118,y:612},traseira:{n:'Traseira (lanternas / para-choque)',x:1088,y:590},
+  porta:{n:'Porta',x:630,y:610},retrovisor:{n:'Retrovisor (porta dianteira)',x:482,y:512},interior:{n:'Interior / painel',x:600,y:470},
+  rodaD:{n:'Roda dianteira (suspensão / freio)',x:300,y:700},rodaT:{n:'Roda traseira (suspensão / freio)',x:900,y:700},
+  baixo:{n:'Embaixo do carro',x:600,y:716},teto:{n:'Teto',x:780,y:406},portamalas:{n:'Porta-malas / tampa traseira',x:1050,y:520}};
+const ZONA_REGRAS=[[/retrovisor|espelho/,'retrovisor'],[/lanterna|luz de placa|brake ?light|para ?choque tras|parachoque tras/,'traseira'],
+  [/tampa traseira|porta ?malas|estepe|macaco|amortecedor da tampa/,'portamalas'],[/farol|grade|para ?choque|parachoque|milha|neblina/,'dianteira'],
+  [/\bteto\b|antena/,'teto'],[/porta ?luva/,'interior'],[/escapamento|catalisador|silencioso|tanque|bomba de combustivel|boia/,'baixo'],
+  [/maquina de vidro|vidro|macaneta|fechadura|porta|forro/,'porta'],
+  [/painel|radio|multimidia|volante|airbag|banco|console|cinto|quadro de instrumento|chave de seta|comando|bcm|modulo de conforto|porta luva|tapete/,'interior'],
+  [/amortecedor|mola|bandeja|manga|pivo|pinca|disco de freio|freio|cubo|rolamento|homocinetica|semi ?eixo|roda|pneu|bieleta|estabilizadora|caixa de direcao|terminal|coxim do amortecedor/,'roda'],
+  [/motor|bomba|solenoide|injetor|bico|turbina|turbo|alternador|partida|coletor|tbi|borboleta|compressor|bobina|vela|modulo de injecao|\becu\b|sensor|cabecote|carter|cambio|embreagem|radiador|valvula|correia|tensor|polia|filtro|reservatorio|bateria|fusivel|chicote|condensador|ventoinha|eletroventilador|intercooler|mangueira|coxim/,'cofre']];
+function zonaDe(nome){ const t=nrm(nome).replace(/[-_/]+/g,' '); for(const [re,z] of ZONA_REGRAS)if(re.test(t))return z==='roda'?(/traseir/.test(t)?'rodaT':'rodaD'):z; return null; }
+function ladoDe(nome){ const t=nrm(nome), l=[]; if(/dianteir/.test(t))l.push('dianteiro'); if(/traseir/.test(t))l.push('traseiro');
+  if(/direit/.test(t))l.push('lado direito (passageiro)'); else if(/esquerd/.test(t))l.push('lado esquerdo (motorista)'); return l.join(' · '); }
+function desenhaCarro(x){
+  x.save(); x.translate(0,130); x.lineJoin='round'; x.lineCap='round';
+  x.fillStyle='rgba(0,0,0,.07)'; x.beginPath(); x.ellipse(600,792,520,18,0,0,Math.PI*2); x.fill();
+  x.beginPath(); x.moveTo(105,700); x.lineTo(100,625); x.quadraticCurveTo(102,585,150,565); x.lineTo(420,520); x.quadraticCurveTo(470,512,500,500);
+  x.lineTo(620,420); x.quadraticCurveTo(640,408,680,406); x.lineTo(880,406); x.quadraticCurveTo(925,408,950,430); x.lineTo(1040,505);
+  x.quadraticCurveTo(1090,520,1098,560); x.lineTo(1102,700); x.lineTo(995,700); x.arc(900,700,95,0,Math.PI,true); x.lineTo(395,700); x.arc(300,700,95,0,Math.PI,true); x.closePath();
+  x.fillStyle='#eceff1'; x.fill(); x.lineWidth=6; x.strokeStyle='#455a64'; x.stroke();
+  x.beginPath(); x.moveTo(522,500); x.lineTo(628,428); x.quadraticCurveTo(645,418,680,417); x.lineTo(752,417); x.lineTo(752,500); x.closePath();
+  x.moveTo(770,417); x.lineTo(875,417); x.quadraticCurveTo(915,420,935,438); x.lineTo(1000,500); x.lineTo(770,500); x.closePath();
+  x.fillStyle='#b0bec5'; x.fill(); x.lineWidth=4; x.stroke();
+  x.beginPath(); x.moveTo(512,506); x.lineTo(506,688); x.moveTo(762,506); x.lineTo(764,688); x.moveTo(1004,510); x.lineTo(1000,600); x.stroke();
+  x.lineWidth=7; x.beginPath(); x.moveTo(690,548); x.lineTo(726,548); x.moveTo(930,548); x.lineTo(962,548); x.stroke();
+  x.lineWidth=4; x.fillStyle='#fff59d'; x.beginPath(); x.moveTo(112,590); x.quadraticCurveTo(130,572,182,566); x.lineTo(176,600); x.lineTo(108,606); x.closePath(); x.fill(); x.stroke();
+  x.fillStyle='#ef9a9a'; x.beginPath(); x.moveTo(1092,548); x.lineTo(1100,606); x.lineTo(1070,606); x.lineTo(1066,552); x.closePath(); x.fill(); x.stroke();
+  x.fillStyle='#90a4ae'; x.beginPath(); x.moveTo(500,506); x.lineTo(468,500); x.lineTo(466,526); x.lineTo(500,528); x.closePath(); x.fill(); x.stroke();
+  for(const cx of [300,900]){ x.beginPath(); x.arc(cx,700,80,0,Math.PI*2); x.fillStyle='#37474f'; x.fill(); x.beginPath(); x.arc(cx,700,42,0,Math.PI*2); x.fillStyle='#cfd8dc'; x.fill();
+    x.beginPath(); x.arc(cx,700,10,0,Math.PI*2); x.fillStyle='#78909c'; x.fill(); }
+  x.restore();
+}
+async function arteOndeFica(p,recorte,zonaId){
+  const z=ZONAS[zonaId]; if(!z)throw new Error('escolha onde a peça fica no carro');
+  try{ await document.fonts.load('bold 40px Roboto'); }catch(_){}
+  const T=1200, F='Roboto, Arial, sans-serif', c=document.createElement('canvas'); c.width=c.height=T; const x=c.getContext('2d');
+  x.fillStyle='#fff'; x.fillRect(0,0,T,T); x.textAlign='center'; x.textBaseline='alphabetic';
+  x.fillStyle='#1a237e'; x.font='bold 56px '+F; x.fillText('ONDE FICA NO CARRO',T/2,92);
+  const cx0=370, cy0=128, cw=460, ch=300; x.fillStyle='#f5f5f5'; x.strokeStyle='#e0e0e0'; x.lineWidth=3;
+  x.beginPath(); x.roundRect?x.roundRect(cx0,cy0,cw,ch,24):x.rect(cx0,cy0,cw,ch); x.fill(); x.stroke();
+  if(recorte){ const s=Math.min((cw-40)/recorte.width,(ch-40)/recorte.height), w=recorte.width*s, h=recorte.height*s; x.drawImage(recorte,cx0+(cw-w)/2,cy0+(ch-h)/2,w,h); }
+  desenhaCarro(x);
+  const zx=z.x, zy=z.y+130;
+  x.strokeStyle='#e53935'; x.lineWidth=5; x.setLineDash([14,10]); x.beginPath(); x.moveTo(T/2,cy0+ch); x.lineTo(zx,zy); x.stroke(); x.setLineDash([]);
+  const g=x.createRadialGradient(zx,zy,8,zx,zy,90); g.addColorStop(0,'rgba(229,57,53,.55)'); g.addColorStop(1,'rgba(229,57,53,0)'); x.fillStyle=g; x.beginPath(); x.arc(zx,zy,90,0,Math.PI*2); x.fill();
+  x.strokeStyle='#e53935'; x.lineWidth=7; x.beginPath(); x.arc(zx,zy,40,0,Math.PI*2); x.stroke(); x.fillStyle='#e53935'; x.beginPath(); x.arc(zx,zy,11,0,Math.PI*2); x.fill();
+  x.fillStyle='#212121'; x.font='bold 50px '+F; x.fillText(z.n,T/2,1000);
+  const lado=ladoDe(p.nome||''); x.fillStyle='#546e7a'; x.font='38px '+F; if(lado)x.fillText(lado.charAt(0).toUpperCase()+lado.slice(1),T/2,1058);
+  const veic=[p.marca,p.modelo,p.ano].filter(Boolean).join(' '); if(veic){ x.fillStyle='#37474f'; x.font='bold 40px '+F; x.fillText(veic.toUpperCase(),T/2,lado?1120:1062); }
+  x.fillStyle='#9e9e9e'; x.font='24px '+F; x.fillText('Ilustração: a posição exata pode variar conforme o modelo',T/2,1172);
+  return new Promise(r=>c.toBlob(r,'image/jpeg',0.92));
+}
+// liga/desliga as automações de foto (fica salvo no aparelho)
+const iaPref=k=>{ try{ return localStorage.getItem(k)!=='0'; }catch(_){ return true; } };
+const iaSet=(k,v)=>{ try{ localStorage.setItem(k,v?'1':'0'); }catch(_){} };
+
+// cadastro: fundo branco automático na principal e arte ao salvar
+async function iaFundoPrincipal(manual){
+  const f0=S.ui.fotos[0]; if(!f0)return manual&&toast('Adicione uma foto primeiro');
+  if(f0.ia==='fundo'&&!manual)return; const st=$('#iast');
+  if(st)st.innerHTML='<span class="spin-s"></span> ✨ Deixando a foto principal com fundo branco… (a 1ª vez demora um pouco mais)';
+  try{ const r=await fotoFundoBranco(f0.blob||('/api/foto/'+f0.key)); S.ui.recorte=r.recorte;
+    if(f0.ia==='fundo')S.ui.fotos[0]={blob:r.blob,ia:'fundo'}; else S.ui.fotos.unshift({blob:r.blob,ia:'fundo'});
+    if(S.ui.fotos.length>12)S.ui.fotos.length=12;
+    if(st)st.innerHTML='✅ Foto principal com fundo branco pronta (a original continua logo depois). Não gostou? Toque no × dela.'; drawThumbs();
+  }catch(e){ if(st)st.innerHTML='⚠️ '+esc(e.message)+' — a foto original fica como principal.'; }
+}
+async function iaArteAoSalvar(dados){
+  if(!iaPref('iaArte')||S.ui.fotos.some(f=>f.ia==='arte')||!S.ui.fotos.length||S.ui.fotos.length>=12)return;
+  const z=zonaDe(dados.nome); if(!z)return;
+  try{ if(!S.ui.recorte){ const f=S.ui.fotos.find(f=>f.ia==='fundo')||S.ui.fotos[0]; S.ui.recorte=(await fotoFundoBranco(f.blob||('/api/foto/'+f.key))).recorte; }
+    S.ui.fotos.push({blob:await arteOndeFica(dados,S.ui.recorte,z),ia:'arte'}); }catch(e){ console.warn('arte',e); }
+}
 // categoria do ML no cadastro: sugere pelo nome da peça ou busca por texto
 function ligaCatForm(){
   const f=$('#pf'); if(!f||!$('#mlcatv'))return;
@@ -895,6 +1065,7 @@ async function salvaPeca(e){
     custo:fd.custo,qualidade:fd.qualidade,seguranca:!!fd.seguranca,rastreavel:!!fd.rastreavel,peso_g:fd.peso_g,alt_cm:fd.alt_cm,larg_cm:fd.larg_cm,comp_cm:fd.comp_cm,video:(fd.video||'').trim(),
     ml_cat:fd.ml_cat||'',ml_cat_nome:fd.ml_cat_nome||'' };
   try{
+    if(iaPref('iaArte')&&zonaDe(body.nome)&&S.ui.fotos.length&&!S.ui.fotos.some(f=>f.ia==='arte')){ btn.textContent='🖼️ Gerando arte…'; await iaArteAoSalvar(body); }
     let peca; const editando=!!S.ui.editId;
     if(editando) peca=(await api('/pecas/'+S.ui.editId,{method:'PATCH',body})).peca;
     else peca=(await api('/pecas',{method:'POST',body})).peca;
@@ -903,10 +1074,10 @@ async function salvaPeca(e){
       await api('/pecas/'+peca.id,{method:'PATCH',body:{fotos:ordem}}); }
     toast(editando?'Peça atualizada':'Peça '+cod(peca.codigo)+' cadastrada');
     const manter=!editando && $('#outra') && $('#outra').checked;
-    S.ui.editId=null; S.ui.fotos=[];
+    S.ui.editId=null; S.ui.fotos=[]; S.ui.recorte=null;
     if(manter){ await nova(); ['marca','modelo','ano','veiculo','local_id'].forEach(k=>{ const el=$('#pf').elements[k]; if(el) el.value=body[k]||''; }); $('#pf').elements.nome.focus(); }
     else go('estoque');
-  }catch(err){ toast('Erro: '+err.message); btn.disabled=false; }
+  }catch(err){ toast('Erro: '+err.message); btn.disabled=false; btn.textContent=S.ui.editId?'Salvar':'Cadastrar'; }
 }
 
 // ---------- Venda ----------
