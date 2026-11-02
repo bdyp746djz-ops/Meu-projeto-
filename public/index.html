@@ -223,6 +223,19 @@ nav.bottom{display:none}
 .btn.p{background:var(--pri);border-color:var(--pri);color:#fff;box-shadow:var(--sh)}
 .btn.g{background:var(--ok);border-color:var(--ok);color:#fff;box-shadow:var(--sh)}
 .btn.p:hover,.btn.g:hover{filter:brightness(1.08)}
+/* ficha da peça (abre pelo QR da etiqueta) */
+.fcard{background:var(--card);box-shadow:var(--sh);border-radius:var(--rad);max-width:760px;width:100%;margin:0 auto}
+.ftabs{display:flex;border-bottom:1px solid var(--line)}
+.ftabs button{flex:1;padding:15px 8px;border:0;background:none;font:inherit;font-size:16px;color:var(--mut);border-bottom:3px solid transparent;cursor:pointer}
+.ftabs button.on{color:var(--pri);border-bottom-color:var(--pri);font-weight:500}
+.frow{display:flex;gap:16px;align-items:flex-start;padding:15px 16px;border-bottom:1px solid var(--line);font-size:16px;line-height:1.35}
+.frow>.material-icons{font-size:28px;flex:none;width:30px;color:var(--ink)}
+.frow b{font-weight:600}
+.frow a{color:var(--pri);font-size:14px}
+.fimgs{padding:12px}
+.fimgs img{display:block;width:100%;background:#fff;margin:0 0 12px;border-radius:var(--rad);box-shadow:var(--sh)}
+.facts{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:16px}
+.facts .btn{min-width:150px;justify-content:center}
 .btn.sm{padding:6px 10px;font-size:13px}
 .btn:disabled{opacity:.55}
 .card{background:#fff;border:0;border-radius:var(--rad);padding:14px;box-shadow:var(--sh)}
@@ -381,7 +394,7 @@ function renderNav(){
   document.querySelectorAll('[data-v]').forEach(a=>a.onclick=()=>a.dataset.v==='download'?baixarEstoque():go(a.dataset.v));
 }
 async function go(v){ S.view=v; if(v!=='nova'){ S.ui.editId=null; S.ui.fotos=[]; } renderNav(); window.scrollTo(0,0);
-  const f={painel,estoque,nova,locais,mover,etiquetas,vendas,integracoes}[v]; $('#main').innerHTML='<p class="mut">carregando…</p>'; try{ await f(); }catch(e){ $('#main').innerHTML='<div class="empty">Erro: '+esc(e.message)+'</div>'; } }
+  const f={painel,estoque,nova,locais,mover,etiquetas,vendas,integracoes,ficha:fichaPeca}[v]; $('#main').innerHTML='<p class="mut">carregando…</p>'; try{ await f(); }catch(e){ $('#main').innerHTML='<div class="empty">Erro: '+esc(e.message)+'</div>'; } }
 
 // ---------- dados ----------
 async function carregaLocais(){ const { locais }=await api('/locais'); S.locais={}; locais.forEach(l=>S.locais[l.id]=l); }
@@ -640,6 +653,70 @@ function abrePeca(id){
   $('#ddup').onclick=()=>duplicar(p);
   $('#detq').onclick=()=>abreGerador([itemPeca(p)]);
   $('#dx').onclick=()=>{ if(confirm('Excluir '+p.nome+'?')) api('/pecas/'+id,{method:'DELETE'}).then(()=>{ fecha(); toast('Peça excluída'); listaEstoque(); }); };
+}
+// ---------- Ficha da peça (página inteira — é o que abre ao ler o QR da etiqueta) ----------
+function abreFicha(p){ if(S.view!=='ficha')S.ui.fichaDe=S.view||'estoque'; S.ui.fichaCod=p.codigo; S.ui.fichaAba='info'; go('ficha'); }
+async function fichaPeca(){
+  await carregaLocais();
+  const { peca:p }=await api('/peca-codigo/'+S.ui.fichaCod);
+  if(S.view!=='ficha')return; // usuário já foi para outra tela
+  const ix=S.pecas.findIndex(x=>x.id===p.id); if(ix>=0)S.pecas[ix]=p; else S.pecas.push(p);
+  const q=Number(p.qtd)||0, fotos=p.fotos||[], temLocal=p.local_id&&S.locais[p.local_id], noML=p.ml_id&&p.ml_status!=='closed';
+  const L=(ic,rot,val,extra)=>`<div class="frow"><span class="material-icons">${ic}</span><div><b>${rot}</b> ${val}${extra?'<div>'+extra+'</div>':''}</div></div>`;
+  const sem=t=>`<span class="mut">${t}</span>`;
+  const info=[
+    L('inventory_2','Descrição:',esc(p.nome)),
+    L('attach_money','Valor:',brl(p.preco)),
+    L('directions_car','Marca:',p.marca?esc(p.marca):sem('Sem marca')),
+    L('directions_car','Modelo:',p.modelo?esc(p.modelo):sem('Sem modelo')),
+    L('event','Ano:',p.ano?esc(p.ano):sem('Sem ano')),
+    L('qr_code_2','Código:',cod(p.codigo),p.pn?'Part number: '+esc(p.pn):''),
+    p.veiculo?L('recycling','Sucata de origem:',esc(p.veiculo)):'',
+    p.cond||p.qualidade?L('verified','Condição:',esc(p.cond||'—'),p.qualidade?'Qualidade '+esc(p.qualidade):''):'',
+    L('add_shopping_cart','Estoque:',q>0?q+(q===1?' unidade':' unidades'):'<span style="color:var(--red)">esgotada</span>'),
+    L('storefront','Mercado Livre<br>Anunciado:',p.ml_id?'1 anúncio · '+esc(stML(p.ml_status)):'Nenhum anúncio'),
+    L('place','Localização:',temLocal?esc(locPath(p.local_id)).replace(/ › /g,' &gt; '):'<span style="color:var(--red)">sem localização</span>',temLocal?'<a href="#" id="fvl">Ver peças deste local</a>':''),
+    p.obs?L('info','Informação adicional:',esc(p.obs)):''
+  ].join('');
+  const imgs=fotos.length?fotos.map(k=>`<a href="/api/foto/${k}" target="_blank" rel="noopener"><img src="/api/foto/${k}" loading="lazy" alt=""></a>`).join('')
+    :'<p class="mut" style="padding:20px;text-align:center">Sem fotos. <a href="#" id="ffot">Adicionar fotos</a></p>';
+  const aba=S.ui.fichaAba==='img'?'img':'info';
+  $('#main').innerHTML=`<div class="top"><button class="btn sm" id="fvolta">← Voltar</button><span class="tag">${cod(p.codigo)}</span></div>
+   <div class="fcard">
+    <div class="ftabs"><button data-ft="info" class="${aba==='info'?'on':''}">Informações</button><button data-ft="img" class="${aba==='img'?'on':''}">Imagens${fotos.length?' ('+fotos.length+')':''}</button></div>
+    ${aba==='info'?info:'<div class="fimgs">'+imgs+'</div>'}
+    <div class="facts">
+     <button class="btn" id="fed">✏️ Editar</button>
+     ${noML?'':'<button class="btn p" id="fml">🛒 Publicar no ML</button>'}
+     ${p.ml_link?`<a class="btn p" href="${esc(p.ml_link)}" target="_blank" rel="noopener">👁️ Ver anúncio no Mercado Livre</a>`:''}
+     <button class="btn" id="fmv">📦 Mover</button>
+     <button class="btn" id="fet">🏷️ Etiqueta</button>
+     <button class="btn" id="fmais">⋯ Mais opções</button>
+     <button class="btn" id="fdel" style="color:var(--red)">🗑️ Excluir</button>
+     <button class="btn g" id="fvd" ${q>0?'':'disabled'}>💰 Vender</button>
+    </div></div>`;
+  $('#fvolta').onclick=()=>go(S.ui.fichaDe&&S.ui.fichaDe!=='ficha'?S.ui.fichaDe:'estoque');
+  document.querySelectorAll('[data-ft]').forEach(b=>b.onclick=()=>{ S.ui.fichaAba=b.dataset.ft; fichaPeca(); });
+  if($('#fvl'))$('#fvl').onclick=e=>{ e.preventDefault(); S.ui.loc=p.local_id; S.ui.q=''; S.ui.status='todos'; go('estoque'); };
+  if($('#ffot'))$('#ffot').onclick=e=>{ e.preventDefault(); editar(p.id); };
+  $('#fed').onclick=()=>editar(p.id);
+  if($('#fml'))$('#fml').onclick=()=>publicarML(p);
+  $('#fmv').onclick=()=>moverUma(p);
+  $('#fet').onclick=()=>abreGerador([itemPeca(p)]);
+  $('#fmais').onclick=()=>abrePeca(p.id);
+  $('#fdel').onclick=async()=>{ if(!confirm('Excluir '+p.nome+'?'))return; try{ await api('/pecas/'+p.id,{method:'DELETE'}); toast('Peça excluída'); go('estoque'); }catch(e){ toast(e.message); } };
+  $('#fvd').onclick=()=>vender(p);
+}
+// mover uma peça só (pela ficha) — a etiqueta mostra o local, então oferece imprimir de novo
+function moverUma(p){
+  modal(`<h3>Mover peça</h3><p class="small mut">${esc(p.nome)} · agora em ${p.local_id&&S.locais[p.local_id]?esc(locPath(p.local_id)):'nenhum local'}</p>
+   <label class="f">Nova localização<select id="mvl"><option value="">— escolha —</option>${locOptions(p.local_id)}</select></label>
+   <div class="top" style="margin-top:14px"><button class="btn p" id="ok">Mover</button><button class="btn" id="cc">Cancelar</button></div>`);
+  $('#cc').onclick=fecha;
+  $('#ok').onclick=async()=>{ const l=$('#mvl').value; if(!l)return toast('Escolha o local'); if(l===p.local_id){ fecha(); return; }
+    try{ await api('/mover',{method:'POST',body:{ids:[p.id],local_id:l}}); p.local_id=l; fecha(); toast('Movida para '+locPath(l));
+      if(confirm('A etiqueta mostra a localização. Imprimir a etiqueta nova desta peça?'))abreGerador([itemPeca(p)]);
+      if(S.view==='ficha')fichaPeca(); }catch(e){ toast(e.message); } };
 }
 // embalagens prontas: [nome, peso g, altura, largura, comprimento cm]
 const EMB_PRESETS=[['Pequena (até 1 kg)',800,10,15,20],['Média (até 3 kg)',2500,20,25,35],['Grande (até 8 kg)',7000,30,40,50],['Extra (até 15 kg)',14000,40,50,70]];
@@ -1312,11 +1389,11 @@ function vender(p){
    <label class="f">Cliente<input id="vcl" placeholder="opcional"></label>
    <label class="f">Pagamento<select id="vpg"><option>Pix</option><option>Dinheiro</option><option>Cartão</option><option>Boleto</option></select></label></div>
    <div class="top" style="margin-top:14px"><button class="btn g" id="ok">Confirmar venda</button><button class="btn" id="cc">Cancelar</button></div>`);
-  $('#cc').onclick=()=>abrePeca(p.id);
+  $('#cc').onclick=()=>S.view==='ficha'?fecha():abrePeca(p.id);
   $('#ok').onclick=async()=>{ try{
     const rv=await api('/vendas',{method:'POST',body:{peca_id:p.id,qtd:$('#vq').value,unit:$('#vp').value,canal:$('#vc').value,cliente:$('#vcl').value,pagamento:$('#vpg').value,local_path:p.local_id?locPath(p.local_id):''}});
     fecha(); toast('Venda registrada! Retirar em '+(p.local_id?locPath(p.local_id):'—')+(rv.ml==='pausado'?' · anúncio do ML pausado (sem estoque)':rv.ml==='atualizado'?' · estoque do ML atualizado':rv.ml&&rv.ml.startsWith('erro')?' · ⚠️ não consegui atualizar o ML':''));
-    if(S.view==='estoque')listaEstoque();
+    if(S.view==='estoque')listaEstoque(); else if(S.view==='ficha')fichaPeca();
   }catch(err){ toast('Erro: '+err.message); } };
 }
 
@@ -1877,7 +1954,7 @@ async function escanear(){
 // P:000123 = peça · L:<id> = localização · outro texto = busca
 async function tratarCodigo(t){
   const cp=/^\d+$/.test(t)?null:lePeca(t);
-  if(cp!=null){ try{ const { peca }=await api('/peca-codigo/'+cp); await carregaLocais(); if(!S.pecas.find(x=>x.id===peca.id))S.pecas.push(peca); abrePeca(peca.id); }catch(e){ toast('Peça '+cod(cp)+' não encontrada'); } return; }
+  if(cp!=null){ try{ const { peca }=await api('/peca-codigo/'+cp); abreFicha(peca); }catch(e){ toast('Peça '+cod(cp)+' não encontrada'); } return; }
   const lc=leLocal(t);
   if(lc){ await carregaLocais(); if(!S.locais[lc])return toast('Localização não encontrada'); S.ui.loc=lc; S.ui.q=''; S.ui.status='todos'; await go('estoque'); toast('📍 '+locPath(lc)); return; }
   S.ui.q=t; S.ui.status='todos'; S.ui.loc=''; go('estoque');
