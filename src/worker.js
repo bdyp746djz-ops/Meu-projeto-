@@ -171,6 +171,11 @@ async function api(request, env, url) {
   if (p === '/api/agente/instalador' && m === 'GET') return agenteInstalador(env, url, user);
   if (p === '/api/agente/chave' && m === 'POST') return agenteNovaChave(env, user);
   if (p === '/api/ml/expedicao' && m === 'GET') return mlExpedicao(env);
+  // perguntas dos compradores
+  if (p === '/api/ml/perguntas/contagem' && m === 'GET') return mlPergContagem(env);
+  if (p === '/api/ml/perguntas' && m === 'GET') return mlPerguntas(url, env);
+  mt = p.match(/^\/api\/ml\/perguntas\/(\d+)\/(responder|sugerir)$/);
+  if (mt && m === 'POST') return mt[2] === 'responder' ? mlResponde(mt[1], request, env) : mlSugereResposta(mt[1], env);
   // importar anúncios da conta do ML para o sistema (com fotos e ficha técnica)
   if (p === '/api/ml/importar' && m === 'GET') return mlImportLista(url, env, user);
   mt = p.match(/^\/api\/ml\/importar\/(MLB\d+)$/i);
@@ -1001,6 +1006,121 @@ async function inserePeca(env, b, user, id = uid()) {
     numOuNull(b.comp_cm), b.video || null, b.ml_cat || null, b.ml_cat_nome || null).run();
   return id;
 }
+// ---------- perguntas dos compradores no Mercado Livre ----------
+const erroPerg = e => /403|forbidden|scope|permission|not allowed|unauthorized/i.test(String(e.message))
+  ? 'o Mercado Livre não liberou as perguntas para o seu app: no DevCenter do ML, ative a permissão "Comunicações pré e pós-venda" do aplicativo e conecte o ML de novo no sistema'
+  : String(e.message);
+async function mlPergContagem(env) {
+  const token = await mlToken(env), seller = await getCfg(env, 'ml_user_id');
+  if (!token || !seller) return json({ conectado: false, n: 0 });
+  try { const d = await mlReq(token, 'GET', `/questions/search?seller_id=${seller}&status=UNANSWERED&api_version=4&limit=1`); return json({ conectado: true, n: d.total || 0 }); }
+  catch (e) { return json({ conectado: true, n: 0, erro: erroPerg(e) }); }
+}
+async function caminhosLocais(env) {
+  const r = await env.DB.prepare('SELECT id,nome,pai FROM locais').all(), m = {};
+  for (const l of r.results) m[l.id] = l;
+  return id => { const p = []; let c = m[id], g = 0; while (c && g++ < 20) { p.unshift(c.nome); c = m[c.pai]; } return p.join(' › '); };
+}
+async function mlPerguntas(url, env) {
+  const token = await mlToken(env), seller = await getCfg(env, 'ml_user_id');
+  if (!token || !seller) return bad('conecte o Mercado Livre primeiro');
+  await garanteColsPecas(env);
+  const sq = url.searchParams.get('status'), st = sq === 'respondidas' ? 'ANSWERED' : sq === 'todas' ? '' : 'UNANSWERED';
+  const off = Math.max(0, parseInt(url.searchParams.get('offset')) || 0);
+  let d;
+  try { d = await mlReq(token, 'GET', `/questions/search?seller_id=${seller}&api_version=4&limit=30&offset=${off}&sort_fields=date_created&sort_types=DESC` + (st ? '&status=' + st : '')); }
+  catch (e) { return bad(erroPerg(e)); }
+  const qs = d.questions || [], ids = [...new Set(qs.map(q => q.item_id).filter(Boolean))], itens = {}, pecas = {};
+  for (let i = 0; i < ids.length; i += 20) {
+    try {
+      const r = await mlReq(token, 'GET', '/items?ids=' + ids.slice(i, i + 20).join(',') + '&attributes=id,title,secure_thumbnail,thumbnail,permalink,price,available_quantity,status');
+      for (const x of r) if (x && x.body && x.body.id) itens[x.body.id] = { id: x.body.id, titulo: x.body.title, foto: x.body.secure_thumbnail || x.body.thumbnail || null, link: x.body.permalink, preco: x.body.price, qtd: x.body.available_quantity, status: x.body.status };
+    } catch { /* sem detalhes do anúncio */ }
+  }
+  if (ids.length) {
+    const caminho = await caminhosLocais(env);
+    const r = await env.DB.prepare(`SELECT id,codigo,qtd,local_id,pn,ml_id FROM pecas WHERE ml_id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
+    for (const p of r.results) pecas[p.ml_id] = { id: p.id, codigo: p.codigo, qtd: p.qtd, pn: p.pn, local: p.local_id ? caminho(p.local_id) : null };
+  }
+  const c = await veoCfg(env);
+  return json({ total: d.total || qs.length, offset: off, ia: c.chaves.length > 0,
+    perguntas: qs.map(q => ({ id: q.id, texto: q.text, data: q.date_created, status: q.status, item: itens[q.item_id] || { id: q.item_id }, peca: pecas[q.item_id] || null,
+      resposta: q.answer ? { texto: q.answer.text, data: q.answer.date_created } : null })) });
+}
+async function mlResponde(id, request, env) {
+  const token = await mlToken(env);
+  if (!token) return bad('conecte o Mercado Livre primeiro');
+  const t = String(((await request.json().catch(() => ({}))).texto) || '').trim();
+  if (!t) return bad('escreva a resposta');
+  if (t.length > 2000) return bad('a resposta passou de 2000 letras');
+  try { await mlReq(token, 'POST', '/answers', { question_id: Number(id), text: t }); }
+  catch (e) { return bad('o Mercado Livre recusou: ' + erroPerg(e)); }
+  return json({ ok: true });
+}
+// texto com a IA do Gemini (usa as mesmas chaves das fotos e vídeos, com troca automática)
+async function gmTexto(env, sistema, pedido) {
+  const c = await veoCfg(env);
+  if (!c.chaves.length) throw new Error('cadastre uma chave do Gemini em Anúncios ML → IA do Google');
+  let ultimo = ''; const pulos = [];
+  for (const k of gmOrdem(c.chaves)) {
+    const modelos = [...new Set([k.txt, 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-3-flash-preview'].filter(Boolean))];
+    let outraChave = false;
+    for (const mo of modelos) {
+      try {
+        const d = await geminiReq(env, k.chave, 'POST', '/models/' + mo + ':generateContent', { systemInstruction: { parts: [{ text: sistema }] },
+          contents: [{ role: 'user', parts: [{ text: pedido }] }], generationConfig: { temperature: 0.3, maxOutputTokens: 600 } });
+        const txt = (((d.candidates || [])[0] || {}).content || {}).parts;
+        const t = (txt || []).map(x => x.text).filter(Boolean).join('').trim();
+        if (!t) { ultimo = 'o Gemini não devolveu texto'; continue; }
+        if (k.pausa) await gmLibera(env, k.id);
+        return t;
+      } catch (e) {
+        ultimo = k.nome + ': ' + e.message;
+        const esg = gmEsgotou(e);
+        if (esg) { await gmPausa(env, k.id, esg); pulos.push(k.nome + ' (' + esg.motivo + ')'); outraChave = true; break; }
+        if (e.status === 404 || /not found|not supported/i.test(e.message)) continue;
+        break;
+      }
+    }
+    if (!outraChave) break;
+  }
+  throw new Error(pulos.length >= c.chaves.length ? 'todas as chaves do Gemini estão sem saldo ou cota: ' + pulos.join(', ') : 'o Google recusou: ' + ultimo);
+}
+const SISTEMA_RESPOSTA = `Você é o atendente da loja Rafa Busca Peças (peças automotivas, a maioria usadas, de desmanche) no Mercado Livre. Escreva a resposta para a pergunta do comprador.
+Regras:
+- Português do Brasil, educado e direto, no máximo 3 frases curtas. Comece com "Olá!".
+- Use SOMENTE as informações da peça e do anúncio abaixo. Nunca invente compatibilidade, ano, motor, medida, estado ou garantia.
+- Se a resposta não estiver nos dados (ex.: se serve em outro carro), peça o que falta (ano, motor ou o código/part number da peça antiga para comparar) ou diga que vai conferir.
+- Se perguntarem do estoque, use a quantidade informada. Sobre frete e prazo, diga que o Mercado Livre calcula no anúncio ao colocar o CEP.
+- Nunca passe telefone, WhatsApp, e-mail, endereço, redes sociais ou links, e não ofereça venda ou desconto fora do Mercado Livre (é proibido lá).
+- Não escreva assinatura no final.
+Responda só com o texto da resposta.`;
+async function mlSugereResposta(id, env) {
+  const token = await mlToken(env);
+  if (!token) return bad('conecte o Mercado Livre primeiro');
+  await garanteColsPecas(env);
+  let q; try { q = await mlReq(token, 'GET', '/questions/' + id + '?api_version=4'); } catch (e) { return bad(erroPerg(e)); }
+  let it = {}; try { it = await mlReq(token, 'GET', '/items/' + q.item_id + '?attributes=id,title,price,available_quantity,condition,attributes,status'); } catch { /* sem anúncio */ }
+  const p = q.item_id ? await env.DB.prepare('SELECT * FROM pecas WHERE ml_id=?').bind(q.item_id).first() : null;
+  let ant = []; try { ant = ((await mlReq(token, 'GET', `/questions/search?item=${q.item_id}&status=ANSWERED&api_version=4&limit=5&sort_fields=date_created&sort_types=DESC`)).questions || []).filter(x => x.answer); } catch { /* sem histórico */ }
+  const attrs = p && p.ml_attrs ? (() => { try { return JSON.parse(p.ml_attrs); } catch { return []; } })() : (it.attributes || []).filter(a => a.value_name).map(a => [a.id, a.name, a.value_name]);
+  const L = [];
+  L.push('ANÚNCIO: ' + (it.title || (p && p.nome) || q.item_id));
+  if (it.price != null) L.push('Preço: R$ ' + it.price);
+  L.push('Estoque: ' + (p ? p.qtd : (it.available_quantity ?? '?')) + ' unidade(s)');
+  L.push('Condição: ' + (p && p.cond ? p.cond : it.condition === 'new' ? 'Nova' : it.condition === 'used' ? 'Usada' : '?'));
+  if (p) {
+    if (p.pn) L.push('Part number (código da peça): ' + p.pn);
+    const v = [p.marca, p.modelo, p.ano].filter(Boolean).join(' '); if (v) L.push('Marca/modelo/ano: ' + v);
+    if (p.veiculo) L.push('Retirada do veículo: ' + p.veiculo);
+    if (p.obs) L.push('Descrição/observações: ' + String(p.obs).slice(0, 1500));
+  }
+  if (attrs.length) L.push('Ficha técnica: ' + attrs.slice(0, 40).map(a => a[1] + ': ' + a[2]).join('; '));
+  if (ant.length) L.push('Respostas que a loja já deu nesse anúncio:\n' + ant.map(x => '- P: ' + x.text + '\n  R: ' + x.answer.text).join('\n'));
+  L.push('\nPERGUNTA DO COMPRADOR: ' + q.text);
+  try { return json({ ok: true, texto: (await gmTexto(env, SISTEMA_RESPOSTA, L.join('\n'))).slice(0, 2000) }); }
+  catch (e) { return bad(e.message); }
+}
 // ---------- importar anúncios do Mercado Livre (os seus) para o sistema ----------
 async function mlImportLista(url, env, user) {
   if (user.papel !== 'admin') return bad('somente o administrador', 403);
@@ -1468,9 +1588,10 @@ async function gmDescobre(env, chave) {
   const melhor = f => nomes.filter(f).sort((a, b) => ver(b) - ver(a) || (/preview/.test(a) - /preview/.test(b)))[0];
   const so = o => Object.fromEntries(Object.entries(o).filter(([, v]) => v));
   const veo = n => /veo/i.test(n), img = n => /^gemini-.*image/i.test(n) && !/imagen/i.test(n);
-  return { nomes: nomes.filter(n => veo(n) || img(n)),
+  return { nomes: nomes.filter(n => veo(n) || img(n) || /^gemini-[\d.]+-flash/.test(n)),
     veo: so({ lite: melhor(n => veo(n) && /lite/.test(n)), fast: melhor(n => veo(n) && /fast/.test(n)), standard: melhor(n => veo(n) && !/fast|lite/.test(n)) }),
-    img: so({ lite: melhor(n => img(n) && /lite/.test(n)), flash: melhor(n => img(n) && /flash/.test(n) && !/lite/.test(n)), pro: melhor(n => img(n) && /pro/.test(n)) }) };
+    img: so({ lite: melhor(n => img(n) && /lite/.test(n)), flash: melhor(n => img(n) && /flash/.test(n) && !/lite/.test(n)), pro: melhor(n => img(n) && /pro/.test(n)) }),
+    txt: melhor(n => /^gemini-[\d.]+-flash(-preview)?(-[\d-]+)?$/i.test(n)) || null };
 }
 async function veoSalva(request, env, user) {
   if (user.papel !== 'admin') return bad('somente o administrador', 403);
@@ -1486,14 +1607,14 @@ async function veoSalva(request, env, user) {
     if (l.some(k => k.chave === nova)) return bad('essa chave já está cadastrada');
     let d; try { d = await gmDescobre(env, nova); } catch (e) { return bad('o Google não aceitou a chave: ' + e.message); }
     if (!d.nomes.length) aviso = 'a chave foi aceita, mas o Google não listou modelos de vídeo nem de foto para ela — confira se a cobrança está ativa no Google AI Studio';
-    l.push({ id: hexAleatorio(4), nome: String(b.nome || '').trim().slice(0, 40) || 'Chave ' + (l.length + 1), chave: nova, veo: d.veo, img: d.img });
+    l.push({ id: hexAleatorio(4), nome: String(b.nome || '').trim().slice(0, 40) || 'Chave ' + (l.length + 1), chave: nova, veo: d.veo, img: d.img, txt: d.txt });
     await gmSalvaChaves(env, l);
   }
   if (b.testar) {
     const k = l.find(x => x.id === b.testar);
     if (k) {
       let d; try { d = await gmDescobre(env, k.chave); } catch (e) { return bad(k.nome + ': o Google não aceitou a chave: ' + e.message); }
-      Object.assign(k, { veo: d.veo, img: d.img, pausa: 0, motivo: null }); await gmSalvaChaves(env, l);
+      Object.assign(k, { veo: d.veo, img: d.img, txt: d.txt, pausa: 0, motivo: null }); await gmSalvaChaves(env, l);
       if (!d.nomes.length) aviso = k.nome + ': o Google não listou modelos de vídeo nem de foto — confira a cobrança';
     }
   }
