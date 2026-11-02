@@ -446,14 +446,14 @@ async function expedicao(){
   const semDce=d.pedidos.filter(o=>(o.envio||{}).sub==='invoice_pending');
   el.innerHTML=`${semDce.length>1?`<div class="card small" style="background:#fff7e6;box-shadow:none;margin:8px 0">📄 ${semDce.length} pedidos esperando a declaração de conteúdo. <button class="btn sm p" id="dceall">Emitir DC-e de todos</button></div>`:''}<div class="exp">${d.pedidos.map(o=>{ const e=o.envio||{};
     return `<div class="exp-o"><div class="exp-h"><b>Pedido ${esc(o.id)}</b><span class="mut">${o.data?new Date(o.data).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'}):''} · ${esc(o.comprador)} · ${brl(o.total)}</span>
-      <span class="tag ${e.status==='ready_to_ship'?'price':'ml'}">${esc(ENVIO_ST[e.status]||e.status||'sem envio')}${e.sub?' · '+esc(ENVIO_SUB[e.sub]||e.sub):''}</span>${e.prazo?`<span class="small mut">despachar até ${new Date(e.prazo).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})}</span>`:''}</div>
+      <span class="tag ${e.sub==='invoice_pending'?'zero':e.status==='ready_to_ship'?'price':'ml'}">${e.sub==='invoice_pending'?'📄 Falta emitir a declaração de conteúdo (DC-e)':esc(ENVIO_ST[e.status]||e.status||'sem envio')+(e.sub?' · '+esc(ENVIO_SUB[e.sub]||e.sub):'')}</span>${e.prazo?`<span class="small mut">despachar até ${new Date(e.prazo).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})}</span>`:''}</div>
       ${o.itens.map((it,i)=>`<div class="exp-i"><div style="flex:1"><div>${it.qtd}× ${esc(it.titulo)}</div>
         ${it.peca?`<div class="small"><b>📍 ${it.peca.local_id&&S.locais[it.peca.local_id]?esc(codigoTxt(it.peca.local_id))+' — '+esc(locPath(it.peca.local_id)):'sem localização'}</b> · ${cod(it.peca.codigo)} · estoque ${it.peca.qtd}</div>`:'<div class="small" style="color:var(--amber)">anúncio não vinculado a nenhuma peça do sistema</div>'}</div>
         ${it.peca?(it.baixa?'<span class="tag price">baixa feita ✓</span>':`<button class="btn sm" data-bx="${esc(o.id)}|${i}">Dar baixa</button>`):''}</div>`).join('')}
-      ${e.sub==='invoice_pending'?`<div class="small" style="color:var(--amber);margin-top:6px">📄 Para liberar a etiqueta, emita a <b>declaração de conteúdo (DC-e)</b>. Prazo: 3 dias da venda, senão o ML cancela o pedido.</div>`:''}
-      <div class="mlact">${e.sub==='invoice_pending'?`<button class="btn sm p" data-dce="${esc(o.id)}">📄 Emitir DC-e</button>`:''}${e.id&&e.status==='ready_to_ship'?`<button class="btn sm p" data-lb="${esc(e.id)}"><span class="material-icons" style="font-size:16px;vertical-align:-3px">print</span> Etiqueta de envio</button>`:''}<button class="btn sm" data-dcev="${esc(o.id)}">📄 DC-e</button>
+      ${e.sub==='invoice_pending'?`<div class="small" style="color:var(--amber);margin-top:6px">📄 <b>1º passo:</b> toque em <b>Emitir DC-e</b>. A etiqueta de envio aparece logo depois. Prazo: 3 dias da venda, senão o ML cancela o pedido.</div>`:''}
+      <div class="mlact">${e.sub==='invoice_pending'?`<button class="btn sm p" data-dce="${esc(o.id)}">📄 Emitir DC-e</button>`:''}${e.id&&e.status==='ready_to_ship'&&e.sub!=='invoice_pending'?`<button class="btn sm p" data-lb="${esc(e.id)}" data-lbo="${esc(o.id)}"><span class="material-icons" style="font-size:16px;vertical-align:-3px">print</span> Etiqueta de envio</button>`:''}<button class="btn sm" data-dcev="${esc(o.id)}">📄 DC-e</button>
         ${o.itens.some(it=>it.peca)?`<button class="btn sm" data-ab="${esc(o.itens.find(it=>it.peca).peca.id)}">Abrir peça</button>`:''}</div></div>`; }).join('')}</div>`;
-  el.querySelectorAll('[data-lb]').forEach(b=>b.onclick=()=>etiquetaEnvio(b.dataset.lb));
+  el.querySelectorAll('[data-lb]').forEach(b=>b.onclick=()=>etiquetaEnvio(b.dataset.lb,b.dataset.lbo));
   el.querySelectorAll('[data-dce]').forEach(b=>b.onclick=()=>emiteDce(b.dataset.dce,true));
   el.querySelectorAll('[data-dcev]').forEach(b=>b.onclick=()=>verDce(b.dataset.dcev));
   if($('#dceall'))$('#dceall').onclick=async()=>{ if(!confirm(`Emitir a declaração de conteúdo (DC-e) de ${semDce.length} pedidos? Ela usa os itens e valores de cada venda.`))return;
@@ -493,13 +493,15 @@ async function abrePdf(caminho,nome){
     if(win&&!win.closed) win.location.href=u; else { const a=document.createElement('a'); a.href=u; a.download=nome; document.body.appendChild(a); a.click(); a.remove(); }
   }catch(e){ if(win&&!win.closed)win.close(); toast(e.message); }
 }
-async function etiquetaEnvio(id){
+async function etiquetaEnvio(id,pedido){
   const win=window.open('','_blank'); if(win){ try{ win.document.write('<title>Etiqueta de envio</title><p style="font-family:sans-serif;padding:20px">Buscando a etiqueta no Mercado Livre…</p>'); }catch(_){} }
   try{ const r=await fetch('/api/ml/etiqueta-envio/'+encodeURIComponent(id)); const ct=r.headers.get('content-type')||'';
     if(!r.ok||!ct.includes('pdf')){ const j=await r.json().catch(()=>({})); throw new Error(j.erro||('HTTP '+r.status)); }
     const url=URL.createObjectURL(await r.blob());
     if(win&&!win.closed) win.location.href=url; else { const a=document.createElement('a'); a.href=url; a.download='etiqueta-envio-'+id+'.pdf'; document.body.appendChild(a); a.click(); a.remove(); }
-  }catch(e){ if(win&&!win.closed)win.close(); toast(e.message); }
+  }catch(e){ if(win&&!win.closed)win.close();
+    if(pedido&&/invoice_pending/i.test(e.message)){ if(confirm('O Mercado Livre só libera a etiqueta depois da declaração de conteúdo (DC-e). Emitir a DC-e deste pedido agora?'))emiteDce(pedido,false); }
+    else toast(e.message); }
 }
 
 // ---------- Estoque ----------
