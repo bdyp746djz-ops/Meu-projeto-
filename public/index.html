@@ -1009,7 +1009,7 @@ async function publicarML(p){
   if(!(cfg.ml&&cfg.ml.conectado))return toast('Conecte o Mercado Livre primeiro (Anúncios ML → Conexão)');
   modal('<h3>Montando anúncio…</h3><p class="mut small">Buscando as categorias no Mercado Livre.</p>');
   let r; try{ r=await api('/ml/rascunho/'+p.id); }catch(e){ fecha(); return toast(e.message); }
-  const d=r.rascunho, st={cats:d.categorias||[],cat:d.categoria,attrs:[],vals:{}};
+  const d=r.rascunho, st={cats:d.categorias||[],cat:d.categoria,attrs:[],vals:{},doML:{},fichaML:null};
   const sku=String(p.codigo).padStart(6,'0');
   const cm=v=>v?Number(v)+' cm':'';
   const daPeca={BRAND:p.marca,MODEL:p.modelo,PART_NUMBER:p.pn,OEM:p.pn,ORIGINAL_PART_NUMBER:p.pn,SELLER_SKU:sku,VEHICLE_YEAR:p.ano,
@@ -1053,17 +1053,33 @@ async function publicarML(p){
     else if(a.tipo==='number') inp=`<input data-at="${a.id}" type="number" step="any" value="${esc(v)}">`;
     else if(a.tipo==='number_unit') inp=`<input data-at="${a.id}" value="${esc(v)}" placeholder="ex.: 10 ${esc(a.unidade||a.unidades[0]||'')}">`;
     else inp=`<input data-at="${a.id}" value="${esc(v)}" ${a.max?`maxlength="${a.max}"`:''} autocomplete="off">`;
-    return `<label class="f">${esc(a.nome)}${a.obrig?' <b style="color:var(--red)">*</b>':''}${a.cond?' <span class="mut">(pode ser exigido)</span>':''}${inp}${a.dica?`<span class="small mut" style="display:block;font-weight:400">${esc(a.dica)}</span>`:''}</label>`; };
+    const doML=st.doML[a.id]&&st.vals[a.id]===v&&v;
+    return `<label class="f">${esc(a.nome)}${a.obrig?' <b style="color:var(--red)">*</b>':''}${a.cond?' <span class="mut">(pode ser exigido)</span>':''}${doML?' <span class="tag ml" title="Preenchido com o que os anúncios iguais usam no Mercado Livre">do ML</span>':''}${inp}${a.dica?`<span class="small mut" style="display:block;font-weight:400">${esc(a.dica)}</span>`:''}</label>`; };
   document.querySelectorAll('[data-emb]').forEach(b=>b.onclick=()=>{ const e=EMB_PRESETS[+b.dataset.emb]; $('#epeso').value=e[1]; $('#ealt').value=e[2]; $('#elarg').value=e[3]; $('#ecomp').value=e[4]; toast('Confira e ajuste se precisar'); });
   const pintaAttrs=()=>{
     st.attrs=st.attrs.filter(a=>!/^SELLER_PACKAGE_/.test(a.id));   // embalagem tem campos próprios acima
     if(!st.attrs.length){ $('#mattrs').innerHTML='<p class="small mut">Essa categoria não pede ficha técnica.</p>'; return; }
     const princ=st.attrs.filter(a=>a.obrig||a.cond||a.relev===1||valorDe(a)), resto=st.attrs.filter(a=>!princ.includes(a));
     princ.sort((x,y)=>(y.obrig-x.obrig)||(y.cond-x.cond));
-    $('#mattrs').innerHTML=`<div class="mlattrs">${princ.map(campo).join('')}</div>${resto.length?`<details class="mlmais"><summary>Mais campos opcionais (${resto.length})</summary><div class="mlattrs">${resto.map(campo).join('')}</div></details>`:''}`;
-    document.querySelectorAll('[data-at]').forEach(el=>el.oninput=()=>{ st.vals[el.dataset.at]=el.value; }); };
+    const fm=st.fichaML;
+    $('#mattrs').innerHTML=(fm?`<div class="small" style="margin:6px 0 8px;${fm.n?'color:var(--ok)':''}">${fm.carregando?'<span class="spin-s"></span> Procurando anúncios iguais no Mercado Livre para preencher a ficha…'
+      :fm.n?`✨ <b>${fm.n} campo(s) preenchido(s)</b> com o que ${fm.anuncios} anúncio(s) ${fm.fortes?'com o mesmo part number':'iguais'} usa(m) no ML — marcados <span class="tag ml">do ML</span>. Confira.`
+      :fm.anuncios?'Os anúncios iguais no ML não têm nada a mais para preencher.':'<span class="mut">Não achei anúncios iguais no ML para copiar a ficha.</span>'}</div>`:'')
+      +`<div class="mlattrs">${princ.map(campo).join('')}</div>${resto.length?`<details class="mlmais"><summary>Mais campos opcionais (${resto.length})</summary><div class="mlattrs">${resto.map(campo).join('')}</div></details>`:''}`;
+    document.querySelectorAll('[data-at]').forEach(el=>el.oninput=()=>{ st.vals[el.dataset.at]=el.value; if(st.doML[el.dataset.at]){ delete st.doML[el.dataset.at]; const t=el.closest('label').querySelector('.tag.ml'); if(t)t.remove(); } }); };
+  // completa os campos vazios com a ficha dos anúncios iguais no ML (mesmo part number ou título bem parecido)
+  const fichaDoML=async id=>{ const pn=(document.querySelector('[data-at="PART_NUMBER"]')||{}).value||p.pn||'';
+    for(const k of Object.keys(st.doML))delete st.vals[k]; st.doML={};   // trocou de categoria: refaz o que veio do ML
+    st.fichaML={carregando:true}; pintaAttrs();
+    let r; try{ r=await api('/ml/ficha-parecida?cat='+encodeURIComponent(id)+'&titulo='+encodeURIComponent($('#mtit').value)+'&pn='+encodeURIComponent(pn)); }catch(_){ r=null; }
+    if(st.cat!==id||!$('#mattrs'))return;
+    let n=0;
+    if(r&&r.anuncios)for(const a of st.attrs){ const v=r.valores[a.id]; if(!v||(a.id in st.vals)||valorDe(a))continue;
+      const nome=(v.value_id&&(a.valores.find(x=>String(x.id)===String(v.value_id))||{}).nome)||v.value_name; if(!nome)continue;
+      st.vals[a.id]=nome; st.doML[a.id]=1; n++; }
+    st.fichaML={n,anuncios:r?r.anuncios:0,fortes:r?r.fortes:0}; pintaAttrs(); };
   const escolhe=async id=>{ st.cat=id; pintaCats(); $('#mattrs').innerHTML='<p class="small mut">Carregando ficha técnica…</p>';
-    try{ const { atributos }=await api('/ml/atributos?cat='+encodeURIComponent(id)); if(st.cat!==id)return; st.attrs=atributos; pintaAttrs(); }
+    try{ const { atributos }=await api('/ml/atributos?cat='+encodeURIComponent(id)); if(st.cat!==id)return; st.attrs=atributos; pintaAttrs(); fichaDoML(id); }
     catch(e){ st.attrs=[]; $('#mattrs').innerHTML='<p class="small" style="color:var(--red)">'+esc(e.message)+'</p>'; } };
   const pintaCats=()=>{
     $('#mcats').innerHTML=st.cats.length?st.cats.map(c=>`<label class="mlcat ${c.id===st.cat?'on':''}"><input type="radio" name="mcat" value="${esc(c.id)}" ${c.id===st.cat?'checked':''}><span><b>${esc(c.caminho)}</b>${c.cadastro?' <span class="tag price">escolhida no cadastro</span>':c.memoria?' <span class="tag ml">usada antes</span>':''}<br><span class="small mut">${esc(c.dominio||c.nome)} · ${esc(c.id)}</span></span></label>`).join('')

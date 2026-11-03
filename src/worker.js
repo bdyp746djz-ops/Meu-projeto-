@@ -216,6 +216,7 @@ async function api(request, env, url) {
   if (p === '/api/ml/publicar' && m === 'POST') return mlPublicar(request, env, url, user);
   if (p === '/api/ml/categorias' && m === 'GET') return mlBuscaCategorias(url, env);
   if (p === '/api/ml/atributos' && m === 'GET') return mlAtributos(url, env);
+  if (p === '/api/ml/ficha-parecida' && m === 'GET') return mlFichaParecida(url, env);
   mt = p.match(/^\/api\/ml\/preco\/([\w-]+)$/);
   if (mt && m === 'GET') return mlPreco(mt[1], env);
   mt = p.match(/^\/api\/ml\/item\/([\w-]+)$/);
@@ -704,6 +705,61 @@ function parecido(titulo, pal, pn) {
   if (pn && t.replace(/\s/g, '').includes(pn)) return true;
   if (!pal.length || !t.includes(pal[0])) return false;   // a 1ª palavra é o tipo da peça (farol, solenoide...)
   return pal.filter(w => t.includes(w)).length >= Math.min(2, pal.length);
+}
+// ficha técnica dos anúncios iguais no ML: o que os anúncios da mesma peça preenchem, para completar os campos vazios
+const FICHA_NAO_COPIA = new Set(['SELLER_SKU', 'GTIN', 'EMPTY_GTIN_REASON', 'ITEM_CONDITION', 'SELLER_PACKAGE_HEIGHT', 'SELLER_PACKAGE_WIDTH', 'SELLER_PACKAGE_LENGTH', 'SELLER_PACKAGE_WEIGHT', 'SELLER_PACKAGE_TYPE', 'PRODUCT_DATA_SOURCE', 'IS_SUITABLE_FOR_SHIPMENT', 'SALE_FORMAT', 'WARRANTY_TYPE', 'WARRANTY_TIME']);
+const FICHA_CODIGOS = new Set(['PART_NUMBER', 'OEM', 'MPN', 'ORIGINAL_PART_NUMBER', 'ALTERNATIVE_PART_NUMBERS', 'MODEL']);   // só de anúncio com o mesmo part number
+const compacto = s => norm(s).replace(/[^a-z0-9]/g, '');
+const pnsDoTexto = t => (norm(t).match(/[a-z0-9][a-z0-9.\-\/]{4,}[a-z0-9]/g) || []).map(compacto)
+  .filter(w => w.length >= 6 && /\d/.test(w) && (/[a-z]/.test(w) || w.length >= 7) && !/^(19|20)\d\d(19|20)?\d\d$/.test(w));
+async function mlFichaParecida(url, env) {
+  const token = await mlToken(env);
+  if (!token) return bad('conecte o Mercado Livre primeiro');
+  const cat = String(url.searchParams.get('cat') || ''), titulo = String(url.searchParams.get('titulo') || '').slice(0, 120);
+  const pns = [...new Set([compacto(url.searchParams.get('pn') || ''), ...pnsDoTexto(titulo)].filter(x => x.length >= 5))].slice(0, 3);
+  const achados = new Map();   // vale também anúncio seu da mesma peça
+  const junta = lista => { for (const r of lista) if (r && r.id && !achados.has(r.id)) achados.set(r.id, r); };
+  const filtro = cat ? { category: cat } : {};
+  for (const pn of pns) { try { junta(await mlBuscaAnuncios(token, { q: pn, ...filtro, limit: '20' })); } catch { /* segue */ } }
+  if (achados.size < 4 && titulo) { try { junta(await mlBuscaAnuncios(token, { q: titulo.split(/\s+/).filter(w => !/^\d{4}\/?\d*$/.test(w)).slice(0, 7).join(' '), ...filtro, limit: '20' })); } catch { /* segue */ } }
+  const ids = [...achados.keys()].slice(0, 20), itens = [];
+  for (let i = 0; i < ids.length; i += 20) {
+    try { for (const x of await mlReq(token, 'GET', '/items?ids=' + ids.slice(i, i + 20).join(',') + '&attributes=id,title,category_id,attributes,permalink')) if (x && x.body && x.body.id) itens.push(x.body); } catch { /* segue */ }
+  }
+  // quais são "a mesma peça": mesmo part number (forte) ou título bem parecido e do mesmo tipo (fraco)
+  const pal = palavrasDe(titulo), tipo = pal[0];
+  const fontes = [];
+  for (const it of itens) {
+    if (cat && it.category_id && it.category_id !== cat) continue;
+    const at = it.attributes || [];
+    const textoPN = compacto([it.title, ...at.filter(a => FICHA_CODIGOS.has(a.id)).map(a => a.value_name)].join(' '));
+    const forte = pns.some(pn => textoPN.includes(pn));
+    let fraco = false;
+    if (!forte && tipo) { const pi = new Set(palavrasDe(it.title)); const comum = pal.filter(w => pi.has(w)).length; fraco = pi.has(tipo) && comum / Math.max(pal.length, pi.size) >= 0.5; }
+    if (forte || fraco) fontes.push({ it, forte });
+  }
+  const fortes = fontes.filter(f => f.forte).length, usa = fortes ? fontes.filter(f => f.forte) : fontes;
+  if (!fortes && usa.length < 2) return json({ anuncios: 0, fortes: 0, valores: {}, exemplos: [] });
+  // voto: o valor que a maioria dos anúncios iguais usa
+  const votos = {};
+  for (const { it, forte } of usa) {
+    const vistosAqui = new Set();
+    for (const a of it.attributes || []) {
+      if (!a || !a.id || FICHA_NAO_COPIA.has(a.id) || /^SELLER_PACKAGE_/.test(a.id) || vistosAqui.has(a.id)) continue;
+      if (!forte && FICHA_CODIGOS.has(a.id)) continue;
+      const nome = a.value_name == null ? '' : String(a.value_name).trim();
+      if (!nome || /^n[ãa]o se aplica$/i.test(nome) || nome.length > 200) continue;
+      vistosAqui.add(a.id);
+      const k = a.value_id ? 'id:' + a.value_id : 'n:' + norm(nome), v = (votos[a.id] = votos[a.id] || { total: 0, op: {} });
+      v.total++; (v.op[k] = v.op[k] || { value_id: a.value_id ? String(a.value_id) : null, value_name: nome, n: 0 }).n++;
+    }
+  }
+  const valores = {};
+  for (const [id, v] of Object.entries(votos)) {
+    const top = Object.values(v.op).sort((x, y) => y.n - x.n)[0];
+    if (top.n / v.total >= 0.5 && (fortes || top.n >= 2)) valores[id] = { value_id: top.value_id, value_name: top.value_name, votos: top.n, de: usa.length };
+  }
+  return json({ anuncios: usa.length, fortes, valores, exemplos: usa.slice(0, 3).map(({ it }) => ({ id: it.id, titulo: it.title, link: it.permalink || null })) });
 }
 async function mlPreco(pecaId, env) {
   const token = await mlToken(env);
