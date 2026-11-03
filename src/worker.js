@@ -129,6 +129,7 @@ async function api(request, env, url) {
   if (p === '/api/mover' && m === 'POST') return mover(request, env, user);
   if (p === '/api/relatorios/produtividade' && m === 'GET') return produtividade(url, env);
   if (p === '/api/pecas/massa' && m === 'POST') return editaMassa(request, env);
+  if (p === '/api/importar/pecas' && m === 'POST') return importaPecas(request, env, user);
   if (p === '/api/pecas/etiquetas' && m === 'POST') return marcaEtiquetas(request, env);
   mt = p.match(/^\/api\/peca-codigo\/(\d+)$/);
   if (mt && m === 'GET') return pecaPorCodigo(mt[1], env);
@@ -1267,6 +1268,56 @@ async function mlImportaItem(mlId, request, env, user) {
   await env.DB.prepare('UPDATE pecas SET ml_id=?, ml_status=?, ml_em=?, ml_attrs=? WHERE id=?').bind(mlId, it.status || null, now(), JSON.stringify(attrs), id).run();
   const p = await env.DB.prepare('SELECT id,codigo FROM pecas WHERE id=?').bind(id).first();
   return json({ ok: true, peca: p, fotos: fotos.length, falhas, caracteristicas: attrs.length });
+}
+// importa peças de uma planilha (ex.: o estoque do iBR): cria os locais pelo caminho
+// ("RAFA > PRT-1 > NÍVEL-D > CAIXA-23") e as peças com o mesmo número que tinham lá.
+// simular: só conta o que faria (não grava nada). Número já usado por outra peça (conflito):
+// 'liberar' = a peça que já estava no sistema ganha número novo e a importada fica com o dela;
+// 'novo' = a importada ganha número novo; 'pular' = não importa. Número novo nunca usa um da planilha (evitar).
+async function importaPecas(request, env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  await garanteColsPecas(env);
+  const b = await request.json().catch(() => ({}));
+  const itens = (Array.isArray(b.itens) ? b.itens : []).slice(0, 200), simular = !!b.simular;
+  const ls = (await env.DB.prepare('SELECT id,nome,pai FROM locais').all()).results;
+  const chave = (pai, nome) => (pai || '') + '|' + norm(String(nome).replace(/[‐-―]/g, '-').trim());
+  const mapa = new Map(ls.map(l => [chave(l.pai, l.nome), l.id]));
+  const r = { criadas: 0, iguais: 0, locaisCriados: [], conflitos: [], renumeradas: [], liberadas: [], erros: [] };
+  const evitar = new Set((Array.isArray(b.evitar) ? b.evitar : []).map(Number));
+  const codigoLivre = async () => { let c = await proxCodigo(env); while (evitar.has(c)) c++; return c; };
+  for (const it of itens) {
+    const codigo = parseInt(it.codigo), nome = String(it.nome || '').trim();
+    if (!codigo || !nome) { r.erros.push({ codigo: it.codigo || '', nome, motivo: 'sem número ou sem descrição' }); continue; }
+    let pai = null;
+    const segs = String(it.local || '').split('>').map(x => x.replace(/[‐-―]/g, '-').trim()).filter(Boolean);
+    for (const sg of segs) {
+      const k = chave(pai, sg);
+      let id = mapa.get(k);
+      if (!id) {
+        id = simular ? 'novo:' + k : uid();
+        if (!simular) await env.DB.prepare('INSERT INTO locais (id,nome,pai,capacidade,criado_em) VALUES (?,?,?,?,?)').bind(id, sg.slice(0, 80), pai, null, now()).run();
+        mapa.set(k, id); r.locaisCriados.push(segs.slice(0, segs.indexOf(sg) + 1).join(' › '));
+      }
+      pai = id;
+    }
+    const ex = await env.DB.prepare('SELECT id,nome FROM pecas WHERE codigo=?').bind(codigo).first();
+    if (ex && norm(ex.nome) === norm(nome)) { r.iguais++; continue; }   // já importada antes
+    if (ex && b.conflito !== 'novo' && b.conflito !== 'liberar') { r.conflitos.push({ codigo, nome, sistema: ex.nome }); continue; }
+    if (simular) { r.criadas++; if (ex) (b.conflito === 'liberar' ? r.liberadas : r.renumeradas).push({ de: codigo, nome: b.conflito === 'liberar' ? ex.nome : nome }); continue; }
+    try {
+      let cod = codigo;
+      if (ex && b.conflito === 'liberar') {   // a peça que já estava no sistema muda de número
+        const novo = await codigoLivre(), row = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(ex.id).first();
+        await env.DB.prepare('UPDATE pecas SET codigo=?, busca=?, atualizado_em=? WHERE id=?').bind(novo, buscaDe({ ...row, codigo: novo }), now(), ex.id).run();
+        r.liberadas.push({ de: codigo, para: novo, nome: ex.nome });
+      } else if (ex) cod = await codigoLivre();
+      await inserePeca(env, { codigo: cod, nome: nome.slice(0, 200), qtd: parseInt(it.qtd) || 0, preco: Number(String(it.preco ?? '').replace(',', '.')) || 0,
+        marca: String(it.marca || '').trim() || null, modelo: String(it.modelo || '').trim() || null, ano: it.ano || null, pn: it.pn || null, cond: it.cond || null,
+        obs: it.obs || null, local_id: segs.length ? pai : null }, user);
+      r.criadas++; if (ex && cod !== codigo) r.renumeradas.push({ de: codigo, para: cod, nome });
+    } catch (e) { r.erros.push({ codigo, nome, motivo: String(e.message || e).slice(0, 120) }); }
+  }
+  return json(r);
 }
 // edição em massa: muda preço, local ou marcação de anúncio de várias peças de uma vez
 async function editaMassa(request, env) {

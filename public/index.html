@@ -536,6 +536,7 @@ async function estoque(){
   if(S.view!=='estoque')return; // usuário já foi para outra tela
   $('#main').innerHTML=`<div class="top"><h2>Consulta de Peças</h2>
     <button class="btn sm" id="dlbtn" title="Baixar planilha do estoque">⬇️ Download</button>
+    ${S.user&&S.user.papel==='admin'?'<button class="btn sm" id="impbtn" title="Importar peças de uma planilha (ex.: estoque do iBR)">⬆️ Importar</button>':''}
     <button class="btn sm" id="selbtn">${S.ui.selMode?'✖ Cancelar':'☑️ Selecionar'}</button>
     <button class="btn p" id="novapeca">+ Nova peça</button></div>
     <div class="q" style="margin-bottom:10px"><div class="withmic"><input id="gq" placeholder="Buscar nome, código, part number ou veículo…" value="${esc(S.ui.q)}"><button type="button" class="mic" title="Ditar por voz">🎤</button></div></div>
@@ -566,6 +567,7 @@ async function estoque(){
   nF();
   $('#novapeca').onclick=()=>go('nova');
   $('#dlbtn').onclick=baixarEstoque;
+  if($('#impbtn'))$('#impbtn').onclick=importarPlanilha;
   $('#selbtn').onclick=()=>{ S.ui.selMode=!S.ui.selMode; S.ui.sel=new Set(); const b=document.getElementById('bulkbar'); if(b)b.remove(); estoque(); };
   $('#gq').oninput=e=>{ S.ui.q=e.target.value.trim(); clearTimeout(window._t); window._t=setTimeout(listaEstoque,250); };
   $('#floc').onchange=e=>{ S.ui.loc=e.target.value; listaEstoque(); };
@@ -1843,7 +1845,7 @@ function itemLocal(id){ const [cima,baixo]=codigoLocal(id); return { tipo:'local
 const linkQR=(t,v)=>location.origin+'/'+t+'/'+encodeURIComponent(v);
 // entende o que veio do leitor/câmera: link novo (…/p/000123), etiqueta antiga (P:000123) ou só o número
 // (aceita também ; e Ç no lugar de / e :, que é o que o leitor USB digita com o teclado ABNT2)
-function lePeca(v){ v=String(v||'').trim(); let m=v.match(/^0*(\d{1,9})$/)||v.match(/(?:^|[^a-z])p[^a-z0-9]{0,2}0*(\d{1,9})[^a-z0-9]{0,2}$/i); return m?parseInt(m[1],10):null; }
+function lePeca(v){ v=String(v||'').trim(); const ibr=/ibrsoft/i.test(v)&&v.match(/code=0*(\d{1,12})/i); if(ibr)return parseInt(ibr[1],10); let m=v.match(/^0*(\d{1,9})$/)||v.match(/(?:^|[^a-z])p[^a-z0-9]{0,2}0*(\d{1,9})[^a-z0-9]{0,2}$/i); return m?parseInt(m[1],10):null; }
 function leLocal(v){ v=String(v||'').trim(); const m=v.match(/(?:^|[^a-z])l[^a-z0-9]{1,2}([\w-]+)[^\w-]{0,2}$/i); return m?decodeURIComponent(m[1]):null; }
 async function etiquetas(){
   await carregaLocais(); const { pecas }=await api('/pecas?todas=1'); S.pecas=pecas;
@@ -2035,6 +2037,61 @@ async function perguntas(){
       const card=$(`[data-q="${id}"]`); if(card)card.remove(); if(S.nPerg)S.nPerg--; renderNav();
       if(!document.querySelector('[data-q]'))perguntas(); }
     catch(e){ toast(e.message); b.disabled=false; b.textContent='Enviar resposta'; } });
+}
+
+// ---------- Importar peças de uma planilha (ex.: o estoque do iBR) ----------
+function leCSV(txt){
+  txt=String(txt).replace(/^﻿/,''); const l1=txt.split(/\r?\n/)[0]||'';
+  const sep=[';','\t',','].map(c=>[c,l1.split(c).length]).sort((a,b)=>b[1]-a[1])[0][0];
+  const linhas=[]; let lin=[], cel='', q=false;
+  for(let i=0;i<txt.length;i++){ const ch=txt[i];
+    if(q){ if(ch==='"'){ if(txt[i+1]==='"'){ cel+='"'; i++; } else q=false; } else cel+=ch; continue; }
+    if(ch==='"')q=true; else if(ch===sep){ lin.push(cel); cel=''; } else if(ch==='\n'||ch==='\r'){ if(ch==='\r'&&txt[i+1]==='\n')i++; lin.push(cel); cel=''; if(lin.some(x=>x.trim()))linhas.push(lin); lin=[]; } else cel+=ch; }
+  lin.push(cel); if(lin.some(x=>x.trim()))linhas.push(lin);
+  return linhas;
+}
+const COLS_IMP={codigo:['codigo','cod','numero'],nome:['nome','descricao','peca','produto','titulo'],qtd:['qtd','quantidade','estoque'],preco:['preco','valor','valorvenda','precovenda'],
+  marca:['marca'],modelo:['modelo'],ano:['ano'],pn:['pn','partnumber','codigooriginal','oem'],local:['local','localizacao','caixa','endereco'],cond:['cond','condicao','estado'],obs:['obs','observacao','observacoes']};
+async function importarPlanilha(){
+  await carregaLocais();
+  modal(`<h3>⬆️ Importar peças de uma planilha</h3>
+   <p class="small mut">Arquivo <b>.csv</b> com uma linha por peça. Colunas aceitas: <b>codigo</b>, <b>nome</b> (descrição), qtd, preco, marca, modelo, ano, pn, cond e <b>local</b> (ex.: <code>RAFA &gt; PRT-1 &gt; NÍVEL-D &gt; CAIXA-23</code>). As prateleiras, níveis e caixas que não existirem são criados. As peças mantêm o mesmo número.</p>
+   <label class="f">Planilha<input type="file" id="impf" accept=".csv,text/csv,text/plain"></label>
+   <div id="impres" class="small" style="margin-top:8px"></div>`);
+  $('#impf').onchange=async e=>{ const f=e.target.files[0]; if(!f)return; const box=$('#impres');
+    let linhas; try{ linhas=leCSV(await f.text()); }catch(err){ box.textContent='⚠️ Não consegui ler: '+err.message; return; }
+    if(linhas.length<2){ box.textContent='⚠️ A planilha está vazia.'; return; }
+    const cab=linhas[0].map(h=>nrm(h).replace(/[^a-z]/g,'')), idx={};
+    for(const [k,al] of Object.entries(COLS_IMP)){ const i=cab.findIndex(h=>al.includes(h)); if(i>=0)idx[k]=i; }
+    if(idx.codigo==null||idx.nome==null){ box.innerHTML='⚠️ A planilha precisa das colunas <b>codigo</b> e <b>nome</b>. Encontrei: '+esc(linhas[0].join(', ')); return; }
+    const itens=linhas.slice(1).map(l=>Object.fromEntries(Object.entries(idx).map(([k,i])=>[k,(l[i]||'').trim()]))).filter(x=>x.codigo&&x.nome);
+    const locs=new Set(itens.map(x=>x.local).filter(Boolean)), evitar=itens.map(x=>parseInt(x.codigo)).filter(Boolean);
+    box.innerHTML='<span class="spin-s"></span> Conferindo '+itens.length+' peças…';
+    const sim={criadas:0,iguais:0,conflitos:[],locais:new Set(),renum:0,erros:[]};
+    try{ for(let i=0;i<itens.length;i+=100){ const r=await api('/importar/pecas',{method:'POST',body:{itens:itens.slice(i,i+100),simular:true}});
+        sim.criadas+=r.criadas; sim.iguais+=r.iguais; sim.conflitos.push(...r.conflitos); sim.erros.push(...r.erros); r.locaisCriados.forEach(x=>sim.locais.add(x)); } }
+    catch(err){ box.textContent='⚠️ '+err.message; return; }
+    const semLocal=itens.filter(x=>!x.local).length;
+    box.innerHTML=`<div class="card small" style="box-shadow:none;background:var(--pri-t)">
+       <b>${itens.length} peças na planilha</b>, em ${locs.size} local(is)${semLocal?` · ${semLocal} sem local`:''}<br>
+       ✅ <b>${sim.criadas}</b> serão criadas${sim.iguais?` · ${sim.iguais} já estavam no sistema (ficam como estão)`:''}<br>
+       📦 ${sim.locais.size} prateleira(s)/nível(is)/caixa(s) novo(s)${sim.locais.size?': '+esc([...sim.locais].slice(0,6).join(' · '))+(sim.locais.size>6?' …':''):''}
+       ${sim.conflitos.length?`<br>⚠️ <b>${sim.conflitos.length}</b> número(s) já usado(s) no sistema por outra peça: ${sim.conflitos.slice(0,5).map(c=>esc(cod(c.codigo)+' ('+c.sistema+')')).join(', ')}${sim.conflitos.length>5?' …':''}
+         <div style="margin-top:6px;display:grid;gap:4px"><label><input type="radio" name="impc" value="liberar" checked> A importada fica com o número dela (a etiqueta colada continua valendo); a que já estava no sistema ganha número novo</label>
+           <label><input type="radio" name="impc" value="novo"> A importada ganha número novo</label><label><input type="radio" name="impc" value="pular"> Não importar essas</label></div>`:''}
+       ${sim.erros.length?`<br>⚠️ ${sim.erros.length} linha(s) com problema: ${sim.erros.slice(0,3).map(x=>esc((x.codigo||'?')+' '+x.motivo)).join('; ')}`:''}</div>
+     <div class="top" style="margin-top:10px"><button class="btn p" id="impok" ${sim.criadas||sim.conflitos.length?'':'disabled'}>Importar</button><button class="btn" id="impcc">Fechar</button></div>
+     <div id="improg2" class="small"></div>`;
+    $('#impcc').onclick=fecha;
+    $('#impok').onclick=async()=>{ const b=$('#impok'); b.disabled=true; const conf=(document.querySelector('[name=impc]:checked')||{}).value||'pular';
+      const tot={criadas:0,iguais:0,conf:0,renum:[],erros:[],locais:new Set()};
+      try{ for(let i=0;i<itens.length;i+=50){ $('#improg2').innerHTML=`<span class="spin-s"></span> Importando ${Math.min(i+50,itens.length)} de ${itens.length}… (não feche esta tela)`;
+          const r=await api('/importar/pecas',{method:'POST',body:{itens:itens.slice(i,i+50),conflito:conf,evitar}});
+          tot.criadas+=r.criadas; tot.iguais+=r.iguais; tot.conf+=r.conflitos.length; tot.renum.push(...r.renumeradas); (tot.lib=tot.lib||[]).push(...(r.liberadas||[])); tot.erros.push(...r.erros); r.locaisCriados.forEach(x=>tot.locais.add(x)); } }
+      catch(err){ $('#improg2').innerHTML='⚠️ Parou no meio: '+esc(err.message)+'. Pode importar o mesmo arquivo de novo: o que já entrou não duplica.'; return; }
+      $('#improg2').innerHTML=`✅ <b>${tot.criadas} peça(s) importada(s)</b>${tot.locais.size?` · ${tot.locais.size} local(is) criado(s)`:''}${tot.iguais?` · ${tot.iguais} já estavam`:''}${tot.conf?` · ${tot.conf} pulada(s) por número repetido`:''}${tot.renum.length?`<br>Importadas com número novo (reimprima a etiqueta): ${tot.renum.slice(0,10).map(x=>esc(cod(x.de)+' → '+cod(x.para))).join(', ')}${tot.renum.length>10?' …':''}`:''}${(tot.lib||[]).length?`<br>Peças que já estavam no sistema e mudaram de número (reimprima a etiqueta delas): ${tot.lib.slice(0,10).map(x=>esc(x.nome+' '+cod(x.de)+' → '+cod(x.para))).join(', ')}${tot.lib.length>10?' …':''}`:''}${tot.erros.length?`<br>⚠️ ${tot.erros.length} com erro: ${tot.erros.slice(0,5).map(x=>esc(x.codigo+' '+x.motivo)).join('; ')}`:''}`;
+      toast('✅ Importação concluída'); try{ await carregaLocais(); const {pecas}=await api('/pecas?todas=1'); S.pecas=pecas; }catch(_){ } if(S.view==='estoque')listaEstoque(); };
+  };
 }
 
 // ---------- Vendas ----------
