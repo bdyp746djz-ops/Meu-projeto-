@@ -91,6 +91,7 @@ export default {
     ctx.waitUntil(Promise.all([
       veoAtualiza(env).catch(e => console.log('veo', e && e.message)),
       mlPausaPosVenda(env).catch(e => console.log('pausa pós-venda', e && e.message)),
+      fotosAuto(env).catch(e => console.log('fotos', e && e.message)),
     ]));
   },
 };
@@ -148,6 +149,7 @@ async function api(request, env, url) {
   if (mt && m === 'POST') return subirFoto(mt[1], request, env);
   mt = p.match(/^\/api\/pecas\/([\w-]+)\/fotos\/conferir$/);
   if (mt && m === 'POST') return conferirFotos(mt[1], env);
+  if (p === '/api/fotos/resumo' && m === 'GET') return fotosResumo(env);
 
   // fotos (R2): servidas publicamente na seção pública acima
 
@@ -1029,7 +1031,7 @@ let colsPecasOk = false;
 async function garanteColsPecas(env) {
   if (colsPecasOk) return;
   for (const c of ['custo REAL', 'qualidade TEXT', 'seguranca INTEGER DEFAULT 0', 'rastreavel INTEGER DEFAULT 0', 'peso_g INTEGER',
-    'alt_cm REAL', 'larg_cm REAL', 'comp_cm REAL', 'video TEXT', 'etq_em INTEGER', 'ml_status TEXT', 'ml_em INTEGER', 'ml_cat TEXT', 'ml_cat_nome TEXT', 'ml_attrs TEXT']) {
+    'alt_cm REAL', 'larg_cm REAL', 'comp_cm REAL', 'video TEXT', 'etq_em INTEGER', 'ml_status TEXT', 'ml_em INTEGER', 'ml_cat TEXT', 'ml_cat_nome TEXT', 'ml_attrs TEXT', 'fotos_erro TEXT', 'fotos_tent INTEGER']) {
     try { await env.DB.prepare('ALTER TABLE pecas ADD COLUMN ' + c).run(); } catch { /* já existe */ }
   }
   try { await env.DB.prepare('CREATE TABLE IF NOT EXISTS ml_extras (ml_id TEXT PRIMARY KEY, peca_id TEXT NOT NULL, status TEXT, criado_em INTEGER)').run(); } catch { /* já existe */ }
@@ -1388,24 +1390,27 @@ function mlMedida(a, alvo) {
 }
 // fotos do anúncio: baixa cada uma do ML e guarda como foto original da peça
 async function baixaFotosML(env, it, pecaId) {
-  const fotos = []; let falhas = 0;
+  const fotos = []; let falhas = 0, motivo = '';
+  const cab = { 'user-agent': 'Mozilla/5.0 (compatible; RafaBuscaPecas/1.0)', accept: 'image/jpeg,image/png,image/webp,image/*;q=0.8' };
   for (const pic of (it.pictures || []).slice(0, 12)) {
-    const urls = [...new Set([pic.secure_url, pic.url].filter(Boolean))]; if (!urls.length) continue;
+    const urls = [...new Set([pic.secure_url, pic.url, pic.secure_url && pic.secure_url.replace(/-[A-Z]\.(jpe?g|webp|png)$/i, '-F.$1')].filter(Boolean))]; if (!urls.length) continue;
     let ok = false;
-    for (let t = 0; t < 2 && !ok; t++) for (const src of urls) {
+    if (!fotos.length && falhas >= 2) { falhas++; continue; }   // as 2 primeiras falharam: o ML está bloqueando, não insiste (economiza acessos)
+    for (const src of [...urls, urls[0]]) {   // cada endereço 1 vez e mais uma tentativa no principal
+      if (ok) break;
       try {
-        const r = await fetch(src);
-        if (!r.ok) continue;
+        const r = await fetch(src, { headers: cab });
+        if (!r.ok) { motivo = 'o ML respondeu HTTP ' + r.status + ' ao baixar a foto'; continue; }
         const buf = await r.arrayBuffer(), tipo = tipoImagem(new Uint8Array(buf, 0, Math.min(16, buf.byteLength)));
-        if (!tipo || buf.byteLength < 800) continue;   // o ML às vezes devolve uma página em vez da foto: não guarda
+        if (!tipo || buf.byteLength < 800) { motivo = 'o ML devolveu algo que não é foto (' + (r.headers.get('content-type') || '?') + ')'; continue; }   // não guarda
         const key = `pecas/${pecaId}/${uid()}.${tipo === 'image/png' ? 'png' : tipo === 'image/webp' ? 'webp' : 'jpg'}`;
         await env.FOTOS.put(key, buf, { httpMetadata: { contentType: tipo } });
         fotos.push(key); ok = true; break;
-      } catch { /* tenta a outra */ }
+      } catch (e) { motivo = 'erro ao baixar a foto: ' + ((e && e.message) || e); }
     }
     if (!ok) falhas++;
   }
-  return { fotos, falhas };
+  return { fotos, falhas, motivo };
 }
 // ---------- regras do Mercado Livre ----------
 async function mlRegras(env, user) {
@@ -1709,24 +1714,58 @@ async function fotoValida(env, key) {
     return !!tipoImagem(new Uint8Array(await o.arrayBuffer()));
   } catch { return null; }
 }
-// a tela achou foto que não abre: tira as fotos quebradas e, se a peça ficar sem foto, busca de novo no anúncio do ML
-async function conferirFotos(pecaId, env) {
+// tira as fotos quebradas e, se a peça ficar sem foto, busca de novo no anúncio do ML (guarda o motivo se não der)
+async function consertaFotosPeca(env, pecaId) {
   await garanteColsPecas(env);
   const p = await env.DB.prepare('SELECT id,fotos,ml_id FROM pecas WHERE id=?').bind(pecaId).first();
-  if (!p) return bad('peça não encontrada', 404);
+  if (!p) return null;
   let fotos = []; try { fotos = JSON.parse(p.fotos || '[]'); } catch { fotos = []; }
   const boas = [], ruins = [];
   for (const k of fotos) ((await fotoValida(env, k)) === false ? ruins : boas).push(k);
-  let trazidas = 0;
+  let trazidas = 0, erro = null;
   if (!boas.length) {
     const mlId = p.ml_id || ((await mlExtrasDa(env, p.id))[0] || {}).ml_id, token = mlId ? await mlToken(env) : null;
-    if (token) {
-      try { const it = await mlReq(token, 'GET', '/items/' + encodeURIComponent(mlId)); const r = await baixaFotosML(env, it, p.id); boas.push(...r.fotos); trazidas = r.fotos.length; }
-      catch (e) { console.log('fotos do ML', mlId, e.message); }
+    if (!mlId) erro = 'sem anúncio do ML ligado: não tem de onde buscar a foto';
+    else if (!token) erro = 'o Mercado Livre não está conectado';
+    else {
+      let it = null;
+      try { it = await mlReq(token, 'GET', '/items/' + encodeURIComponent(mlId)); } catch (e) { erro = 'não consegui ler o anúncio ' + mlId + ': ' + e.message; }
+      if (it && !(it.pictures || []).length) erro = 'o anúncio ' + mlId + ' não tem fotos';
+      else if (it) { const r = await baixaFotosML(env, it, p.id); boas.push(...r.fotos); trazidas = r.fotos.length; if (!trazidas) erro = r.motivo || 'o ML não entregou as fotos'; }
     }
   }
-  if (ruins.length || trazidas) await env.DB.prepare('UPDATE pecas SET fotos=?, atualizado_em=? WHERE id=?').bind(JSON.stringify(boas), now(), p.id).run();
-  return json({ fotos: boas, removidas: ruins.length, trazidas });
+  await env.DB.prepare('UPDATE pecas SET fotos=?, fotos_erro=?, fotos_tent=?' + (ruins.length || trazidas ? ', atualizado_em=?' : '') + ' WHERE id=?')
+    .bind(...[JSON.stringify(boas), boas.length ? null : erro, now(), ...(ruins.length || trazidas ? [now()] : []), p.id]).run();
+  return { fotos: boas, removidas: ruins.length, trazidas, erro: boas.length ? null : erro };
+}
+async function conferirFotos(pecaId, env) {
+  const r = await consertaFotosPeca(env, pecaId);
+  return r ? json(r) : bad('peça não encontrada', 404);
+}
+// a cada 2 min: busca as fotos de 2 peças ligadas a anúncio que estão sem foto, e revisa aos poucos as fotos de todas
+async function fotosAuto(env) {
+  await garanteColsPecas(env);
+  let feitas = 0;
+  const sem = (await env.DB.prepare(`SELECT id FROM pecas WHERE (fotos IS NULL OR fotos IN ('','[]'))
+      AND ((ml_id IS NOT NULL AND ml_id<>'') OR id IN (SELECT peca_id FROM ml_extras)) AND (fotos_tent IS NULL OR fotos_tent < ?)
+      ORDER BY fotos_tent IS NOT NULL, codigo LIMIT 2`).bind(now() - 6 * 3600e3).all()).results;
+  for (const p of sem) { await consertaFotosPeca(env, p.id); feitas++; }
+  // revisão: 15 peças por vez, em ordem de código
+  const cur = Number(await getCfg(env, 'fotos_cursor')) || 0;
+  const lote = (await env.DB.prepare(`SELECT id,codigo,fotos FROM pecas WHERE codigo > ? AND fotos IS NOT NULL AND fotos NOT IN ('','[]') ORDER BY codigo LIMIT 15`).bind(cur).all()).results;
+  for (const p of lote) {
+    let ks = []; try { ks = JSON.parse(p.fotos || '[]'); } catch { ks = []; }
+    let quebrada = false; for (const k of ks) if ((await fotoValida(env, k)) === false) { quebrada = true; break; }
+    if (quebrada && feitas < 2) { await consertaFotosPeca(env, p.id); feitas++; }
+  }
+  await setCfg(env, 'fotos_cursor', String(lote.length === 15 ? lote[14].codigo : 0));
+}
+// para a tela: quantas peças com estoque estão sem foto e por quê
+async function fotosResumo(env) {
+  await garanteColsPecas(env);
+  const r = (await env.DB.prepare(`SELECT id,codigo,nome,ml_id,fotos_erro,fotos_tent,local_id,(SELECT COUNT(*) FROM ml_extras e WHERE e.peca_id=pecas.id) AS extras FROM pecas
+      WHERE qtd>0 AND (fotos IS NULL OR fotos IN ('','[]')) ORDER BY codigo`).all()).results;
+  return json({ total: r.length, pecas: r.map(p => ({ id: p.id, codigo: p.codigo, nome: p.nome, local_id: p.local_id, anuncio: !!(p.ml_id || p.extras), erro: p.fotos_erro || null, tentou: p.fotos_tent || null })) });
 }
 async function subirFoto(pecaId, request, env) {
   const peca = await env.DB.prepare('SELECT fotos FROM pecas WHERE id=?').bind(pecaId).first();
