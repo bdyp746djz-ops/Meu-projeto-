@@ -474,11 +474,22 @@ async function mlPublicar(request, env, url, user) {
   if (emb.peso_g != null) emb.peso_g = Math.round(emb.peso_g);
   const pac = [['SELLER_PACKAGE_HEIGHT', emb.alt_cm, 'cm'], ['SELLER_PACKAGE_WIDTH', emb.larg_cm, 'cm'], ['SELLER_PACKAGE_LENGTH', emb.comp_cm, 'cm'], ['SELLER_PACKAGE_WEIGHT', emb.peso_g, 'g']];
   for (const [aid, v, u] of pac) if (v != null && Number(v) > 0 && !atributos.find(a => a.id === aid)) atributos.push({ id: aid, value_name: Number(v) + ' ' + u });
+  const cond = ['novo', 'usado', 'recondicionado'].includes(b.cond) ? b.cond : condEscolha(p.cond);
+  if (cond === 'recondicionado') {
+    // o ML recebe "recondicionado" pelo atributo ITEM_CONDITION da categoria: lê o valor aceito na própria categoria
+    let lista = [];
+    try { lista = await (await fetch(ML_API + '/categories/' + encodeURIComponent(categoria) + '/attributes')).json(); } catch { /* sem lista */ }
+    const ic = Array.isArray(lista) ? lista.find(a => a && a.id === 'ITEM_CONDITION') : null;
+    const v = ic && (ic.values || []).find(x => /recond|reacond|refurb/.test(norm(x.name)));
+    if (!v) return bad('essa categoria do Mercado Livre não aceita a condição "Recondicionado" — escolha Novo ou Usado');
+    const i = atributos.findIndex(a => a.id === 'ITEM_CONDITION'); if (i >= 0) atributos.splice(i, 1);
+    atributos.push({ id: 'ITEM_CONDITION', value_id: String(v.id) });
+  }
   const yt = String(p.video || '').match(/(?:youtu\.be\/|v=|shorts\/|embed\/)([\w-]{11})/);
   const item = {
     title: titulo, category_id: categoria, price: preco, currency_id: 'BRL',
     available_quantity: Math.max(1, Number(p.qtd) || 1), buying_mode: 'buy_it_now',
-    condition: condML(p.cond), listing_type_id: b.tipo || 'gold_special', pictures: fotos, attributes: atributos,
+    condition: { novo: 'new', usado: 'used', recondicionado: 'refurbished' }[cond], listing_type_id: b.tipo || 'gold_special', pictures: fotos, attributes: atributos,
     sale_terms: [{ id: 'WARRANTY_TYPE', value_name: 'Garantia do vendedor' }, { id: 'WARRANTY_TIME', value_name: '90 dias' }],
   };
   if (yt) item.video_id = yt[1];
@@ -500,6 +511,13 @@ async function mlPublicar(request, env, url, user) {
       if (!res.ok && /\btitle\b/i.test(res.det)) res = await posta({ ...item, family_name: titulo }); // pede os dois
       if (res.ok) await setCfg(env, 'ml_up', '1');
     } else if (!res.ok && up && /\btitle\b/i.test(res.det)) res = await posta({ ...item, family_name: titulo });
+    // recondicionado: se o ML não aceitar o campo condition, vale só o atributo ITEM_CONDITION (nunca cai para "usado")
+    if (!res.ok && cond === 'recondicionado' && /condition/i.test(res.det)) {
+      const base2 = (await getCfg(env, 'ml_up')) === '1' ? comFamilia() : { ...item };
+      const semCond = { ...base2 }; delete semCond.condition;
+      res = await posta(semCond);
+      if (!res.ok) res.det = 'não aceitou "Recondicionado" nessa categoria — ' + res.det;
+    }
   } catch (e) { return bad('falha de rede ao publicar: ' + (e && e.message || e)); }
   if (!res.ok) return bad('o Mercado Livre recusou: ' + res.det);
   const d = res.d;
@@ -508,6 +526,9 @@ async function mlPublicar(request, env, url, user) {
   } catch { /* descrição é secundária */ }
   try { await garanteColsPecas(env); await env.DB.prepare('UPDATE pecas SET ml=1, ml_id=?, ml_link=?, ml_status=?, ml_em=?, ml_cat=?, ml_cat_nome=COALESCE(?,ml_cat_nome) WHERE id=?').bind(String(d.id), d.permalink || '', d.status || 'active', now(), categoria, b.caminho ? String(b.caminho).slice(0, 300) : null, p.id).run(); } catch { /* marcação é secundária */ }
   try { await setCfg(env, mlMemChave(p.nome), JSON.stringify({ id: categoria, caminho: String(b.caminho || '').slice(0, 300) })); } catch { /* memória é secundária */ }
+  if (condEscolha(p.cond) !== cond || !p.cond) {
+    try { await env.DB.prepare('UPDATE pecas SET cond=?, atualizado_em=? WHERE id=?').bind({ novo: 'Nova', usado: 'Usada, em bom estado', recondicionado: 'Recondicionada' }[cond], now(), p.id).run(); } catch { /* secundário */ }
+  }
   if (emb.peso_g && emb.alt_cm && emb.larg_cm && emb.comp_cm) {   // guarda a embalagem na peça e para as próximas iguais
     try { await env.DB.prepare('UPDATE pecas SET peso_g=?, alt_cm=?, larg_cm=?, comp_cm=? WHERE id=?').bind(emb.peso_g, emb.alt_cm, emb.larg_cm, emb.comp_cm, p.id).run(); } catch { /* secundário */ }
     try { await setCfg(env, mlEmbChave(p.nome), JSON.stringify(emb)); } catch { /* secundário */ }
@@ -517,7 +538,7 @@ async function mlPublicar(request, env, url, user) {
 // avisos que o ML devolve junto com o anúncio (ex.: motivo de ficar pausado)
 const mlAvisos = d => (Array.isArray(d && d.warnings) ? d.warnings : []).map(w => (w && (w.message || w.code)) || '').filter(Boolean).slice(0, 5);
 // condição do anúncio a partir da condição da peça
-const condML = c => /^nov/.test(norm(c)) ? 'new' : 'used';
+const condEscolha = c => { const n = norm(c).trim(); return /^nov/.test(n) ? 'novo' : /^re(cond|form|fab)/.test(n) ? 'recondicionado' : 'usado'; };
 // chamada genérica à API do ML (lança erro com o motivo que o ML devolver)
 // 🔒 ANÚNCIOS PROTEGIDOS: o sistema NUNCA altera esses anúncios no Mercado Livre (status, estoque, preço,
 // fotos, descrição, nada). A trava fica aqui porque TODA alteração de anúncio existente passa por mlReq.

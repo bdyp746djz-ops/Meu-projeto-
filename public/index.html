@@ -1003,6 +1003,7 @@ async function publicarML(p){
    <div class="form"><label class="f">Preço (R$) <a href="#" id="mpm" class="small" style="margin-left:6px">💲 ver preço de mercado</a><input id="mpre" type="number" step="0.01" min="0" value="${esc(d.preco)}"></label>
    <label class="f">Tipo do anúncio<select id="mtipo"><option value="gold_special">Clássico</option><option value="free">Grátis (bom p/ testar)</option><option value="gold_pro">Premium</option></select></label></div>
    <div id="mpmx"></div>
+   <div class="mlsec"><b>Condição da peça *</b><div class="filters" style="margin-top:6px">${[['novo','🆕 Novo'],['usado','♻️ Usado'],['recondicionado','🔧 Recondicionado']].map(([k,t])=>`<button type="button" class="chip" data-mcond="${k}">${t}</button>`).join('')}</div></div>
    <div class="mlsec"><b>Categoria</b> <span class="small mut">— sugeridas pelo Mercado Livre a partir do título</span>
      <div id="mcats" class="mlcats"></div>
      <div class="mlbusca"><input id="mcq" placeholder="Não é nenhuma? Busque outra (ex.: farol, módulo de injeção)"><button class="btn sm" id="mcb" type="button">Buscar</button></div></div>
@@ -1015,10 +1016,17 @@ async function publicarML(p){
        <label class="f">Comprimento (cm) *<input id="ecomp" type="number" min="1" step="0.1" inputmode="decimal" value="${esc(d.embalagem&&d.embalagem.comp_cm||'')}"></label></div></div>
    <div class="mlsec"><b>Ficha técnica</b> <span class="small mut">— * = obrigatório no Mercado Livre</span><div id="mattrs"><p class="small mut">Escolha a categoria.</p></div></div>
    <label class="f">Descrição<textarea id="mdesc" rows="5" style="width:100%">${esc(d.desc)}</textarea></label>
-   <p class="small mut">${d.fotos.length} foto(s) · Condição: ${/^nov/i.test(p.cond||'')?'novo':'usado'} · Garantia do vendedor: 90 dias${p.video?' · com vídeo':''}</p>
+   <p class="small mut">${d.fotos.length} foto(s) · Garantia do vendedor: 90 dias${p.video?' · com vídeo':''}</p>
    <div class="card small" style="background:#fff7e6;box-shadow:none;margin:8px 0">⚠️ Ao publicar, o anúncio fica <b>ativo no Mercado Livre</b>. Confira os dados; depois dá pra pausar ou excluir pela sua conta do ML.</div>
    <div class="top" style="margin-top:12px"><button class="btn p" id="mok">🛒 Publicar de verdade</button><button class="btn" id="mcc">Cancelar</button></div>`);
   $('#mpm').onclick=e=>{ e.preventDefault(); pesquisaPreco(p,$('#mpmx'),v=>{ $('#mpre').value=v; toast('Preço do anúncio: '+brl(v)+' (o da peça não muda)'); }); };
+  // condição: começa pela da peça; trocar atualiza a linha "Condição" da descrição
+  const nc=nrm(p.cond||'').trim(); st.cond=/^nov/.test(nc)?'novo':/^re(cond|form|fab)/.test(nc)?'recondicionado':'usado';
+  const TXC={novo:'Nova',usado:'Usada, em bom estado',recondicionado:'Recondicionada'};
+  const pintaCond=()=>document.querySelectorAll('[data-mcond]').forEach(b=>b.classList.toggle('on',b.dataset.mcond===st.cond));
+  document.querySelectorAll('[data-mcond]').forEach(b=>b.onclick=()=>{ if(st.cond===b.dataset.mcond)return; st.cond=b.dataset.mcond; pintaCond();
+    const t=$('#mdesc'); if(/Condição:[^\n]*/.test(t.value))t.value=t.value.replace(/Condição:[^\n]*/,'Condição: '+TXC[st.cond]); });
+  pintaCond();
   const valorDe=a=>{ if(a.id in st.vals)return st.vals[a.id]; const c=st.cats.find(x=>x.id===st.cat)||{}; const pv=(c.previstos||{})[a.id];
     if(pv&&pv.nome)return pv.nome; if(daPeca[a.id])return String(daPeca[a.id]); const fm=attrsML(p).find(x=>x[0]===a.id); if(fm)return fm[2];
     if(a.id==='EMPTY_GTIN_REASON'){ const v=a.valores.find(x=>/n[aã]o tem c[oó]digo|sem c[oó]digo/i.test(x.nome)); if(v)return v.nome; }
@@ -1064,7 +1072,7 @@ async function publicarML(p){
     const btn=$('#mok'); btn.disabled=true; btn.textContent='Publicando…';
     const cat=st.cats.find(x=>x.id===st.cat)||{};
     try{
-      const res=await api('/ml/publicar',{method:'POST',body:{pecaId:p.id,titulo:$('#mtit').value,preco:$('#mpre').value,desc:$('#mdesc').value,tipo:$('#mtipo').value,categoria:st.cat,caminho:cat.caminho||'',atributos,embalagem}});
+      const res=await api('/ml/publicar',{method:'POST',body:{pecaId:p.id,titulo:$('#mtit').value,preco:$('#mpre').value,desc:$('#mdesc').value,tipo:$('#mtipo').value,cond:st.cond,categoria:st.cat,caminho:cat.caminho||'',atributos,embalagem}});
       fecha();
       modal(`<h3>✅ Anúncio publicado!</h3>
        <p>Código no Mercado Livre: <b>${esc(res.id)}</b>${res.status?` · situação: <b>${esc(stML(res.status))}</b>`:''}</p>
@@ -1399,7 +1407,7 @@ async function nova(){
     <label class="f">Modelo<input name="modelo" value="${esc(p.modelo)}"></label>
     <label class="f">Ano<input name="ano" value="${esc(p.ano)}" placeholder="2008/2014"></label>
     <label class="f">Part number<input name="pn" value="${esc(p.pn)}"></label>
-    <label class="f">Condição<select name="cond">${['Usada, em bom estado','Usada, com marcas de uso','Usada, com avaria','Nova'].map(c=>`<option ${p.cond===c?'selected':''}>${c}</option>`).join('')}</select></label>
+    <label class="f">Condição<select name="cond">${[...new Set(['Usada, em bom estado','Usada, com marcas de uso','Usada, com avaria','Nova','Recondicionada',...(p.cond?[p.cond]:[])])].map(c=>`<option ${p.cond===c?'selected':''}>${c}</option>`).join('')}</select></label>
     <label class="f">Sucata de origem<input name="veiculo" value="${esc(p.veiculo)}"></label>
     <label class="f">Preço (R$) *<input name="preco" type="number" step="0.01" min="0" required value="${p.preco??''}"></label>
     <label class="f">Quantidade *<input name="qtd" type="number" min="0" required value="${p.qtd??1}"></label>
