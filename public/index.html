@@ -320,6 +320,7 @@ html,body{background:var(--bg)}
 .tb-search input{background:#f4f5fb;border:1px solid var(--line);border-radius:12px;padding:10px 14px}
 .tb-search input:focus{box-shadow:0 0 0 2px var(--pri-t)}
 .tb-acts{margin-left:auto;display:flex;align-items:center;gap:2px;padding-right:12px}
+.tb-ham{display:none;color:#5f6475;font-size:26px}
 .tb-btn{color:#5f6475;margin:0;position:relative;width:42px;height:42px}
 .tb-btn:hover{background:#f1f3fb}.tb-btn .material-icons{font-size:23px}
 .tb-badge{position:absolute;top:3px;right:2px;background:var(--red);color:#fff;border-radius:9px;font-size:10px;min-width:17px;height:17px;line-height:17px;text-align:center;padding:0 4px;font-weight:700}
@@ -366,7 +367,7 @@ main{background:linear-gradient(180deg,#e8ebfa 0,var(--bg) 280px)}
 .pd-chips{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}.pd-chips span{font-size:11px;background:#fff4e5;color:#8a5a00;border-radius:6px;padding:1px 6px}
 .kpi .v{overflow-wrap:anywhere;font-size:clamp(19px,2.1vw,30px)}
 @media(max-width:760px){
- .tb-brand{width:auto;padding:0 6px 0 12px}.tb-brand>span:not(.tb-logo){display:none}
+ .tb-brand{width:auto;padding:0 6px 0 10px;gap:6px}.tb-brand>span:not(.tb-logo):not(.tb-ham){display:none}.tb-ham{display:block}
  .tb-search{padding:0 6px 0 4px}
  .tb-user b,.tb-user small{display:none}.tb-user{padding:3px;margin-left:2px}
  .tb-acts{padding-right:6px}.tb-acts .tb-hide-m{display:none}
@@ -583,7 +584,7 @@ function login(primeiro){
 function shell(){
   const ini=String((S.user&&(S.user.nome||S.user.login))||'R').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
   $('#root').innerHTML = `<header class="topbar">
-      <div class="tb-brand" id="tbhome"><span class="tb-logo">R</span><span><b>RAFA</b><small>busca peças</small></span></div>
+      <div class="tb-brand" id="tbhome" title="Menu"><span class="material-icons tb-ham">menu</span><span class="tb-logo">R</span><span><b>RAFA</b><small>busca peças</small></span></div>
       <div class="tb-search"><input id="gbusca" type="search" placeholder="Código, nome, part number ou veículo…" autocomplete="off"></div>
       <div class="tb-acts">
         <button class="tb-btn" id="scanbtn" title="Ler etiqueta (QR)"><span class="material-icons">qr_code_scanner</span></button>
@@ -612,7 +613,7 @@ function shell(){
   $('#ddq').onkeydown=e=>{ if(e.key==='Enter'){ const a=document.querySelector('#dnav a[data-v],#dnav a[data-a]'); if(a){ a.click(); e.target.value=''; } } };
   $('#dwov').onclick=fechaGaveta; $('#dwx').onclick=fechaGaveta;
   $('#sdq').onkeydown=e=>{ if(e.key==='Enter'){ const a=document.querySelector('#nav a[data-v],#nav a[data-a]'); if(a){ a.click(); e.target.value=''; renderNav(); } } };
-  $('#tbhome').onclick=()=>go('painel');
+  $('#tbhome').onclick=()=>matchMedia('(max-width:760px)').matches?abreGaveta():go('painel');   // no celular o logo abre o menu
   $('#scanbtn').onclick=escanear;
   $('#gbusca').onkeydown=e=>{ if(e.key==='Enter'){ S.ui.q=e.target.value.trim(); S.ui.status='todos'; S.ui.loc=''; e.target.blur(); go('estoque'); } };
   renderNav(); go(location.hash.indexOf('integracoes')>=0 ? 'integracoes' : S.view);
