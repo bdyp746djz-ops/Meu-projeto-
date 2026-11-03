@@ -735,51 +735,203 @@ function moverUma(p){
 // ficha técnica que veio do anúncio do ML: [[id, nome, valor], ...]
 function attrsML(p){ try{ const a=typeof p.ml_attrs==='string'?JSON.parse(p.ml_attrs||'[]'):(p.ml_attrs||[]); return Array.isArray(a)?a:[]; }catch(_){ return []; } }
 // ---------- Vincular anúncios do ML às peças que já estão no sistema (ex.: vindas do iBR) ----------
-async function vincularML(){
-  const st={linhas:[],aba:'vincular'}; const {pecas}=await api('/pecas?todas=1'); S.pecas=pecas;
-  const porCod=new Map(pecas.map(p=>[Number(p.codigo),p]));
-  modal(`<h3>🔗 Vincular anúncios do ML às peças</h3>
-   <p class="small mut">Procura os seus anúncios ativos e pausados e acha a peça de cada um: pelo <b>SKU</b> (número da peça no anúncio), pelo <b>título igual</b> à descrição ou pelo <b>título parecido</b> (esses você confere). Ligado, vender no sistema atualiza o estoque no ML. Nada muda no anúncio.</p>
-   <div id="vnst" class="small"><span class="spin-s"></span> Procurando os seus anúncios…</div><div id="vncorpo"></div>`);
-  try{ for(const status of ['active','paused']){ let off=0;
-      while(off!=null){ const r=await api(`/ml/vincular?status=${status}&offset=${off}`); st.linhas.push(...r.lista);
-        if($('#vnst'))$('#vnst').innerHTML=`<span class="spin-s"></span> Procurando os seus anúncios… ${st.linhas.length} lidos (${status==='active'?'ativos':'pausados'}: ${Math.min(r.offset+r.lista.length,r.total)} de ${r.total})`;
-        off=r.proximo; if(!$('#vnst'))return; } } }
-  catch(e){ if($('#vnst'))$('#vnst').innerHTML='⚠️ '+esc(e.message); return; }
-  st.linhas.forEach(l=>{ l.sel=l.como==='sku'||l.como==='titulo'||(l.como==='parecido'&&l.nota>=90); });
-  const pinta=()=>{ const el=$('#vncorpo'); if(!el)return;
-    const n=k=>st.linhas.filter(l=>l.como===k).length, sel=st.linhas.filter(l=>l.sel&&l.peca);
-    const usados=new Map(); sel.forEach(l=>usados.set(l.peca.id,(usados.get(l.peca.id)||0)+1));
-    $('#vnst').innerHTML=`<b>${st.linhas.length} anúncios</b> · ✅ ${n('sku')} pelo SKU · ✅ ${n('titulo')} pelo título · 🤔 ${n('parecido')} parecidos (confira) · ❔ ${n('sem')} sem peça · 🔗 ${n('ja')} já ligados`;
-    const ver=st.aba==='vincular'?st.linhas.filter(l=>l.como!=='ja'):st.linhas.filter(l=>l.como==='ja');
-    el.innerHTML=`<div class="filters" style="margin-top:8px"><button class="chip ${st.aba==='vincular'?'on':''}" data-va="vincular">Para ligar</button><button class="chip ${st.aba==='ja'?'on':''}" data-va="ja">Já ligados (${n('ja')})</button></div>
-      ${ver.length?ver.map(l=>{ const i=st.linhas.indexOf(l), it=l.item, pc=l.peca, rep=pc&&l.sel&&usados.get(pc.id)>1;
-        return `<div class="sel small" style="align-items:flex-start;gap:8px">${l.como!=='ja'?`<input type="checkbox" data-vs="${i}" ${l.sel?'checked':''} ${pc?'':'disabled'} style="width:20px;height:20px;flex:none;margin:2px 0 0">`:''}
-          ${it.foto?`<img src="${esc(it.foto)}" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:4px;flex:none">`:''}
-          <span style="flex:1"><b>${esc(it.titulo)}</b><br><span class="mut">${esc(it.id)}${it.sku?' · SKU '+esc(it.sku):''} · ${it.qtd} no ML · ${it.vendidos||0} vendido(s)</span><br>
-          ${pc?`➜ <b>${cod(pc.codigo)}</b> ${esc(pc.nome)}${pc.local?' · 📍 '+esc(pc.local):''}${pc.qtd!=null&&Number(pc.qtd)!==Number(it.qtd)?` · <span style="color:var(--amber)">estoque: ${pc.qtd} no sistema</span>`:''}
-            <span class="tag ${l.como==='parecido'?'zero':''}">${{sku:'pelo SKU',titulo:'título igual',parecido:'parecido '+(l.nota||'')+'%',ja:'já ligado',manual:'escolhido por você'}[l.como]||''}</span>${rep?' <b style="color:var(--red)">⚠️ peça repetida</b>':''}`:'<span class="mut">Nenhuma peça encontrada.</span>'}
-          ${l.como!=='ja'?`<br><input data-vc="${i}" inputmode="numeric" placeholder="nº da peça" value="" style="width:110px;margin-top:4px"> <span class="mut">digite para escolher outra</span>`:''}</span></div>`; }).join(''):'<p class="small mut">Nada aqui.</p>'}
-      <label class="small" style="display:flex;gap:6px;align-items:center;margin-top:10px"><input type="checkbox" id="vnfot" checked style="width:18px;height:18px;margin:0"> Trazer as fotos do anúncio para as peças que estão sem foto</label>
-      <div id="vnprog" class="small" style="margin-top:6px"></div>
-      <div class="top" style="margin-top:10px"><button class="btn p" id="vnok" ${sel.length?'':'disabled'}>Ligar ${sel.length} anúncio(s)</button><button class="btn" id="vncc">Fechar</button></div>`;
-    el.querySelectorAll('[data-va]').forEach(b=>b.onclick=()=>{ st.aba=b.dataset.va; pinta(); });
-    el.querySelectorAll('[data-vs]').forEach(c=>c.onchange=()=>{ st.linhas[+c.dataset.vs].sel=c.checked; pinta(); });
-    el.querySelectorAll('[data-vc]').forEach(inp=>inp.onchange=()=>{ const l=st.linhas[+inp.dataset.vc], p=porCod.get(parseInt(inp.value,10));
-      if(!inp.value.trim())return; if(!p)return toast('Peça '+inp.value+' não encontrada'); if(p.ml_id&&p.ml_id!==l.item.id)return toast('A peça '+cod(p.codigo)+' já está ligada ao anúncio '+p.ml_id);
-      l.peca={id:p.id,codigo:p.codigo,nome:p.nome,qtd:p.qtd,local:p.local_id&&S.locais&&S.locais[p.local_id]?locPath(p.local_id):null}; l.como='manual'; l.sel=true; pinta(); });
-    $('#vncc').onclick=fecha;
-    $('#vnok').onclick=async()=>{ const ped=st.linhas.filter(l=>l.sel&&l.peca), rep=ped.filter(l=>usados.get(l.peca.id)>1);
-      if(rep.length)return toast('Tem peça escolhida para mais de um anúncio: desmarque um deles');
-      $('#vnok').disabled=true; const fotos=$('#vnfot').checked, res={ok:0,fotos:0,erros:[]};
-      for(let k=0;k<ped.length;k++){ const l=ped[k]; if($('#vnprog'))$('#vnprog').innerHTML=`<span class="spin-s"></span> Ligando ${k+1} de ${ped.length}… (não feche esta tela)`;
-        try{ const r=await api('/ml/vincular',{method:'POST',body:{peca_id:l.peca.id,ml_id:l.item.id,fotos}}); res.ok++; res.fotos+=r.fotos||0; l.como='ja'; l.sel=false; }
-        catch(e){ res.erros.push(l.item.id+': '+e.message); } }
-      toast(`🔗 ${res.ok} anúncio(s) ligado(s)`+(res.fotos?` · ${res.fotos} foto(s) trazida(s)`:''));
-      pinta(); if($('#vnprog'))$('#vnprog').innerHTML=`✅ ${res.ok} ligado(s)${res.fotos?` · ${res.fotos} foto(s) trazida(s)`:''}${res.erros.length?'<br><span style="color:var(--red)">'+res.erros.map(esc).join('<br>')+'</span>':''}`;
-      try{ const {pecas}=await api('/pecas?todas=1'); S.pecas=pecas; }catch(_){ } };
+// ---------- casamento anúncio do ML ↔ peça do estoque (roda no navegador) ----------
+// ads: [{id,titulo,preco,sku,marca,modelo,pns:[],desc?,status,ja:{peca_id,extra}?}]
+// pecas: [{id,codigo,nome,preco,marca,modelo,pn,ml_id}]
+// devolve por anúncio: {tipo:'ja'|'certo'|'provavel'|'extra'|'criar'|'duvida', peca, nota, porque, opcoes}
+const CASA_SIN={diant:'dianteiro',dianteira:'dianteiro',diantei:'dianteiro',dian:'dianteiro',dt:'dianteiro',frontal:'dianteiro',frente:'dianteiro',
+  tras:'traseiro',traseira:'traseiro',traz:'traseiro',tra:'traseiro',tr:'traseiro',
+  esq:'esquerdo',esquerda:'esquerdo',le:'esquerdo',motorista:'esquerdo',mot:'esquerdo',
+  dir:'direito',direita:'direito',ld:'direito',passageiro:'direito',pass:'direito',carona:'direito',
+  sup:'superior',inf:'inferior',cx:'caixa',mod:'modulo',mdl:'modulo',vw:'volkswagen',volks:'volkswagen',gm:'chevrolet',chev:'chevrolet',
+  mb:'mercedes',merc:'mercedes',benz:'mercedes',farois:'farol',retrovisores:'retrovisor',retrov:'retrovisor',retro:'retrovisor',
+  puxador:'macaneta',interrup:'interruptor',interr:'interruptor',sens:'sensor',comp:'completo',compl:'completa',
+  ign:'ignicao',injecao:'injecao',inj:'injecao',ecu:'modulo',centralina:'modulo',central:'modulo',vid:'vidro',acab:'acabamento',
   };
-  await carregaLocais(); pinta();
+const CASA_PARA=new Set(['para','pc','de','da','do','das','dos','pra','com','sem','em','no','na','nos','nas','ao','aos','um','uma','the','and','for','with',
+  'original','orig','originais','genuino','genuina','usado','usada','usados','usadas','peca','pecas','lado','oem','bom','boa','estado','otimo','otima',
+  'perfeito','perfeita','funcionando','revisado','revisada','semi','novo','nova','envio','imediato','pronta','entrega','garantia','frete','gratis','ref','cod','codigo','marca']);
+function casaSing(w){ if(w.length<=4||/\d/.test(w))return w; return w.replace(/oes$/,'ao').replace(/aes$/,'ao').replace(/ois$/,'ol').replace(/ais$/,'al').replace(/eis$/,'el').replace(/ns$/,'m').replace(/([^s])s$/,'$1'); }
+function casaNorm(s){ return String(s??'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
+function casaComp(s){ return casaNorm(s).replace(/[^a-z0-9]/g,''); }
+// palavras do título: sinônimos, plural, anos (2013 → a13), cilindrada (1.6 → 1p6), códigos (part number)
+function casaTokens(s){
+  const t=casaNorm(s).replace(/\bpara[\s-]?(choque|brisa|lama|sol)/g,'para$1').replace(/\bporta[\s-]?(malas|luvas|objeto|treco)/g,'porta$1').replace(/\bquebra[\s-]?sol/g,'quebrasol').replace(/\bl\s*[\/.\-]\s*e\b/g,' esquerdo ').replace(/\bl\s*[\/.\-]\s*d\b/g,' direito ')
+    .replace(/(\d)[.,](\d)/g,'$1p$2').replace(/[^a-z0-9]+/g,' ').trim(); const out=[];
+  for(let w of t.split(' ')){ if(!w)continue;
+    if(/^(19[6-9]\d|20[0-4]\d)$/.test(w)){ out.push('a'+w.slice(2)); continue; }
+    if(/^\d{2}$/.test(w)){ out.push('a'+w); continue; }
+    if(w.length<2||CASA_PARA.has(w))continue;
+    if(w in CASA_SIN){ w=CASA_SIN[w]; if(!w)continue; }
+    out.push(casaSing(w)); }
+  return out; }
+// "códigos" que identificam a peça: com letra e número (8k0959831) ou só número comprido (3425423)
+const casaEhPN=w=>w.length>=6&&/\d/.test(w)&&(/[a-z]/.test(w)||w.length>=7)&&!/^a\d\d$/.test(w)&&!/^(19|20)\d\d(19|20)\d\d$/.test(w);
+function casaPNs(...txt){ const s=new Set(), mista=w=>/\d/.test(w)&&/[a-z]/.test(w);
+  for(const x of txt){ if(!x)continue; const n=casaNorm(x);
+    for(const w of n.split(/[^a-z0-9]+/))if(casaEhPN(w))s.add(w);
+    // código escrito com traço ou ponto (93BB-12A650-BC)
+    for(const m of n.matchAll(/[a-z0-9]+(?:[-.\/][a-z0-9]+){1,4}/g)){ const c=m[0].replace(/[^a-z0-9]/g,''); if(c.length>=8&&mista(c))s.add(c); }
+    // ou com espaço (93BB 12A650 BC): pedaços misturando letra e número
+    const ws=n.split(/[^a-z0-9]+/).filter(Boolean);
+    for(let i=0;i<ws.length;i++)for(let k=2;k<=3&&i+k<=ws.length;k++){ const g=ws.slice(i,i+k);
+      if(g.filter(mista).length>=2&&g.every(w=>mista(w)||w.length<=2)){ const c=g.join(''); if(c.length>=8)s.add(c); } } }
+  return s; }
+const CASA_OPOSTOS=[['esquerdo','direito'],['dianteiro','traseiro'],['superior','inferior'],['interno','externo']];
+const casaPNforte=c=>c.length>=7&&(c.match(/\d/g)||[]).length>=4;
+const CASA_GENERICO=new Set(['original','generico','generica','nao','naoseaplica','oem','na','sm','sem','outro','outra','universal','paralelo']);
+function casaAnuncios(ads,pecas){
+  // ---- preparo ----
+  const P=pecas.map(p=>{ const tk=casaTokens(p.nome); return {p,tk:new Set(tk),tipo:tk.find(w=>!/^a\d\d$/.test(w)&&!/\d/.test(w))||'',
+    pns:casaPNs(p.nome,p.pn,casaEhPN(casaComp(p.modelo))?p.modelo:''),comp:casaComp([p.nome,p.pn,p.modelo].join(' ')),nomeN:casaTokens(p.nome).join(' '),
+    marca:casaComp(p.marca),modelo:casaComp(p.modelo),preco:Number(p.preco)||0,cod:Number(p.codigo)}; });
+  const A=ads.map(a=>{ const tk=casaTokens(a.titulo); const attrs=[a.marca,a.modelo,...(a.pns||[])].join(' ');
+    return {a,tk:new Set(tk),tipo:tk.find(w=>!/^a\d\d$/.test(w)&&!/\d/.test(w))||'',pns:casaPNs(a.titulo,...(a.pns||[]),a.modelo,a.desc||''),comp:casaComp([a.titulo,attrs,a.desc||''].join(' ')),nomeN:tk.join(' '),
+      marca:casaComp(a.marca),modelo:casaComp(a.modelo),preco:Number(a.preco)||0}; });
+  // peso de cada palavra: as raras (modelo do carro, código) valem mais que as comuns (porta, dianteiro)
+  const df=new Map(); for(const x of [...P,...A])for(const w of x.tk)df.set(w,(df.get(w)||0)+1);
+  const N=P.length+A.length, peso=w=>(/^a\d\d$/.test(w)?0.5:1)*Math.log(1+N/(df.get(w)||1));
+  for(const x of [...P,...A]){ x.w=0; for(const w of x.tk)x.w+=peso(w); }
+  const porCod=new Map(P.map(x=>[x.cod,x]));
+  const nota=(a,x)=>{ let S=0; const [m,M]=a.tk.size<x.tk.size?[a,x]:[x,a]; for(const w of m.tk)if(M.tk.has(w))S+=peso(w);
+    if(!S||!a.w||!x.w)return {n:0,pn:false,dice:0};
+    const dice=2*S/(a.w+x.w), cont=S/Math.min(a.w,x.w); let n=0.6*dice+0.4*cont;
+    let pn=false; for(const c of x.pns)if(a.comp.includes(c)){ pn=true; break; }
+    if(!pn)for(const c of a.pns)if(c.length>=6&&x.comp.includes(c)){ pn=true; break; }
+    if(pn)n+=0.35;
+    for(const [u,v] of CASA_OPOSTOS){ const xu=x.tk.has(u),xv=x.tk.has(v),au=a.tk.has(u),av=a.tk.has(v);
+      if((xu&&!xv&&av&&!au)||(xv&&!xu&&au&&!av)){ n*=0.35; break; } }   // lado/posição trocados: é outra peça
+    if(!pn){ const fx=[...x.pns].filter(casaPNforte), fa=[...a.pns].filter(casaPNforte); if(fx.length&&fa.length)n*=0.55; }   // os dois têm código e não batem
+    if(x.modelo&&a.modelo&&!CASA_GENERICO.has(x.modelo)&&x.modelo===a.modelo)n+=0.06;
+    if(x.marca&&a.marca&&!CASA_GENERICO.has(x.marca)&&x.marca===a.marca)n+=0.03;
+    if(x.preco>0&&a.preco>0){ const r=Math.max(x.preco,a.preco)/Math.min(x.preco,a.preco); n+=r<=1.01?0.07:r<=1.12?0.03:r>=2.5?-0.08:0; }
+    if(x.tipo&&!a.tk.has(x.tipo))n*=0.6;   // tipo diferente (farol × lanterna): quase certamente outra peça
+    else if(a.tipo&&x.tk.size&&!x.tk.has(a.tipo))n*=0.8;
+    return {n:Math.max(0,Math.min(1,n)),pn,dice}; };
+  const res=A.map(()=>null);
+  // ---- já ligados ----
+  const ligada=new Set(pecas.filter(p=>p.ml_id).map(p=>p.id));
+  A.forEach((a,i)=>{ if(a.a.ja){ res[i]={tipo:'ja',peca:a.a.ja.peca||null}; if(a.a.ja.peca)ligada.add(a.a.ja.peca.id); } });
+  // ---- notas: as 8 melhores peças de cada anúncio ----
+  const tops=A.map((a,i)=>{ if(res[i])return [];
+    const l=[]; for(const x of P){ const r=nota(a,x); if(r.n>=0.2)l.push({x,n:r.n,pn:r.pn,dice:r.dice,porque:r.pn?'part number':'título'}); }
+    // SKU com o número da peça e descrição com "código 123": certeza, se o título não contradiz
+    const sk=String(a.a.sku||'').match(/(\d{1,7})\D*$/), xs=sk&&porCod.get(Number(sk[1]));
+    if(xs){ const r=nota(a,xs); if(r.n>=0.2||!xs.tipo||a.tk.has(xs.tipo)){ const e=l.find(o=>o.x===xs); if(e){ e.n=1; e.forte=true; e.porque='SKU'; } else l.push({x:xs,n:1,forte:true,porque:'SKU'}); } }
+    for(const m of String(a.a.desc||'').matchAll(/(?:\bpc|c[oó]d(?:igo)?(?:\s*interno)?|\bref(?:erencia)?|\bsku|\bpe[cç]a)\s*(?:n[ºo°.]*)?\s*[-:#.]?\s*0*(\d{1,7})\b/gi)){
+      const xd=porCod.get(Number(m[1])); if(!xd)continue; const r=nota(a,xd); if(r.n<0.3)continue;
+      const e=l.find(o=>o.x===xd); if(e){ e.n=Math.max(e.n,0.97); e.forte=true; e.porque='código na descrição'; } else l.push({x:xd,n:0.97,forte:true,porque:'código na descrição'}); }
+    for(const o of l)if(o.pn&&o.n>=0.6)o.forte=true;
+    return l.sort((u,v)=>v.n-u.n).slice(0,8); });
+  // ---- distribui: o par mais certo primeiro; cada peça vai para um anúncio só ----
+  const igual=(x,y)=>x===y||(x.nomeN===y.nomeN&&Math.abs(x.preco-y.preco)<=Math.max(1,0.02*x.preco));   // peças idênticas: tanto faz qual
+  const dono=new Map();   // peça → anúncio
+  const livre=x=>!ligada.has(x.p.id)&&!dono.has(x.p.id);
+  for(let volta=0;volta<6;volta++){ let mudou=false;
+    const pares=[]; tops.forEach((l,i)=>{ if(!res[i])for(const o of l)if(o.n>=0.45&&livre(o.x))pares.push({i,o}); });
+    pares.sort((u,v)=>v.o.n-u.o.n);
+    for(const {i,o} of pares){ if(res[i]||!livre(o.x))continue;
+      const altA=Math.max(0,...tops[i].filter(q=>q.x!==o.x&&livre(q.x)&&!igual(q.x,o.x)).map(q=>q.n));
+      const cap=P.filter(y=>livre(y)&&igual(y,o.x)).length;
+      let altP=0; if(cap<2)tops.forEach((l,j)=>{ if(j===i||res[j]||A[j].nomeN===A[i].nomeN)return; const q=l.find(q=>q.x===o.x); if(q&&q.n>altP&&nota(A[i],A[j]).dice<0.8)altP=q.n; });
+      if(!o.forte&&tops[i][0].n-o.n>=0.1&&!livre(tops[i][0].x))continue;   // a peça mais parecida já tem anúncio: este deve ser o 2º anúncio dela
+      const mg=o.n-Math.max(altA,altP);
+      const ok=(o.forte&&mg>=0)||(o.n>=0.8&&mg>=0.06)||(o.n>=0.55&&mg>=0.15);
+      if(ok){ res[i]={tipo:o.forte||o.n>=0.8?'certo':'provavel',peca:o.x.p,nota:Math.round(o.n*100),porque:o.porque}; dono.set(o.x.p.id,i); mudou=true; } }
+    if(!mudou)break; }
+  // ---- o que sobrou ----
+  A.forEach((a,i)=>{ if(res[i])return; const l=tops[i];
+    const melhorLivre=l.find(o=>livre(o.x)), melhor=l[0];
+    // 2º anúncio da mesma peça (ex.: Clássico e Premium): título quase igual a uma peça que já tem anúncio
+    if(melhor&&!livre(melhor.x)&&((melhor.n>=0.85&&melhor.dice>=0.75)||(melhor.pn&&melhor.n>=0.75&&melhor.dice>=0.55))&&(!melhorLivre||melhorLivre.n<melhor.n-0.15)){
+      const pr=melhor.x.preco, r=pr&&a.preco?Math.max(pr,a.preco)/Math.min(pr,a.preco):1;
+      if(r<=1.6){ res[i]={tipo:'extra',peca:melhor.x.p,nota:Math.round(melhor.n*100),porque:'mesma peça de outro anúncio'}; return; } }
+    if((!melhorLivre||melhorLivre.n<0.4)&&(!melhor||melhor.n<0.6)){ res[i]={tipo:'criar',peca:null,opcoes:l.slice(0,2).map(o=>({peca:o.x.p,nota:Math.round(o.n*100)}))}; return; }
+    res[i]={tipo:'duvida',peca:null,opcoes:l.slice(0,3).map(o=>({peca:o.x.p,nota:Math.round(o.n*100)}))}; });
+  return res; }
+async function vincularML(){
+  const st={ads:[],res:[],aba:'ligar',rodando:false}; let pecas=[];
+  await carregaLocais();
+  modal(`<h3>🔗 Vincular anúncios do ML às peças</h3>
+   <p class="small mut">Lê <b>todos</b> os seus anúncios (ativos, pausados, em revisão e inativos) e acha a peça de cada um pelo SKU, título, part number, marca/modelo, preço e código na descrição, olhando todos juntos para cada peça ir para o anúncio certo. Nada muda nos anúncios do ML.</p>
+   <div id="vnst" class="small"><span class="spin-s"></span> Lendo os seus anúncios…</div><div id="vncorpo"></div>`);
+  const passo=t=>{ if(!$('#vnst'))return false; $('#vnst').innerHTML='<span class="spin-s"></span> '+t; return true; };
+  try{
+    pecas=(await api('/pecas?todas=1')).pecas; S.pecas=pecas;
+    for(const status of ['active','paused','under_review','inactive']){ let off=0;
+      while(off!=null){ let r;
+        try{ r=await api(`/ml/vincular?status=${status}&offset=${off}`); }catch(e){ if(status==='active'||status==='paused')throw e; break; }
+        st.ads.push(...r.lista); off=r.proximo;
+        if(!passo(`Lendo os seus anúncios… ${st.ads.length} lidos`))return;
+        if(off!=null&&off>=1000){ toast('O ML só deixa listar 1.000 anúncios por situação'); break; } } }
+    const casa=()=>casaAnuncios(st.ads,pecas);
+    st.res=casa();
+    // quem ficou sem certeza: lê a descrição do anúncio (código da peça, part number) e casa de novo
+    const falta=st.ads.filter((a,i)=>!['ja','certo'].includes(st.res[i].tipo));
+    for(let i=0;i<falta.length;i+=20){
+      if(!passo(`Conferindo a descrição dos anúncios sem certeza… ${Math.min(i+20,falta.length)} de ${falta.length}`))return;
+      try{ const {desc}=await api('/ml/vincular/descricoes',{method:'POST',body:{ids:falta.slice(i,i+20).map(a=>a.id)}}); falta.slice(i,i+20).forEach(a=>{ a.desc=desc[a.id]||''; }); }catch(_){ } }
+    if(falta.length)st.res=casa();
+  }catch(e){ if($('#vnst'))$('#vnst').innerHTML='⚠️ '+esc(e.message); return; }
+  const FAZ={certo:'ligar',provavel:'ligar',extra:'extra',criar:'criar'};
+  st.res.forEach((r,i)=>{ r.ad=st.ads[i]; r.faz=FAZ[r.tipo]||null; r.sel=true; });
+  const ligadaAgora=(id,exc)=>pecas.some(p=>p.id===id&&p.ml_id)||st.res.some(o=>o!==exc&&o.faz==='ligar'&&o.peca&&o.peca.id===id);
+  const escolhe=(r,p)=>{ r.peca=p; r.faz=ligadaAgora(p.id,r)?'extra':'ligar'; r.tipo='escolhido'; r.sel=true; };
+  const ABAS=[['ligar','✅ Vai ligar',r=>r.faz==='ligar'],['extra','🔁 2º anúncio',r=>r.faz==='extra'],['criar','➕ Criar peça',r=>r.faz==='criar'],
+    ['duvida','🤔 Escolher',r=>!r.faz&&r.tipo==='duvida'],['ja','🔗 Já ligados',r=>r.tipo==='ja']];
+  const TIPO={gold_pro:'Premium',gold_special:'Clássico',free:'Grátis'};
+  const pecaTxt=p=>`<b>${cod(p.codigo)}</b> ${esc(p.nome)}${p.local?' · 📍 '+esc(p.local):p.local_id&&S.locais&&S.locais[p.local_id]?' · 📍 '+esc(locPath(p.local_id)):''}`;
+  const pinta=()=>{ const el=$('#vncorpo'); if(!el)return;
+    const n=k=>st.res.filter(ABAS.find(a=>a[0]===k)[2]).length, fila=st.res.filter(r=>r.faz&&r.sel&&(r.faz!=='criar'||!$('#vncri')||$('#vncri').checked));
+    const nCerto=st.res.filter(r=>r.faz==='ligar'&&r.tipo==='certo').length;
+    $('#vnst').innerHTML=`<b>${st.ads.length} anúncios lidos</b><div style="margin-top:4px;line-height:1.7">✅ <b>${n('ligar')}</b> vão ser ligados à peça (${nCerto} com certeza)<br>
+      🔁 <b>${n('extra')}</b> são o 2º anúncio de uma peça (ex.: Clássico e Premium): ficam ligados juntos<br>
+      ➕ <b>${n('criar')}</b> não têm peça no estoque: a peça é criada a partir do anúncio (com fotos e ficha)<br>
+      ${n('duvida')?`🤔 <b>${n('duvida')}</b> parecidos com mais de uma peça: escolha com 1 toque na aba <b>Escolher</b><br>`:''}🔗 ${n('ja')} já estavam ligados</div>`;
+    const ver=st.res.filter(ABAS.find(a=>a[0]===st.aba)[2]);
+    el.innerHTML=`<label class="small" style="display:flex;gap:6px;align-items:center;margin-top:10px"><input type="checkbox" id="vnfot" ${st.fotos!==false?'checked':''} style="width:18px;height:18px;margin:0;flex:none"> Trazer as fotos do anúncio para as peças que estão sem foto</label>
+      <label class="small" style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="vncri" ${st.criar!==false?'checked':''} style="width:18px;height:18px;margin:0;flex:none"> Criar as peças que não estão no estoque, guardando em: </label>
+      <select id="vnloc" style="margin-top:4px"><option value="">— sem localização (arrumo depois) —</option>${locOptions(st.loc||'')}</select>
+      <div id="vnprog" class="small" style="margin-top:8px"></div>
+      <div class="top" style="margin-top:8px"><button class="btn p" id="vnok" ${fila.length&&!st.rodando?'':'disabled'}>✅ Fazer tudo (${fila.length})</button><button class="btn" id="vncc">Fechar</button></div>
+      <div class="filters" style="margin-top:12px">${ABAS.map(([k,t])=>`<button class="chip ${st.aba===k?'on':''}" data-va="${k}">${t} (${n(k)})</button>`).join('')}</div>
+      ${ver.length?ver.slice(0,400).map(r=>{ const i=st.res.indexOf(r), it=r.ad, pc=r.peca||(r.tipo==='ja'&&it.ja&&it.ja.peca);
+        return `<div class="sel small" style="align-items:flex-start;gap:8px">${r.faz?`<input type="checkbox" data-vs="${i}" ${r.sel?'checked':''} style="width:20px;height:20px;flex:none;margin:2px 0 0">`:''}
+          ${it.foto?`<img src="${esc(it.foto)}" alt="" loading="lazy" style="width:40px;height:40px;object-fit:cover;border-radius:4px;flex:none">`:''}
+          <span style="flex:1;min-width:0"><b>${esc(it.titulo)}</b><br><span class="mut">${esc(it.id)}${TIPO[it.tipo]?' · '+TIPO[it.tipo]:''} · ${esc(stML(it.status))} · ${brl(it.preco)} · ${it.qtd} no ML${it.sku?' · SKU '+esc(it.sku):''}</span><br>
+          ${pc?`➜ ${pecaTxt(pc)} <span class="tag ${r.tipo==='provavel'?'zero':''}">${r.tipo==='ja'?(it.ja&&it.ja.extra?'2º anúncio':'ligado'):r.tipo==='escolhido'?'escolhido por você':esc(r.porque||'')+(r.nota&&r.tipo!=='certo'?' '+r.nota+'%':'')}</span>`
+            :r.faz==='criar'?'<span class="mut">➕ Nenhuma peça parecida no estoque: vai criar a peça com as fotos e a ficha do anúncio.</span>':''}
+          ${r.tipo==='duvida'||r.tipo==='escolhido'||r.faz==='criar'?`<div class="mlact" style="margin-top:6px">${(r.opcoes||[]).map((o,k)=>`<button class="btn sm ${r.peca&&r.peca.id===o.peca.id?'p':''}" data-vo="${i}:${k}" style="text-align:left">➜ ${cod(o.peca.codigo)} ${esc(o.peca.nome.slice(0,48))} (${o.nota}%)</button>`).join('')}
+            ${r.faz!=='criar'?`<button class="btn sm" data-vcr="${i}">➕ Criar peça</button>`:''}<input data-vc="${i}" inputmode="numeric" placeholder="ou nº da peça" style="width:120px"></div>`:''}</span></div>`; }).join('')
+        +(ver.length>400?`<p class="small mut">Mostrando 400 de ${ver.length}.</p>`:''):'<p class="small mut">Nada aqui.</p>'}`;
+    const guarda=()=>{ if($('#vnfot'))st.fotos=$('#vnfot').checked; if($('#vncri'))st.criar=$('#vncri').checked; if($('#vnloc'))st.loc=$('#vnloc').value; };
+    el.querySelectorAll('[data-va]').forEach(b=>b.onclick=()=>{ guarda(); st.aba=b.dataset.va; pinta(); });
+    el.querySelectorAll('[data-vs]').forEach(c=>c.onchange=()=>{ guarda(); st.res[+c.dataset.vs].sel=c.checked; pinta(); });
+    el.querySelectorAll('[data-vo]').forEach(b=>b.onclick=()=>{ guarda(); const [i,k]=b.dataset.vo.split(':').map(Number), r=st.res[i]; escolhe(r,r.opcoes[k].peca); pinta(); });
+    el.querySelectorAll('[data-vcr]').forEach(b=>b.onclick=()=>{ guarda(); const r=st.res[+b.dataset.vcr]; r.peca=null; r.faz='criar'; r.tipo='escolhido'; r.sel=true; pinta(); });
+    el.querySelectorAll('[data-vc]').forEach(inp=>inp.onchange=()=>{ guarda(); if(!inp.value.trim())return; const p=pecas.find(x=>Number(x.codigo)===parseInt(inp.value,10));
+      if(!p)return toast('Peça '+inp.value+' não encontrada'); escolhe(st.res[+inp.dataset.vc],p); pinta(); });
+    ['vnfot','vncri','vnloc'].forEach(k=>{ if($('#'+k))$('#'+k).onchange=()=>{ guarda(); pinta(); }; });
+    $('#vncc').onclick=fecha;
+    $('#vnok').onclick=async()=>{ guarda(); if(st.rodando)return; st.rodando=true; $('#vnok').disabled=true;
+      const ordem={ligar:0,extra:1,criar:2}, fila=st.res.filter(r=>r.faz&&r.sel&&(r.faz!=='criar'||st.criar)).sort((a,b)=>ordem[a.faz]-ordem[b.faz]);
+      const res={ligar:0,extra:0,criar:0,fotos:0,erros:[]};
+      for(let k=0;k<fila.length;k++){ const r=fila[k];
+        if($('#vnprog'))$('#vnprog').innerHTML=`<span class="spin-s"></span> Fazendo ${k+1} de ${fila.length}… (não feche esta tela)`;
+        try{
+          if(r.faz==='criar'){ const x=await api('/ml/importar/'+r.ad.id,{method:'POST',body:{local_id:st.loc||undefined}}); res.fotos+=x.fotos||0; r.peca=x.peca||null; }
+          else { let x; try{ x=await api('/ml/vincular',{method:'POST',body:{peca_id:r.peca.id,ml_id:r.ad.id,fotos:st.fotos!==false,extra:r.faz==='extra'}}); }
+            catch(e){ if(!/já está ligada ao anúncio/.test(e.message))throw e; x=await api('/ml/vincular',{method:'POST',body:{peca_id:r.peca.id,ml_id:r.ad.id,extra:true}}); r.faz='extra'; }
+            res.fotos+=x.fotos||0; }
+          res[r.faz]++; r.ad.ja={peca:r.peca,extra:r.faz==='extra'}; r.tipo='ja'; r.faz=null;
+        }catch(e){ res.erros.push(r.ad.id+': '+e.message); } }
+      st.rodando=false;
+      const msg=`✅ ${res.ligar} ligado(s) · 🔁 ${res.extra} 2º anúncio(s) · ➕ ${res.criar} peça(s) criada(s)`+(res.fotos?` · ${res.fotos} foto(s) trazida(s)`:'');
+      toast(msg); try{ pecas=(await api('/pecas?todas=1')).pecas; S.pecas=pecas; }catch(_){ }
+      pinta(); if($('#vnprog'))$('#vnprog').innerHTML=esc(msg)+(res.erros.length?'<br><span style="color:var(--red)">'+res.erros.map(esc).join('<br>')+'</span>':''); };
+  };
+  if(!st.res.some(r=>r.faz==='ligar'))st.aba=st.res.some(r=>r.tipo==='duvida')?'duvida':'ja';
+  pinta();
 }
 // ---------- Importar anúncios do Mercado Livre para o sistema ----------
 async function importarML(){
@@ -1199,6 +1351,7 @@ async function caixaAnuncio(p){
   const pinta=it=>{ const st=it?it.status:p.ml_status, link=(it&&it.link)||p.ml_link;
     if($('#mlst')){ $('#mlst').textContent=stML(st); $('#mlst').className='tag '+(st==='active'?'ml':st==='closed'?'zero':''); }
     if($('#mlinfo'))$('#mlinfo').innerHTML=it?`${esc(p.ml_id)} · ${brl(it.preco)} · ${it.qtd} disponível(is) · ${it.vendidos} vendido(s) no ML`
+      +(it.extras&&it.extras.length?`<div style="margin-top:4px">🔁 Também ligada ao(s) anúncio(s) ${it.extras.map(esc).join(', ')}: o estoque e a pausa valem para todos.</div>`:'')
       +(it.sub&&it.sub.length?`<div style="margin-top:4px;color:var(--ink)">Motivo: <b>${esc(subML(it.sub))}</b></div>`:'')
       +(it.avisos&&it.avisos.length?`<div style="margin-top:4px;color:var(--amber)">⚠️ ${it.avisos.map(esc).join('<br>⚠️ ')}</div>`:'')
       +(st&&st.startsWith('paused')&&!(it.sub||[]).includes('picture_download_pending')&&!(it.sub||[]).includes('out_of_stock')?'<div class="small" style="margin-top:4px">Se não houver motivo do ML, toque em <b>Retomar</b> para ativar.</div>':''):esc(p.ml_id);

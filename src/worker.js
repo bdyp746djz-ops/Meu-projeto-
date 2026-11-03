@@ -191,6 +191,7 @@ async function api(request, env, url) {
   // ligar anúncios do ML às peças que já estão no sistema
   if (p === '/api/ml/vincular' && m === 'GET') return mlVincularSugestoes(url, env, user);
   if (p === '/api/ml/vincular' && m === 'POST') return mlVincula(request, env, user);
+  if (p === '/api/ml/vincular/descricoes' && m === 'POST') return mlDescricoes(request, env, user);
   // importar anúncios da conta do ML para o sistema (com fotos e ficha técnica)
   if (p === '/api/ml/importar' && m === 'GET') return mlImportLista(url, env, user);
   mt = p.match(/^\/api\/ml\/importar\/(MLB\d+)$/i);
@@ -550,13 +551,14 @@ async function mlItem(pecaId, env) {
   const p = await env.DB.prepare('SELECT id,ml_id,ml_status FROM pecas WHERE id=?').bind(pecaId).first();
   if (!p) return bad('peça não encontrada', 404);
   if (!p.ml_id) return json({ item: null });
+  const extras = (await mlExtrasDa(env, p.id)).map(e => e.ml_id);
   const token = await mlToken(env);
   if (!token) return bad('conecte o Mercado Livre primeiro');
   try {
     const d = await mlReq(token, 'GET', '/items/' + encodeURIComponent(p.ml_id) + '?attributes=' + ML_ITEM_CAMPOS);
     const st = (p.ml_status === 'paused_venda' && d.status === 'paused') ? 'paused_venda' : d.status;
     if (st && st !== p.ml_status) await env.DB.prepare('UPDATE pecas SET ml_status=?, ml_link=COALESCE(?,ml_link) WHERE id=?').bind(st, d.permalink || null, p.id).run();
-    return json({ item: { protegido: (await mlProtegidos(env)).has(String(d.id).toUpperCase()), id: d.id, status: st, sub: d.sub_status || [], link: d.permalink || null, preco: d.price, qtd: d.available_quantity, vendidos: d.sold_quantity || 0, tipo: d.listing_type_id, saude: d.health ?? null, criado: d.date_created || null, avisos: mlAvisos(d) } });
+    return json({ item: { protegido: (await mlProtegidos(env)).has(String(d.id).toUpperCase()), id: d.id, status: st, sub: d.sub_status || [], link: d.permalink || null, preco: d.price, qtd: d.available_quantity, vendidos: d.sold_quantity || 0, tipo: d.listing_type_id, saude: d.health ?? null, criado: d.date_created || null, avisos: mlAvisos(d), extras } });
   } catch (e) { return bad('não consegui ler o anúncio no Mercado Livre: ' + e.message); }
 }
 // pausar / retomar / sincronizar preço e estoque / finalizar / desvincular
@@ -568,6 +570,7 @@ async function mlItemAcao(pecaId, request, env, user) {
   if (!p) return bad('peça não encontrada', 404);
   if (acao === 'desvincular') {
     await env.DB.prepare('UPDATE pecas SET ml=0, ml_id=NULL, ml_link=NULL, ml_status=NULL, atualizado_em=? WHERE id=?').bind(now(), p.id).run();
+    try { await env.DB.prepare('DELETE FROM ml_extras WHERE peca_id=?').bind(p.id).run(); } catch { /* sem extras */ }
     return json({ ok: true, status: null });
   }
   if (!p.ml_id) return bad('esta peça não tem anúncio vinculado');
@@ -600,6 +603,15 @@ async function mlItemAcao(pecaId, request, env, user) {
     const d = corpo ? await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), corpo) : await mlSemEstoque(token, p.ml_id);
     const st = d.status || corpo.status || 'active';
     await env.DB.prepare('UPDATE pecas SET ml_status=?, ml=?, atualizado_em=? WHERE id=?').bind(st, st === 'closed' ? 0 : 1, now(), p.id).run();
+    // os outros anúncios da mesma peça acompanham (protegidos ficam de fora pela trava do mlReq)
+    if (['pausar', 'retomar', 'sincronizar'].includes(acao)) for (const e of await mlExtrasDa(env, p.id)) {
+      if (e.status === 'closed') continue;
+      try {
+        if (acao === 'retomar') await mlReq(token, 'PUT', '/items/' + encodeURIComponent(e.ml_id), { available_quantity: q });
+        const de = corpo ? await mlReq(token, 'PUT', '/items/' + encodeURIComponent(e.ml_id), corpo) : await mlSemEstoque(token, e.ml_id);
+        await env.DB.prepare('UPDATE ml_extras SET status=? WHERE ml_id=?').bind(de.status || (corpo && corpo.status) || e.status, e.ml_id).run();
+      } catch (err) { console.log('anúncio extra', e.ml_id, err.message); }
+    }
     return json({ ok: true, status: st });
   } catch (e) { return bad('o Mercado Livre recusou: ' + e.message); }
 }
@@ -615,27 +627,41 @@ async function mlAposEstoque(env, pecaId, venda) {
   try {
     await garanteColsPecas(env);
     const p = await env.DB.prepare('SELECT id,ml_id,ml_status,qtd FROM pecas WHERE id=?').bind(pecaId).first();
-    if (!p || !p.ml_id || p.ml_status === 'closed') return null;
-    if ((await mlProtegidos(env)).has(String(p.ml_id).toUpperCase())) return 'protegido';
+    if (!p) return null;
+    const extras = await mlExtrasDa(env, p.id);
+    if (!p.ml_id && !extras.length) return null;
+    const prot = await mlProtegidos(env);
+    if (p.ml_id && p.ml_status !== 'closed' && prot.has(String(p.ml_id).toUpperCase()) && extras.every(e => prot.has(String(e.ml_id).toUpperCase()))) return 'protegido';
     const token = await mlToken(env);
     if (!token) return null;
     const q = Number(p.qtd) || 0;
-    if (venda && q > 0 && (await getCfg(env, 'ml_pausar_venda')) === '1') {   // regra: pausar a cada venda, mesmo com estoque
-      await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), { available_quantity: q });
-      await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), { status: 'paused' });
-      await env.DB.prepare("UPDATE pecas SET ml_status='paused' WHERE id=?").bind(p.id).run();
-      return 'pausado_regra';
+    const regra = venda && q > 0 && (await getCfg(env, 'ml_pausar_venda')) === '1';   // regra: pausar a cada venda, mesmo com estoque
+    const um = async (mlId, stAtual) => {   // → [resultado, status novo]
+      if (stAtual === 'closed') return [null, stAtual];
+      if (prot.has(String(mlId).toUpperCase())) return ['protegido', stAtual];
+      const id = '/items/' + encodeURIComponent(mlId);
+      if (regra) {
+        await mlReq(token, 'PUT', id, { available_quantity: q });
+        await mlReq(token, 'PUT', id, { status: 'paused' });
+        return ['pausado_regra', 'paused'];
+      }
+      if (q <= 0) { await mlSemEstoque(token, mlId); return ['pausado', 'paused_venda']; }
+      let d = await mlReq(token, 'PUT', id, { available_quantity: q });
+      const reativa = stAtual === 'paused_venda';
+      if (reativa && d.status !== 'active') d = await mlReq(token, 'PUT', id, { status: 'active' });
+      return [reativa ? 'reativado' : 'atualizado', d.status || (reativa ? 'active' : stAtual) || 'active'];
+    };
+    let res = null, erro = null;
+    if (p.ml_id) {
+      try { const [r, st] = await um(p.ml_id, p.ml_status); res = r; if (st !== p.ml_status) await env.DB.prepare('UPDATE pecas SET ml_status=? WHERE id=?').bind(st, p.id).run(); }
+      catch (e) { erro = e; }
     }
-    if (q <= 0) {
-      await mlSemEstoque(token, p.ml_id);
-      await env.DB.prepare("UPDATE pecas SET ml_status='paused_venda' WHERE id=?").bind(p.id).run();
-      return 'pausado';
+    for (const e of extras) {
+      try { const [r, st] = await um(e.ml_id, e.status); if (res == null) res = r; if (st !== e.status) await env.DB.prepare('UPDATE ml_extras SET status=? WHERE ml_id=?').bind(st, e.ml_id).run(); }
+      catch (err) { console.log('anúncio extra', e.ml_id, err.message); }
     }
-    let d = await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), { available_quantity: q });
-    const reativa = p.ml_status === 'paused_venda';
-    if (reativa && d.status !== 'active') d = await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), { status: 'active' });
-    await env.DB.prepare('UPDATE pecas SET ml_status=? WHERE id=?').bind(d.status || (reativa ? 'active' : p.ml_status) || 'active', p.id).run();
-    return reativa ? 'reativado' : 'atualizado';
+    if (erro) return 'erro: ' + erro.message;
+    return res;
   } catch (e) { return 'erro: ' + e.message; }
 }
 // ---------- preço de mercado: anúncios usados parecidos no ML ----------
@@ -757,7 +783,7 @@ async function mlExpedicao(env) {
   const mlIds = [...new Set(abertas.flatMap(({ o }) => (o.order_items || []).map(it => it.item && it.item.id).filter(Boolean).map(String)))];
   const ordIds = abertas.map(({ o }) => String(o.id));
   const porMl = {}, baixas = new Set();
-  if (mlIds.length) (await env.DB.prepare(`SELECT id,codigo,nome,local_id,qtd,ml_id FROM pecas WHERE ml_id IN (${mlIds.map(() => '?').join(',')})`).bind(...mlIds).all()).results.forEach(r => { porMl[r.ml_id] = r; });
+  Object.assign(porMl, await pecasPorMl(env, mlIds, 'id,codigo,nome,local_id,qtd,ml_id'));
   if (ordIds.length) (await env.DB.prepare(`SELECT ml_pedido,peca_id FROM vendas WHERE cancelada=0 AND ml_pedido IN (${ordIds.map(() => '?').join(',')})`).bind(...ordIds).all()).results.forEach(r => baixas.add(r.ml_pedido + '|' + r.peca_id));
   const pedidos = abertas.map(({ o, envio }) => ({
     id: o.id, data: o.date_created || null, total: o.total_amount || 0, comprador: (o.buyer && o.buyer.nickname) || '', envio,
@@ -927,7 +953,27 @@ async function garanteColsPecas(env) {
     'alt_cm REAL', 'larg_cm REAL', 'comp_cm REAL', 'video TEXT', 'etq_em INTEGER', 'ml_status TEXT', 'ml_em INTEGER', 'ml_cat TEXT', 'ml_cat_nome TEXT', 'ml_attrs TEXT']) {
     try { await env.DB.prepare('ALTER TABLE pecas ADD COLUMN ' + c).run(); } catch { /* já existe */ }
   }
+  try { await env.DB.prepare('CREATE TABLE IF NOT EXISTS ml_extras (ml_id TEXT PRIMARY KEY, peca_id TEXT NOT NULL, status TEXT, criado_em INTEGER)').run(); } catch { /* já existe */ }
+  try { await env.DB.prepare('CREATE INDEX IF NOT EXISTS ml_extras_peca ON ml_extras(peca_id)').run(); } catch { /* já existe */ }
   colsPecasOk = true;
+}
+// a mesma peça pode ter mais de um anúncio (ex.: Clássico e Premium): o principal fica em pecas.ml_id, os outros em ml_extras
+async function mlExtrasDa(env, pecaId) {
+  try { return (await env.DB.prepare('SELECT ml_id,status FROM ml_extras WHERE peca_id=?').bind(pecaId).all()).results; } catch { return []; }
+}
+// ml_id → peça, seja o anúncio principal ou extra
+async function pecasPorMl(env, ids, campos) {
+  const out = {}; ids = [...new Set(ids.filter(Boolean).map(String))];
+  if (!ids.length) return out;
+  for (const p of (await env.DB.prepare(`SELECT ${campos} FROM pecas WHERE ml_id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all()).results) out[p.ml_id] = p;
+  const falta = ids.filter(i => !out[i]);
+  if (falta.length) {
+    try {
+      const cs = campos.split(',').map(c => 'p.' + c.trim()).join(',');
+      for (const p of (await env.DB.prepare(`SELECT e.ml_id AS ml_extra, ${cs} FROM ml_extras e JOIN pecas p ON p.id=e.peca_id WHERE e.ml_id IN (${falta.map(() => '?').join(',')})`).bind(...falta).all()).results) out[p.ml_extra] = p;
+    } catch { /* sem a tabela ainda */ }
+  }
+  return out;
 }
 const numOuNull = v => (v === '' || v == null || isNaN(Number(v))) ? null : Number(v);
 function parsePeca(row) {
@@ -1123,8 +1169,7 @@ async function mlPerguntas(url, env) {
   const ids = [...new Set(qs.map(q => q.item_id).filter(Boolean))], pecas = {};
   if (ids.length) {
     const caminho = await caminhosLocais(env);
-    const r = await env.DB.prepare(`SELECT id,codigo,qtd,local_id,pn,ml_id FROM pecas WHERE ml_id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
-    for (const p of r.results) pecas[p.ml_id] = { id: p.id, codigo: p.codigo, qtd: p.qtd, pn: p.pn, local: p.local_id ? caminho(p.local_id) : null };
+    for (const [mlId, p] of Object.entries(await pecasPorMl(env, ids, 'id,codigo,qtd,local_id,pn,ml_id'))) pecas[mlId] = { id: p.id, codigo: p.codigo, qtd: p.qtd, pn: p.pn, local: p.local_id ? caminho(p.local_id) : null };
   }
   const c = await veoCfg(env);
   return json({ total, offset: off, proximo, ocultas, ia: c.chaves.length > 0,
@@ -1208,7 +1253,8 @@ async function mlSugereResposta(id, env) {
   await garanteColsPecas(env);
   let q; try { q = await mlReq(token, 'GET', '/questions/' + id + '?api_version=4'); } catch (e) { return bad(erroPerg(e)); }
   let it = {}; try { it = await mlReq(token, 'GET', '/items/' + q.item_id + '?attributes=id,title,price,available_quantity,condition,attributes,status'); } catch { /* sem anúncio */ }
-  const p = q.item_id ? await env.DB.prepare('SELECT * FROM pecas WHERE ml_id=?').bind(q.item_id).first() : null;
+  let p = q.item_id ? await env.DB.prepare('SELECT * FROM pecas WHERE ml_id=?').bind(q.item_id).first() : null;
+  if (!p && q.item_id) { try { p = await env.DB.prepare('SELECT p.* FROM ml_extras e JOIN pecas p ON p.id=e.peca_id WHERE e.ml_id=?').bind(q.item_id).first(); } catch { /* sem extras */ } }
   let ant = []; try { ant = ((await mlReq(token, 'GET', `/questions/search?item=${q.item_id}&status=ANSWERED&api_version=4&limit=5&sort_fields=date_created&sort_types=DESC`)).questions || []).filter(x => x.answer); } catch { /* sem histórico */ }
   const attrs = p && p.ml_attrs ? (() => { try { return JSON.parse(p.ml_attrs); } catch { return []; } })() : (it.attributes || []).filter(a => a.value_name).map(a => [a.id, a.name, a.value_name]);
   const L = [];
@@ -1246,8 +1292,7 @@ async function mlImportLista(url, env, user) {
   }
   const ja = {};
   if (ids.length) {
-    const r = await env.DB.prepare(`SELECT id,codigo,ml_id FROM pecas WHERE ml_id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
-    for (const p of r.results) ja[p.ml_id] = { id: p.id, codigo: p.codigo };
+    for (const [mlId, p] of Object.entries(await pecasPorMl(env, ids, 'id,codigo,ml_id'))) ja[mlId] = { id: p.id, codigo: p.codigo };
   }
   return json({ total: (s.paging && s.paging.total) || itens.length, offset, limite: lim,
     itens: itens.map(x => ({ id: x.id, titulo: x.title, preco: x.price, qtd: x.available_quantity, vendidos: x.sold_quantity, status: x.status,
@@ -1322,6 +1367,7 @@ async function mlPausaPosVenda(env) {
       try {
         await mlReq(token, 'PUT', '/items/' + encodeURIComponent(mlId), { status: 'paused' });
         await env.DB.prepare("UPDATE pecas SET ml_status='paused' WHERE ml_id=?").bind(mlId).run();
+        try { await env.DB.prepare("UPDATE ml_extras SET status='paused' WHERE ml_id=?").bind(mlId).run(); } catch { /* sem extras */ }
       } catch (e) { console.log('pausa pós-venda', mlId, e.message); }
     }
     vistos.push(String(o.id)); ja.add(String(o.id)); mudou = true;
@@ -1337,30 +1383,38 @@ async function mlVincularSugestoes(url, env, user) {
   const token = await mlToken(env), seller = await getCfg(env, 'ml_user_id');
   if (!token || !seller) return bad('conecte o Mercado Livre primeiro');
   await garanteColsPecas(env);
-  const st = url.searchParams.get('status') === 'paused' ? 'paused' : 'active', off = Math.max(0, parseInt(url.searchParams.get('offset')) || 0);
+  const st = ['active', 'paused', 'under_review', 'inactive'].includes(url.searchParams.get('status')) ? url.searchParams.get('status') : 'active';
+  const off = Math.max(0, parseInt(url.searchParams.get('offset')) || 0);
   const s = await mlReq(token, 'GET', `/users/${seller}/items/search?limit=100&offset=${off}&status=${st}`);
   const ids = s.results || [], itens = [];
   for (let i = 0; i < ids.length; i += 20) {
-    const r = await mlReq(token, 'GET', '/items?ids=' + ids.slice(i, i + 20).join(',') + '&attributes=id,title,price,available_quantity,sold_quantity,status,secure_thumbnail,thumbnail,permalink,seller_custom_field,attributes');
+    const r = await mlReq(token, 'GET', '/items?ids=' + ids.slice(i, i + 20).join(',') + '&attributes=id,title,price,available_quantity,sold_quantity,status,secure_thumbnail,thumbnail,permalink,seller_custom_field,attributes,listing_type_id');
     for (const x of r) if (x && x.body && x.body.id) itens.push(x.body);
   }
-  const caminho = await caminhosLocais(env);
-  const pecas = (await env.DB.prepare('SELECT id,codigo,nome,qtd,local_id,ml_id,fotos FROM pecas').all()).results;
-  const porCod = new Map(pecas.map(p => [Number(p.codigo), p])), porMl = new Map(pecas.filter(p => p.ml_id).map(p => [p.ml_id, p]));
+  const caminho = await caminhosLocais(env), mapa = await pecasPorMl(env, ids, 'id,codigo,nome,qtd,local_id,ml_id,fotos');
   const resumoP = p => p && { id: p.id, codigo: p.codigo, nome: p.nome, qtd: p.qtd, local: p.local_id ? caminho(p.local_id) : null, ml_id: p.ml_id || null, semFoto: !(p.fotos && p.fotos !== '[]') };
   const lista = itens.map(it => {
-    const item = { id: it.id, titulo: it.title, preco: it.price, qtd: it.available_quantity, vendidos: it.sold_quantity, status: it.status, foto: it.secure_thumbnail || it.thumbnail || null, link: it.permalink, sku: skuDe(it) };
-    const ja = porMl.get(it.id); if (ja) return { item, peca: resumoP(ja), como: 'ja' };
-    const livre = p => p && !p.ml_id;
-    const m = item.sku.match(/(\d{1,12})\D*$/), ps = m && porCod.get(Number(m[1]));
-    if (livre(ps)) return { item, peca: resumoP(ps), como: 'sku' };
-    const iguais = pecas.filter(p => livre(p) && norm(p.nome).trim() === norm(it.title).trim());
-    if (iguais.length === 1) return { item, peca: resumoP(iguais[0]), como: 'titulo' };
-    const notas = pecas.filter(livre).map(p => [p, parecenca(it.title, p.nome)]).sort((a, b) => b[1] - a[1]);
-    if (notas[0] && notas[0][1] >= 0.6 && (!notas[1] || notas[0][1] - notas[1][1] >= 0.15)) return { item, peca: resumoP(notas[0][0]), como: 'parecido', nota: Math.round(notas[0][1] * 100) };
-    return { item, peca: null, como: 'sem' };
+    const at = {}; for (const a of it.attributes || []) if (a && a.value_name && !/^n[ãa]o se aplica$/i.test(a.value_name)) at[a.id] = String(a.value_name);
+    const pc = mapa[it.id];
+    return { id: it.id, titulo: it.title, preco: it.price, qtd: it.available_quantity, vendidos: it.sold_quantity, status: it.status, tipo: it.listing_type_id || null,
+      foto: it.secure_thumbnail || it.thumbnail || null, link: it.permalink, sku: skuDe(it), marca: at.BRAND || '', modelo: at.MODEL || '',
+      pns: ['PART_NUMBER', 'MPN', 'OEM', 'ORIGINAL_PART_NUMBER', 'ALTERNATIVE_PART_NUMBERS', 'GTIN'].map(k => at[k]).filter(Boolean),
+      ja: pc ? { peca: resumoP(pc), extra: pc.ml_id !== it.id } : null };
   });
-  return json({ status: st, offset: off, total: (s.paging && s.paging.total) || ids.length, proximo: off + ids.length < ((s.paging && s.paging.total) || 0) ? off + ids.length : null, lista });
+  const total = (s.paging && s.paging.total) || ids.length;
+  return json({ status: st, offset: off, total, proximo: off + ids.length < total && ids.length ? off + ids.length : null, lista });
+}
+// descrição dos anúncios (até 20 por vez): muitos vendedores põem o código da peça ou o part number nela
+async function mlDescricoes(request, env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  const token = await mlToken(env);
+  if (!token) return bad('conecte o Mercado Livre primeiro');
+  const b = await request.json().catch(() => ({}));
+  const ids = [...new Set((b.ids || []).map(x => String(x).toUpperCase()).filter(x => /^MLB\d+$/.test(x)))].slice(0, 20), desc = {};
+  await Promise.all(ids.map(async id => {
+    try { const d = await mlReq(token, 'GET', '/items/' + id + '/description'); desc[id] = String(d.plain_text || d.text || '').slice(0, 3000); } catch { desc[id] = ''; }
+  }));
+  return json({ desc });
 }
 // liga um anúncio a uma peça; traz a ficha técnica, a embalagem e (se pedir) as fotos do anúncio
 async function mlVincula(request, env, user) {
@@ -1373,12 +1427,17 @@ async function mlVincula(request, env, user) {
   if (!/^MLB\d+$/.test(mlId)) return bad('código do anúncio inválido (ex.: MLB1234567890)');
   const p = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(b.peca_id || '').first();
   if (!p) return bad('peça não encontrada', 404);
-  if (p.ml_id && p.ml_id !== mlId) return bad(`a peça #${String(p.codigo).padStart(6, '0')} já está ligada ao anúncio ${p.ml_id}`);
-  const outra = await env.DB.prepare('SELECT codigo FROM pecas WHERE ml_id=? AND id<>?').bind(mlId, p.id).first();
-  if (outra) return bad(`esse anúncio já está ligado à peça #${String(outra.codigo).padStart(6, '0')}`);
+  const outra = (await pecasPorMl(env, [mlId], 'id,codigo'))[mlId];
+  if (outra && outra.id !== p.id) return bad(`esse anúncio já está ligado à peça #${String(outra.codigo).padStart(6, '0')}`);
+  if (outra) return json({ ok: true, fotos: 0, falhas: 0, ja: true });
+  if (p.ml_id && p.ml_id !== mlId && !b.extra) return bad(`a peça #${String(p.codigo).padStart(6, '0')} já está ligada ao anúncio ${p.ml_id}`);
   let it; try { it = await mlReq(token, 'GET', '/items/' + mlId); } catch (e) { return bad('não achei o anúncio no ML: ' + e.message); }
   const seller = await getCfg(env, 'ml_user_id');
   if (seller && it.seller_id && String(it.seller_id) !== String(seller)) return bad('esse anúncio não é da sua conta do Mercado Livre');
+  if (p.ml_id && p.ml_id !== mlId) {   // 2º anúncio da mesma peça (ex.: Clássico e Premium): acompanha o estoque junto
+    await env.DB.prepare('INSERT OR REPLACE INTO ml_extras (ml_id, peca_id, status, criado_em) VALUES (?,?,?,?)').bind(mlId, p.id, it.status || null, now()).run();
+    return json({ ok: true, extra: true, fotos: 0, falhas: 0, qtdML: it.available_quantity, qtdPeca: p.qtd });
+  }
   const at = {}; for (const a of it.attributes || []) at[a.id] = a;
   const val = (...ks) => { for (const k of ks) { const v = at[k] && at[k].value_name; if (v && !/^n[ãa]o se aplica$/i.test(v)) return String(v).trim(); } return ''; };
   const attrs = (it.attributes || []).filter(a => a.value_name).map(a => [a.id, a.name || a.id, String(a.value_name).slice(0, 200)]);
@@ -1397,8 +1456,8 @@ async function mlImportaItem(mlId, request, env, user) {
   if (!token) return bad('conecte o Mercado Livre primeiro');
   await garanteColsPecas(env);
   const b = await request.json().catch(() => ({}));
-  const ja = await env.DB.prepare('SELECT id,codigo FROM pecas WHERE ml_id=?').bind(mlId).first();
-  if (ja) return json({ ok: true, ja: true, peca: ja });
+  const ja = (await pecasPorMl(env, [mlId], 'id,codigo'))[mlId];
+  if (ja) return json({ ok: true, ja: true, peca: { id: ja.id, codigo: ja.codigo } });
   const it = await mlReq(token, 'GET', '/items/' + encodeURIComponent(mlId));
   const seller = await getCfg(env, 'ml_user_id');
   if (seller && it.seller_id && String(it.seller_id) !== String(seller)) return bad('esse anúncio não é da sua conta do Mercado Livre');
@@ -1544,6 +1603,7 @@ async function atualizaPeca(id, request, env) {
 }
 async function excluiPeca(id, env) {
   await env.DB.prepare('DELETE FROM pecas WHERE id=?').bind(id).run();
+  try { await env.DB.prepare('DELETE FROM ml_extras WHERE peca_id=?').bind(id).run(); } catch { /* sem extras */ }
   return json({ ok: true });
 }
 
