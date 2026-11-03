@@ -4,7 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rafa Busca Peças</title>
-<meta name="theme-color" content="#3f51b5">
+<meta name="theme-color" content="#ffffff">
+<link rel="icon" type="image/png" sizes="32x32" href="/icones/favicon-32.png">
+<link rel="apple-touch-icon" href="/icones/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Rafa Peças">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
@@ -504,6 +511,10 @@ table.tbp img{width:38px;height:38px;object-fit:cover;border-radius:8px;display:
 .esq .l,.esq .v,.esq .small,.atl.esq{background:linear-gradient(90deg,#eceef6,#f7f8fc,#eceef6);background-size:200% 100%;animation:brilho 1.2s linear infinite;border-radius:8px;color:transparent!important;min-height:14px}
 .esq .v{height:28px;margin-top:8px;width:70%}.esq .small{width:45%;margin-top:6px}.atl.esq{min-height:72px;border:0}
 @keyframes brilho{from{background-position:200% 0}to{background-position:-200% 0}}
+
+/* modo aplicativo: impressão feita pela própria tela */
+#impr{display:none}
+@media print{body.imprimindo>*:not(#impr){display:none!important}body.imprimindo #impr{display:block!important}}
 </style>
 </head>
 <body>
@@ -842,20 +853,48 @@ async function verDce(orderId){
   if($('#dceem'))$('#dceem').onclick=()=>emiteDce(orderId,true);
   document.querySelectorAll('[data-dpdf]').forEach(b=>b.onclick=()=>abrePdf('/api/ml/dce/'+orderId+'/doc/'+encodeURIComponent(b.dataset.dpdf),'dce-'+orderId+'.pdf'));
 }
+// aberto pelo ícone da Tela de Início (modo aplicativo): o celular não deixa abrir janelas nem PDFs soltos,
+// então o arquivo vai pela folha de compartilhar (Imprimir / Salvar em Arquivos / WhatsApp)
+const emApp=()=>{ try{ return navigator.standalone===true||matchMedia('(display-mode: standalone)').matches||matchMedia('(display-mode: fullscreen)').matches; }catch(_){ return false; } };
+function novaJanela(aviso,titulo){ if(emApp())return null; const w=window.open('','_blank');
+  if(w&&aviso){ try{ w.document.write('<title>'+esc(titulo||'')+'</title><p style="font-family:sans-serif;padding:20px">'+esc(aviso)+'</p>'); }catch(_){ } } return w; }
+async function entregaArquivo(blob,nome,win){
+  if(emApp()&&navigator.share&&typeof File==='function'){
+    const f=new File([blob],nome,{type:blob.type||'application/octet-stream'});
+    if(!navigator.canShare||navigator.canShare({files:[f]})){
+      const vai=()=>navigator.share({files:[f],title:nome});
+      try{ await vai(); return; }
+      catch(e){ if(e&&e.name==='AbortError')return;
+        // o toque "venceu" enquanto o arquivo era preparado: pede um toque novo
+        modal(`<h3>Pronto: ${esc(nome)}</h3><p class="small" style="margin:8px 0 14px">Toque no botão e escolha <b>Imprimir</b> ou <b>Salvar em Arquivos</b>.</p>
+          <div class="row" style="gap:8px"><button class="btn p" id="eaok"><span class="material-icons" style="font-size:18px;vertical-align:-4px">print</span> Imprimir / Salvar</button><button class="btn" id="eafe">Fechar</button></div>`);
+        $('#eaok').onclick=async()=>{ try{ await vai(); fecha(); }catch(er){ if(er&&er.name!=='AbortError')toast(er.message); } };
+        $('#eafe').onclick=fecha; return; }
+    }
+  }
+  const u=URL.createObjectURL(blob);
+  if(win&&!win.closed){ win.location.href=u; return; }
+  const a=document.createElement('a'); a.href=u; a.download=nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),60000);
+}
+// modo aplicativo: imprime pela própria tela (só aparece no papel)
+function imprimeAqui(html){
+  let d=$('#impr'); if(!d){ d=document.createElement('div'); d.id='impr'; document.body.appendChild(d); }
+  d.innerHTML=html; document.body.classList.add('imprimindo');
+  const fim=()=>{ document.body.classList.remove('imprimindo'); d.innerHTML=''; removeEventListener('afterprint',fim); };
+  addEventListener('afterprint',fim); print();
+}
 async function abrePdf(caminho,nome){
-  const win=window.open('','_blank'); if(win){ try{ win.document.write('<title>'+nome+'</title><p style="font-family:sans-serif;padding:20px">Buscando no Mercado Livre…</p>'); }catch(_){} }
+  const win=novaJanela('Buscando no Mercado Livre…',nome);
   try{ const r=await fetch(caminho); const ct=r.headers.get('content-type')||'';
     if(!r.ok||!ct.includes('pdf')){ const j=await r.json().catch(()=>({})); throw new Error(j.erro||('HTTP '+r.status)); }
-    const u=URL.createObjectURL(await r.blob());
-    if(win&&!win.closed) win.location.href=u; else { const a=document.createElement('a'); a.href=u; a.download=nome; document.body.appendChild(a); a.click(); a.remove(); }
+    await entregaArquivo(await r.blob(),nome,win);
   }catch(e){ if(win&&!win.closed)win.close(); toast(e.message); }
 }
 async function etiquetaEnvio(id,pedido){
-  const win=window.open('','_blank'); if(win){ try{ win.document.write('<title>Etiqueta de envio</title><p style="font-family:sans-serif;padding:20px">Buscando a etiqueta no Mercado Livre…</p>'); }catch(_){} }
+  const win=novaJanela('Buscando a etiqueta no Mercado Livre…','Etiqueta de envio');
   try{ const r=await fetch('/api/ml/etiqueta-envio/'+encodeURIComponent(id)); const ct=r.headers.get('content-type')||'';
     if(!r.ok||!ct.includes('pdf')){ const j=await r.json().catch(()=>({})); throw new Error(j.erro||('HTTP '+r.status)); }
-    const url=URL.createObjectURL(await r.blob());
-    if(win&&!win.closed) win.location.href=url; else { const a=document.createElement('a'); a.href=url; a.download='etiqueta-envio-'+id+'.pdf'; document.body.appendChild(a); a.click(); a.remove(); }
+    await entregaArquivo(await r.blob(),'etiqueta-envio-'+id+'.pdf',win);
   }catch(e){ if(win&&!win.closed)win.close();
     if(pedido&&/invoice_pending/i.test(e.message)){ if(confirm('O Mercado Livre só libera a etiqueta depois da declaração de conteúdo (DC-e). Emitir a DC-e deste pedido agora?'))emiteDce(pedido,false); }
     else toast(e.message); }
@@ -2734,7 +2773,7 @@ async function tabelaPecas(){
     $('#tbcsv').onclick=()=>{ const txt=v=>String(v??'').replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
       const cs=cols.filter(c=>c[0]!=='foto'), linhas=[cs.map(c=>c[1]),...l.map(p=>cs.map(c=>txt(c[3](p))))];
       const csv='﻿'+linhas.map(r=>r.map(v=>/[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v).join(';')).join('\r\n');
-      const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})); a.download='tabela-pecas.csv'; a.click(); }; };
+      entregaArquivo(new Blob([csv],{type:'text/csv;charset=utf-8'}),'tabela-pecas.csv'); }; };
   pinta(); }
 function personalizarColunas(depois){
   let ativas=colsTabela(), q='';
@@ -2934,6 +2973,12 @@ function pecasRelacionadas(id){
     try{ await api('/mover',{method:'POST',body:{ids,local_id:''}}); fecha(); toast(ids.length+' peça(s) desvinculada(s)'); locais(); }catch(e){ toast(e.message); } };
 }
 function imprimeRelacao(id,ps,tq,tv){
+  if(emApp())return imprimeAqui(`<style>@page{margin:18mm 14mm}#impr{font-family:Arial,sans-serif;color:#111}#impr h1{font-size:18px;margin:0 0 2px}#impr p{margin:0 0 10px;color:#555;font-size:12px}
+   #impr table{width:100%;border-collapse:collapse;font-size:12px}#impr th,#impr td{border-bottom:1px solid #ccc;padding:5px 6px;text-align:left}#impr th{background:#eee}
+   #impr .tot{margin-top:10px;font-size:13px}#impr .tot b{margin-right:18px}</style>
+   <h1>Relação de peças — ${esc(codigoTxt(id))}</h1><p>${esc(locPath(id))} · ${esc(LOJA)} · ${new Date().toLocaleString('pt-BR')}</p>
+   <table><tr><th>Código</th><th>Local</th><th>Descrição</th><th>Qtd</th><th>Preço</th></tr>${ps.map(p=>`<tr><td>${cod(p.codigo)}</td><td>${esc(codigoTxt(p.local_id))}</td><td>${esc(p.nome)}</td><td>${Number(p.qtd)||0}</td><td>${brl(p.preco)}</td></tr>`).join('')}</table>
+   <div class="tot"><b>Total de peças: ${tq}</b><b>Valor total de venda: ${brl(tv)}</b></div>`);
   const w=window.open('','_blank'); if(!w)return toast('Libere a abertura de janelas para imprimir');
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Relação de peças — ${esc(codigoTxt(id))}</title><style>
    body{font-family:Arial,sans-serif;margin:18mm 14mm;color:#111}h1{font-size:18px;margin:0 0 2px}p{margin:0 0 10px;color:#555;font-size:12px}
@@ -3070,10 +3115,9 @@ function abreGerador(itens){
     if(!sel.length)return toast('Marque ao menos uma etiqueta');
     S.ui.etqW=$('#gw').value; S.ui.etqH=$('#gh').value;
     const cop=Math.min(50,Math.max(1,parseInt($('#gcop').value,10)||1));
-    const win=window.open('','_blank'); if(win){ try{ win.document.write('<title>Gerador de Etiquetas</title><p style="font-family:sans-serif;padding:20px">Gerando etiquetas…</p>'); }catch(_){} }
-    try{ const url=await gerarPDF(sel,cop);
-      if(win&&!win.closed) win.location.href=url; else { const a=document.createElement('a'); a.href=url; a.download='etiquetas.pdf'; document.body.appendChild(a); a.click(); a.remove(); }
-      fecha(); }
+    const win=novaJanela('Gerando etiquetas…','Gerador de Etiquetas');
+    try{ const url=await gerarPDF(sel,cop), blob=await (await fetch(url)).blob();
+      fecha(); await entregaArquivo(blob,'etiquetas.pdf',win); }
     catch(e){ if(win)win.close(); toast('Erro: '+e.message); }
   };
 }
@@ -3341,8 +3385,7 @@ function baixarCSV(nome,cols,linhas){
   const cel=v=>{ v=v==null?'':String(v); if(/^[=+\-@]/.test(v)&&isNaN(Number(v.replace(',','.'))))v="'"+v; return /[";\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
   const txt=[cols.map(c=>c[0]).join(';'),...linhas.map(p=>cols.map(([,f])=>cel(f(p))).join(';'))].join('\r\n');
   const blob=new Blob(['﻿'+txt],{type:'text/csv;charset=utf-8'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=nome+'.csv';
-  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+  entregaArquivo(blob,nome+'.csv');
   toast(linhas.length+' linha(s) na planilha');
 }
 async function baixarEstoque(){
