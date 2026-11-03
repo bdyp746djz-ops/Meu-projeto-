@@ -499,6 +499,11 @@ table.tbp img{width:38px;height:38px;object-fit:cover;border-radius:8px;display:
 .cp-hero h3{margin:6px 0 4px;font-size:22px}.cp-n{background:#fff;border:1px solid #f0e2c8;border-radius:12px;padding:10px 14px;display:inline-block;margin-top:10px}
 .cp-n b{font-size:26px;color:#b26a00;display:block}
 @media(max-width:760px){.tb-wrap{max-height:calc(100vh - 290px)}}
+
+/* esqueleto enquanto a tela inicial carrega pela primeira vez */
+.esq .l,.esq .v,.esq .small,.atl.esq{background:linear-gradient(90deg,#eceef6,#f7f8fc,#eceef6);background-size:200% 100%;animation:brilho 1.2s linear infinite;border-radius:8px;color:transparent!important;min-height:14px}
+.esq .v{height:28px;margin-top:8px;width:70%}.esq .small{width:45%;margin-top:6px}.atl.esq{min-height:72px;border:0}
+@keyframes brilho{from{background-position:200% 0}to{background-position:-200% 0}}
 </style>
 </head>
 <body>
@@ -723,11 +728,24 @@ function locOptions(sel){ return Object.keys(S.locais).map(id=>[id,locPath(id)])
   .map(([id,p])=>`<option value="${id}" ${sel===id?'selected':''}>${esc(p)}</option>`).join(''); }
 
 // ---------- Painel ----------
+// tela inicial: mostra na hora os últimos números guardados no aparelho e atualiza assim que o servidor responde
 async function painel(){
-  const p=await api('/painel');
+  let c=null; try{ c=JSON.parse(localStorage.getItem('rafa_painel')||'null'); }catch(_){ }
+  if(c&&c.p)desenhaPainel(c.p,c.prod||[]); else $('#main').innerHTML=esqueletoPainel();
+  let p,pr;
+  try{ [p,pr]=await Promise.all([api('/painel'),api('/relatorios/produtividade?periodo=hoje').catch(()=>({}))]); }
+  catch(e){ if(c&&c.p&&S.view==='painel'){ toast('Sem conexão agora: mostrando os últimos números'); return; } throw e; }
+  if(S.view!=='painel')return;
+  const prod=(pr&&pr.porFuncionario)||[];
+  try{ localStorage.setItem('rafa_painel',JSON.stringify({p,prod,em:Date.now()})); }catch(_){ }
+  desenhaPainel(p,prod);
+}
+function esqueletoPainel(){ const k='<div class="card kpi esq"><div class="l">&nbsp;</div><div class="v">&nbsp;</div><div class="small">&nbsp;</div></div>';
+  return `<div class="top"><h2>Início</h2></div><div class="atalhos">${'<button class="atl esq">&nbsp;</button>'.repeat(7)}</div><div class="kpis">${k.repeat(6)}</div><div class="kpis kp2">${k.repeat(5)}</div>`; }
+function desenhaPainel(p,prod){
+  const expAntigo=$('#expd');   // a expedição (pedidos do ML) já carregando: não recomeça
   const canais=p.porCanal||[], maxC=Math.max(1,...canais.map(c=>c.total));
   const pags=p.porPagamento||[], maxP=Math.max(1,...pags.map(c=>c.total));
-  const prod=(await api('/relatorios/produtividade?periodo=hoje').catch(()=>({}))).porFuncionario||[];
   const ant=p.mesAnterior||{}, var_=ant.mesmoPeriodo?Math.round((p.vendasMes.total-ant.mesmoPeriodo)/ant.mesmoPeriodo*100):null;
   const ml=p.anunciosML||{}, nML=Object.values(ml).reduce((a,b)=>a+b,0);
   const at=[['nova','add_box','Cadastrar peça'],['estoque','search','Consultar'],['etiquetas','label','Etiquetas'],['mover','swap_horiz','Movimentar'],['vendas','point_of_sale','Vendas'],['integracoes','store','Anúncios ML']];
@@ -768,6 +786,7 @@ async function painel(){
   document.querySelectorAll('[data-fx]').forEach(e=>e.onclick=()=>{ const [k,v]=e.dataset.fx.split(':'); S.ui.status='disp'; S.ui.loc=''; S.ui.q=''; S.ui.f={[k]:v}; S.ui.fOpen=true; go('estoque'); });
   document.querySelectorAll('[data-go]').forEach(e=>e.onclick=()=>go(e.dataset.go));
   $('#atscan').onclick=()=>escanear();
+  if(expAntigo){ $('#expd').replaceWith(expAntigo); return; }
   $('#expr').onclick=expedicao;
   expedicao();
 }

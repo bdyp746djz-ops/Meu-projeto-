@@ -980,13 +980,39 @@ async function login(request, env, secret) {
 
 // ---------- localizações ----------
 // colunas novas dos locais (sigla curta e regras de localização automática), criadas sob demanda
+// várias consultas numa ida só ao banco (cada ida custa tempo); sem batch (testes), roda uma por uma
+async function lote(env, stmts) {
+  if (env.DB.batch) return (await env.DB.batch(stmts)).map(r => (r && r.results) || []);
+  const out = []; for (const st of stmts) out.push(((await st.all()) || {}).results || []); return out;
+}
+// retrato da estrutura do banco (colunas e tabelas), lido 1 vez por servidor: só cria o que falta
+let ESQ = null;
+async function esquema(env) {
+  if (ESQ) return ESQ;
+  const tabs = ['pecas', 'locais', 'vendas', 'videos'];
+  try {
+    const rs = await lote(env, [...tabs.map(t => env.DB.prepare(`PRAGMA table_info(${t})`)), env.DB.prepare("SELECT name FROM sqlite_master WHERE type IN ('table','index')")]);
+    ESQ = { cols: Object.fromEntries(tabs.map((t, i) => [t, new Set(rs[i].map(c => c.name))])), nomes: new Set(rs[tabs.length].map(r => r.name)) };
+  } catch { ESQ = { cols: Object.fromEntries(tabs.map(t => [t, new Set()])), nomes: new Set() }; }   // sem retrato: tenta criar tudo (como antes)
+  return ESQ;
+}
+async function garanteColunas(env, tabela, cols) {
+  const E = await esquema(env);
+  for (const c of cols) if (!E.cols[tabela] || !E.cols[tabela].has(c.split(' ')[0])) {
+    try { await env.DB.prepare(`ALTER TABLE ${tabela} ADD COLUMN ${c}`).run(); } catch { /* já existe */ }
+  }
+}
+async function garanteObjeto(env, nome, sql) {
+  const E = await esquema(env);
+  if (E.nomes.has(nome)) return;
+  try { await env.DB.prepare(sql).run(); } catch { /* já existe */ }
+  E.nomes.add(nome);
+}
 let colsLocaisOk = false;
 async function garanteColsLocais(env) {
   if (colsLocaisOk) return;
-  for (const c of ['sigla TEXT', 'regras TEXT', 'tipo TEXT']) {
-    try { await env.DB.prepare('ALTER TABLE locais ADD COLUMN ' + c).run(); } catch { /* já existe */ }
-  }
-  try { await env.DB.prepare('CREATE TABLE IF NOT EXISTS tipos_local (id TEXT PRIMARY KEY, nome TEXT NOT NULL, descricao TEXT, capacidade INTEGER, icone TEXT, cor TEXT, prefixo TEXT, ordem INTEGER, criado_em INTEGER)').run(); } catch { /* já existe */ }
+  await garanteColunas(env, 'locais', ['sigla TEXT', 'regras TEXT', 'tipo TEXT']);
+  await garanteObjeto(env, 'tipos_local', 'CREATE TABLE IF NOT EXISTS tipos_local (id TEXT PRIMARY KEY, nome TEXT NOT NULL, descricao TEXT, capacidade INTEGER, icone TEXT, cor TEXT, prefixo TEXT, ordem INTEGER, criado_em INTEGER)');
   colsLocaisOk = true;
 }
 async function listaLocais(env) {
@@ -1118,7 +1144,7 @@ async function tiposAutomaticos(env) {
 let massaOk = false;
 async function garanteMassa(env) {
   if (massaOk) return;
-  await env.DB.prepare('CREATE TABLE IF NOT EXISTS acoes_massa (id TEXT PRIMARY KEY, criado_em INTEGER, usuario_id TEXT, usuario_nome TEXT, acao TEXT, descricao TEXT, n INTEGER, antes TEXT, desfeita INTEGER DEFAULT 0, desfeita_em INTEGER, desfeita_por TEXT)').run();
+  await garanteObjeto(env, 'acoes_massa', 'CREATE TABLE IF NOT EXISTS acoes_massa (id TEXT PRIMARY KEY, criado_em INTEGER, usuario_id TEXT, usuario_nome TEXT, acao TEXT, descricao TEXT, n INTEGER, antes TEXT, desfeita INTEGER DEFAULT 0, desfeita_em INTEGER, desfeita_por TEXT)');
   massaOk = true;
 }
 const MASSA_CAMPOS = { preco: 'preço de balcão', preco_mkp: 'preço marketplace', local_id: 'local', qualidade: 'conservação', cond: 'condição', marcadores: 'marcadores', peso_g: 'peso', alt_cm: 'altura', larg_cm: 'largura', comp_cm: 'comprimento' };
@@ -1232,12 +1258,10 @@ async function mlScanner(url, env, user) {
 let colsPecasOk = false;
 async function garanteColsPecas(env) {
   if (colsPecasOk) return;
-  for (const c of ['custo REAL', 'qualidade TEXT', 'seguranca INTEGER DEFAULT 0', 'rastreavel INTEGER DEFAULT 0', 'peso_g INTEGER',
-    'alt_cm REAL', 'larg_cm REAL', 'comp_cm REAL', 'video TEXT', 'etq_em INTEGER', 'ml_status TEXT', 'ml_em INTEGER', 'ml_cat TEXT', 'ml_cat_nome TEXT', 'ml_attrs TEXT', 'fotos_erro TEXT', 'fotos_tent INTEGER', 'ncm TEXT', 'marcadores TEXT', 'descricao TEXT', 'preco_mkp REAL', 'compat TEXT']) {
-    try { await env.DB.prepare('ALTER TABLE pecas ADD COLUMN ' + c).run(); } catch { /* já existe */ }
-  }
-  try { await env.DB.prepare('CREATE TABLE IF NOT EXISTS ml_extras (ml_id TEXT PRIMARY KEY, peca_id TEXT NOT NULL, status TEXT, criado_em INTEGER)').run(); } catch { /* já existe */ }
-  try { await env.DB.prepare('CREATE INDEX IF NOT EXISTS ml_extras_peca ON ml_extras(peca_id)').run(); } catch { /* já existe */ }
+  await garanteColunas(env, 'pecas', ['custo REAL', 'qualidade TEXT', 'seguranca INTEGER DEFAULT 0', 'rastreavel INTEGER DEFAULT 0', 'peso_g INTEGER',
+    'alt_cm REAL', 'larg_cm REAL', 'comp_cm REAL', 'video TEXT', 'etq_em INTEGER', 'ml_status TEXT', 'ml_em INTEGER', 'ml_cat TEXT', 'ml_cat_nome TEXT', 'ml_attrs TEXT', 'fotos_erro TEXT', 'fotos_tent INTEGER', 'ncm TEXT', 'marcadores TEXT', 'descricao TEXT', 'preco_mkp REAL', 'compat TEXT']);
+  await garanteObjeto(env, 'ml_extras', 'CREATE TABLE IF NOT EXISTS ml_extras (ml_id TEXT PRIMARY KEY, peca_id TEXT NOT NULL, status TEXT, criado_em INTEGER)');
+  await garanteObjeto(env, 'ml_extras_peca', 'CREATE INDEX IF NOT EXISTS ml_extras_peca ON ml_extras(peca_id)');
   colsPecasOk = true;
 }
 // a mesma peça pode ter mais de um anúncio (ex.: Clássico e Premium): o principal fica em pecas.ml_id, os outros em ml_extras
@@ -2067,10 +2091,12 @@ async function serveFoto(key, env) {
 let videosOk = false;
 async function garanteVideos(env) {
   if (videosOk) return;
-  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS videos (id TEXT PRIMARY KEY, peca_id TEXT NOT NULL, status TEXT NOT NULL, prompt TEXT,
-    foto_key TEXT, video_key TEXT, erro TEXT, progresso TEXT, modelo TEXT, criado_em INTEGER NOT NULL, atualizado_em INTEGER, tipo TEXT DEFAULT 'video', detalhe TEXT)`).run();
-  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_videos_peca ON videos(peca_id)').run();
-  for (const c of ["tipo TEXT DEFAULT 'video'", 'detalhe TEXT', 'motor TEXT', 'op TEXT', 'op_chave TEXT']) { try { await env.DB.prepare('ALTER TABLE videos ADD COLUMN ' + c).run(); } catch { /* já existe */ } }
+  const novaTabela = !(await esquema(env)).nomes.has('videos');
+  await garanteObjeto(env, 'videos', `CREATE TABLE IF NOT EXISTS videos (id TEXT PRIMARY KEY, peca_id TEXT NOT NULL, status TEXT NOT NULL, prompt TEXT,
+    foto_key TEXT, video_key TEXT, erro TEXT, progresso TEXT, modelo TEXT, criado_em INTEGER NOT NULL, atualizado_em INTEGER, tipo TEXT DEFAULT 'video', detalhe TEXT)`);
+  await garanteObjeto(env, 'idx_videos_peca', 'CREATE INDEX IF NOT EXISTS idx_videos_peca ON videos(peca_id)');
+  if (novaTabela) ESQ.cols.videos = new Set(['tipo', 'detalhe']);   // acabou de criar: só faltam as colunas novas
+  await garanteColunas(env, 'videos', ["tipo TEXT DEFAULT 'video'", 'detalhe TEXT', 'motor TEXT', 'op TEXT', 'op_chave TEXT']);
   videosOk = true;
 }
 const hexAleatorio = n => [...crypto.getRandomValues(new Uint8Array(n))].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -2718,7 +2744,7 @@ call iniciar.bat
 let colsVendasOk = false;
 async function garanteColsVendas(env) {
   if (colsVendasOk) return;
-  try { await env.DB.prepare('ALTER TABLE vendas ADD COLUMN ml_pedido TEXT').run(); } catch { /* já existe */ }
+  await garanteColunas(env, 'vendas', ['ml_pedido TEXT']);
   colsVendasOk = true;
 }
 async function listaVendas(url, env) {
@@ -2768,22 +2794,29 @@ async function cancelaVenda(id, env) {
 async function painel(env) {
   await garanteColsPecas(env);
   const inicioMes = inicioMesBR(0), iniAnt = inicioMesBR(-1), decorrido = now() - inicioMes;
-  const soma = (a, b2) => env.DB.prepare('SELECT COUNT(*) n, COALESCE(SUM(total),0) total FROM vendas WHERE cancelada=0 AND data>=? AND data<?').bind(a, b2).first();
-  const hoje = await soma(inicioDiaBR(), now() + 864e5);
-  const antTotal = await soma(iniAnt, inicioMes);
-  const antParcial = await soma(iniAnt, Math.min(iniAnt + decorrido, inicioMes));
-  const pagamentos = await env.DB.prepare("SELECT COALESCE(NULLIF(pagamento,''),'Não informado') pagamento, COUNT(*) n, SUM(total) total FROM vendas WHERE cancelada=0 AND data>=? GROUP BY 1 ORDER BY total DESC").bind(inicioMes).all();
-  const top = await env.DB.prepare('SELECT nome, codigo, SUM(qtd) qtd, SUM(total) total FROM vendas WHERE cancelada=0 AND data>=? GROUP BY codigo, nome ORDER BY total DESC LIMIT 5').bind(inicioMes).all();
-  const mlSt = await env.DB.prepare("SELECT COALESCE(ml_status,'active') st, COUNT(*) c FROM pecas WHERE ml=1 GROUP BY 1").all();
-  const semEtq = await env.DB.prepare('SELECT COUNT(*) c FROM pecas WHERE qtd>0 AND etq_em IS NULL').first();
-  const semFoto = await env.DB.prepare("SELECT COUNT(*) c FROM pecas WHERE qtd>0 AND (fotos IS NULL OR fotos IN ('','[]'))").first();
-  const est = await env.DB.prepare('SELECT COUNT(*) cadastros, COALESCE(SUM(qtd),0) pecas, COALESCE(SUM(qtd*preco),0) valor FROM pecas').first();
-  const vend = await env.DB.prepare('SELECT COUNT(*) n, COALESCE(SUM(total),0) total FROM vendas WHERE cancelada=0 AND data>=?').bind(inicioMes).first();
-  const semAnuncio = await env.DB.prepare('SELECT COUNT(*) c FROM pecas WHERE qtd>0 AND ml=0 AND olx=0').first();
-  const semLocal = await env.DB.prepare('SELECT COUNT(*) c FROM pecas WHERE local_id IS NULL OR local_id NOT IN (SELECT id FROM locais)').first();
-  const parado = await env.DB.prepare('SELECT COUNT(*) c FROM pecas WHERE qtd>0 AND criado_em < ?').bind(now() - 90 * 864e5).first();
-  const canais = await env.DB.prepare('SELECT canal, SUM(total) total FROM vendas WHERE cancelada=0 AND data>=? GROUP BY canal').bind(inicioMes).all();
-  const ultimas = await env.DB.prepare('SELECT id,nome,codigo,total,canal,data,cancelada FROM vendas ORDER BY data DESC LIMIT 8').all();
+  const q = (sql, ...b) => b.length ? env.DB.prepare(sql).bind(...b) : env.DB.prepare(sql);
+  const SOMA = 'SELECT COUNT(*) n, COALESCE(SUM(total),0) total FROM vendas WHERE cancelada=0 AND data>=? AND data<?';
+  const r = await lote(env, [
+    q(SOMA, inicioDiaBR(), now() + 864e5),
+    q(SOMA, iniAnt, inicioMes),
+    q(SOMA, iniAnt, Math.min(iniAnt + decorrido, inicioMes)),
+    q("SELECT COALESCE(NULLIF(pagamento,''),'Não informado') pagamento, COUNT(*) n, SUM(total) total FROM vendas WHERE cancelada=0 AND data>=? GROUP BY 1 ORDER BY total DESC", inicioMes),
+    q('SELECT nome, codigo, SUM(qtd) qtd, SUM(total) total FROM vendas WHERE cancelada=0 AND data>=? GROUP BY codigo, nome ORDER BY total DESC LIMIT 5', inicioMes),
+    q("SELECT COALESCE(ml_status,'active') st, COUNT(*) c FROM pecas WHERE ml=1 GROUP BY 1"),
+    q(`SELECT COUNT(*) cadastros, COALESCE(SUM(qtd),0) pecas, COALESCE(SUM(qtd*preco),0) valor,
+       SUM(CASE WHEN qtd>0 AND etq_em IS NULL THEN 1 ELSE 0 END) sem_etq,
+       SUM(CASE WHEN qtd>0 AND (fotos IS NULL OR fotos IN ('','[]')) THEN 1 ELSE 0 END) sem_foto,
+       SUM(CASE WHEN qtd>0 AND ml=0 AND olx=0 THEN 1 ELSE 0 END) sem_anuncio,
+       SUM(CASE WHEN local_id IS NULL OR local_id NOT IN (SELECT id FROM locais) THEN 1 ELSE 0 END) sem_local,
+       SUM(CASE WHEN qtd>0 AND criado_em < ? THEN 1 ELSE 0 END) parado FROM pecas`, now() - 90 * 864e5),
+    q('SELECT COUNT(*) n, COALESCE(SUM(total),0) total FROM vendas WHERE cancelada=0 AND data>=?', inicioMes),
+    q('SELECT canal, SUM(total) total FROM vendas WHERE cancelada=0 AND data>=? GROUP BY canal', inicioMes),
+    q('SELECT id,nome,codigo,total,canal,data,cancelada FROM vendas ORDER BY data DESC LIMIT 8'),
+  ]);
+  const um = i => r[i][0] || {};
+  const hoje = um(0), antTotal = um(1), antParcial = um(2), est = um(6), vend = um(7);
+  const pagamentos = { results: r[3] }, top = { results: r[4] }, mlSt = { results: r[5] }, canais = { results: r[8] }, ultimas = { results: r[9] };
+  const semEtq = { c: est.sem_etq || 0 }, semFoto = { c: est.sem_foto || 0 }, semAnuncio = { c: est.sem_anuncio || 0 }, semLocal = { c: est.sem_local || 0 }, parado = { c: est.parado || 0 };
   return json({
     estoque: { cadastros: est.cadastros, pecas: est.pecas, valor: est.valor },
     vendasMes: { n: vend.n, total: vend.total, ticket: vend.n ? vend.total / vend.n : 0 },
