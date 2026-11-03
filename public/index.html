@@ -308,6 +308,124 @@ th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase}
 .empty{text-align:center;color:var(--mut);padding:36px 10px}
 .bar2{height:8px;border-radius:4px;background:var(--pri2)}
 .adbox{white-space:pre-wrap;background:#f7f8fa;border:1px solid var(--line);border-radius:9px;padding:10px;font-size:13.5px}
+
+/* ===== visual novo: barra branca, menu lateral em grupos, cartões arredondados ===== */
+:root{--bg:#f2f4fb;--rad:12px;--line:#e3e6f1;--pri-t:#e6e9fb;--sh:0 1px 2px rgba(20,24,60,.05),0 2px 10px rgba(20,24,60,.06);--sh2:0 10px 30px rgba(20,24,60,.18)}
+html,body{background:var(--bg)}
+.topbar{background:#fff;color:var(--ink);box-shadow:none;border-bottom:1px solid var(--line)}
+.tb-brand{display:flex;align-items:center;gap:10px;width:252px}
+.tb-logo{width:36px;height:36px;border-radius:11px;background:linear-gradient(135deg,var(--pri),#7986cb);color:#fff;display:grid;place-items:center;font-weight:900;font-style:italic;font-size:19px;flex:none}
+.tb-brand b{color:var(--pri);font-size:17px}.tb-brand small{color:var(--mut)}
+.tb-search{padding:0 16px 0 18px}
+.tb-search input{background:#f4f5fb;border:1px solid var(--line);border-radius:12px;padding:10px 14px}
+.tb-search input:focus{box-shadow:0 0 0 2px var(--pri-t)}
+.tb-acts{margin-left:auto;display:flex;align-items:center;gap:2px;padding-right:12px}
+.tb-btn{color:#5f6475;margin:0;position:relative;width:42px;height:42px}
+.tb-btn:hover{background:#f1f3fb}.tb-btn .material-icons{font-size:23px}
+.tb-badge{position:absolute;top:3px;right:2px;background:var(--red);color:#fff;border-radius:9px;font-size:10px;min-width:17px;height:17px;line-height:17px;text-align:center;padding:0 4px;font-weight:700}
+.tb-user{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:12px;padding:4px 12px 4px 4px;margin-left:8px;cursor:pointer;background:#fff;position:relative}
+.tb-av{width:32px;height:32px;border-radius:9px;background:var(--pri-t);color:var(--pri);display:grid;place-items:center;font-weight:700;font-size:13px}
+.tb-user b{display:block;font-size:12.5px;line-height:1.2}.tb-user small{display:block;font-size:11px;color:var(--mut);line-height:1.2}
+.tb-menu{position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--sh2);min-width:170px;padding:6px;display:none;z-index:40}
+.tb-menu.on{display:block}.tb-menu a{display:flex;gap:10px;align-items:center;padding:9px 10px;border-radius:8px;color:var(--ink);cursor:pointer;font-size:14px}.tb-menu a:hover{background:#f4f5fb}
+nav.side{width:252px;background:#fff;border-right:1px solid var(--line);padding:10px 0 14px}
+.sd-busca{display:flex;gap:6px;padding:4px 12px 8px}
+.sd-busca label{flex:1;display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:10px;padding:0 8px;background:#f7f8fc;min-width:0}
+.sd-busca label .material-icons{font-size:18px;color:#9aa0b4}
+.sd-busca input{border:0;padding:7px 0;background:transparent;font-size:13px;min-width:0}
+.sd-busca input:focus{box-shadow:none}
+.sd-rec{border:1px solid var(--line);background:#fff;border-radius:10px;width:34px;flex:none;cursor:pointer;color:#5f6475;display:grid;place-items:center}
+nav.side a{gap:11px;padding:7px 10px;margin:2px 10px;border-radius:11px;font-size:14px;color:#2b2f3a}
+nav.side a .i{width:30px;height:30px;border-radius:9px;background:#f2f4fb;display:grid;place-items:center;font-size:18px;color:#5f6475;flex:none}
+nav.side a.on{background:var(--pri-t);color:var(--pri);font-weight:600}
+nav.side a.on .i{background:#fff;color:var(--pri)}
+nav.side a:not(.on):hover{background:#f5f6fb}
+nav.side .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+nav.side .chev{font-size:19px;color:#9aa0b4;transition:transform .15s;flex:none}
+nav.side .grp.aberto>a .chev{transform:rotate(180deg)}
+nav.side .sub{display:none;margin-left:14px;border-left:1px dashed var(--line);padding-left:2px}
+nav.side .grp.aberto .sub,nav.side.filtrando .sub{display:block}
+nav.side .sub a{font-size:13.5px;padding:5px 8px}
+nav.side .sub a .i{width:26px;height:26px;font-size:16px}
+nav.side .sd-sep{height:1px;background:var(--line);margin:8px 14px}
+.app.rec nav.side{width:76px}
+.app.rec nav.side .sd-busca label,.app.rec nav.side .t,.app.rec nav.side .chev,.app.rec nav.side .nbadge{display:none!important}
+.app.rec nav.side .sub{margin-left:0;border:0;padding:0}
+.app.rec .tb-brand{width:auto}
+main{background:linear-gradient(180deg,#e8ebfa 0,var(--bg) 280px)}
+.card{border-radius:14px}
+.btn{border-radius:10px;border-color:var(--line)}
+.btn.p{box-shadow:0 2px 8px rgba(63,81,181,.28)}
+.top h2{font-weight:700;letter-spacing:-.01em}
+/* pendências */
+.pd-row{display:flex;gap:12px;align-items:center;background:#fff;border-radius:14px;padding:10px 12px;margin-bottom:8px;box-shadow:var(--sh)}
+.pd-ft{width:56px;height:56px;border-radius:10px;background:#f2f4fb;display:grid;place-items:center;overflow:hidden;flex:none;color:#9aa0b4}
+.pd-ft img{width:100%;height:100%;object-fit:cover}
+.pd-tx{flex:1;min-width:0}.pd-tx b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pd-bar{height:6px;border-radius:4px;background:#eceef6;overflow:hidden;margin-top:6px;max-width:260px}.pd-bar i{display:block;height:100%;background:var(--pri)}
+.pd-chips{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}.pd-chips span{font-size:11px;background:#fff4e5;color:#8a5a00;border-radius:6px;padding:1px 6px}
+.kpi .v{overflow-wrap:anywhere;font-size:clamp(19px,2.1vw,30px)}
+@media(max-width:760px){
+ .tb-brand{width:auto;padding:0 6px 0 12px}.tb-brand>span:not(.tb-logo){display:none}
+ .tb-search{padding:0 6px 0 4px}
+ .tb-user b,.tb-user small{display:none}.tb-user{padding:3px;margin-left:2px}
+ .tb-acts{padding-right:6px}.tb-acts .tb-hide-m{display:none}
+ .pd-row{flex-wrap:wrap}.pd-row .pd-tx{flex-basis:calc(100% - 70px)}.pd-row>.btn{margin-left:auto}
+ .pd-chips .chip{font-size:11.5px!important;padding:4px 8px}
+}
+
+/* ===== cadastro em 7 etapas ===== */
+.wz-steps{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 10px;margin-bottom:6px;scrollbar-width:thin}
+.wz-step{display:flex;align-items:center;gap:8px;border:1px solid var(--line);background:#fff;border-radius:12px;padding:7px 12px 7px 7px;cursor:pointer;white-space:nowrap;font-size:13px;color:#4a4f60;flex:none}
+.wz-step i{font-style:normal;width:24px;height:24px;border-radius:8px;background:#f2f4fb;display:grid;place-items:center;font-weight:700;font-size:12px;color:#5f6475}
+.wz-step.on{border-color:var(--pri);color:var(--pri);font-weight:600;box-shadow:0 0 0 3px var(--pri-t)}
+.wz-step.on i{background:var(--pri);color:#fff}
+.wz-step.ok i{background:#e7f6ec;color:var(--ok)}
+.wz-card{background:#fff;border-radius:16px;box-shadow:var(--sh);padding:20px 22px;margin-bottom:12px}
+.wz-h{display:flex;gap:14px;align-items:flex-start;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.wz-n{width:34px;height:34px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;font-weight:700;flex:none}
+.wz-h small{color:var(--mut);font-size:12px}.wz-h h3{margin:0;font-size:21px;font-weight:700;letter-spacing:-.01em}.wz-h p{margin:2px 0 0;color:var(--mut);font-size:13.5px}
+.wz-sec{font-weight:600;font-size:14px;margin:18px 0 4px}.wz-dica{font-size:12.5px;color:var(--mut);margin:0 0 6px}
+.wz-modos{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:6px 0 14px}
+.wz-modo{border:1px solid var(--line);background:#fff;border-radius:12px;padding:16px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;font-weight:500;color:var(--ink);position:relative}
+.wz-modo.on{border:2px solid var(--pri);box-shadow:0 0 0 3px var(--pri-t)}.wz-modo:disabled{opacity:.6;cursor:not-allowed}
+.wz-modo .tag{position:absolute;top:8px;right:8px;font-size:10px}
+.wz-res{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:12px}
+.wz-res-h{padding:12px 14px;border-bottom:1px solid var(--line)}.wz-res-h b{display:block}
+.wz-it{display:flex;gap:12px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);cursor:pointer}.wz-it:last-child{border-bottom:0}.wz-it:hover{background:#f7f8fd}
+.wz-mini{width:52px;height:52px;border-radius:10px;background:#f2f4fb;display:grid;place-items:center;overflow:hidden;flex:none;color:#9aa0b4}.wz-mini img{width:100%;height:100%;object-fit:cover}
+.wz-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}.wz-tags span{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:1px 7px;color:#4a4f60;background:#fafbff}
+.wz-vazio{padding:22px;text-align:center;color:var(--mut);border:1px dashed var(--line);border-radius:12px;margin-top:12px}
+.wz-det{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px;margin-top:12px}
+.wz-det .ft{border:1px solid var(--line);border-radius:12px;background:#fafbff;min-height:220px;display:grid;place-items:center;overflow:hidden}.wz-det .ft img{max-width:100%;max-height:300px}
+.wz-ths{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}.wz-ths img{width:52px;height:52px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:pointer}
+.wz-kv{display:grid;grid-template-columns:1fr 1fr;gap:8px}.wz-kv div{background:#f7f8fd;border-radius:10px;padding:8px 10px}.wz-kv small{display:block;color:var(--mut);font-size:11px}
+.wz-cons{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:6px}
+.wz-con{border:1px solid var(--line);border-radius:12px;background:#fff;padding:12px 6px;cursor:pointer;text-align:center;font-size:13px}
+.wz-con b{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:8px;background:#f2f4fb;margin-bottom:4px}
+.wz-con.on{border:2px solid var(--pri);background:var(--pri-t)}.wz-con.on b{background:var(--pri);color:#fff}
+.wz-nota{border-left:3px solid var(--pri);background:#f4f6ff;border-radius:8px;padding:8px 12px;font-size:13px;margin-top:8px}
+.wz-mk{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.wz-cnt{float:right;font-size:11.5px;color:var(--mut)}.wz-cnt.alto{color:var(--red)}
+.wz-pr{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;background:linear-gradient(180deg,#f4f6ff,#fff);border:1px solid var(--line);border-radius:14px;padding:16px}
+.wz-ring{width:120px;height:120px;position:relative}.wz-ring svg{transform:rotate(-90deg)}.wz-ring span{position:absolute;inset:0;display:grid;place-items:center;text-align:center;font-size:11px;color:var(--mut)}.wz-ring b{display:block;font-size:30px;color:var(--ink);line-height:1}
+.wz-pv{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}.wz-pv div{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px}.wz-pv small{display:block;color:var(--mut);font-size:11.5px}.wz-pv b{font-size:19px}
+.wz-cx{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:center;background:linear-gradient(180deg,#eef1ff,#f8f9ff);border:1px solid var(--line);border-radius:14px;padding:12px}
+.wz-3d{height:230px;display:grid;place-items:center;perspective:700px;cursor:grab;user-select:none;touch-action:none}
+.wz-cubo{position:relative;transform-style:preserve-3d;transition:width .2s,height .2s}
+.wz-cubo div{position:absolute;left:50%;top:50%;background:linear-gradient(135deg,#7986cb,#3f51b5);border:1px solid rgba(255,255,255,.55);opacity:.92}
+.wz-dim{display:grid;grid-template-columns:1fr 1fr;gap:8px}.wz-dim div{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 10px}.wz-dim small{display:block;font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+.wz-vs{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:6px;margin-top:8px}
+.wz-v{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:7px 10px;background:#fafbff;font-size:13px}.wz-v span:not(.material-icons){flex:1}.wz-v .material-icons{flex:none}.wz-v button{border:0;background:none;cursor:pointer;color:var(--mut);font-size:16px}
+.wz-drop{border:2px dashed #c5cbe8;background:#f4f6ff;border-radius:14px;padding:22px;text-align:center;cursor:pointer;display:block}
+.wz-drop.sobre{border-color:var(--pri);background:var(--pri-t)}
+.wz-can{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.wz-cn{border:1px solid var(--line);border-radius:14px;padding:12px;background:#fff}.wz-cn.off{opacity:.55}
+.wz-cn .hd{display:flex;align-items:center;gap:10px}.wz-cn .lg{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;color:#fff;font-weight:800;flex:none}
+.wz-cn .st{margin-left:auto;font-size:11.5px;border-radius:8px;padding:2px 8px;background:#eceef6;color:#5f6475}.wz-cn .st.ok{background:#e7f6ec;color:var(--ok)}
+.wz-bar{position:sticky;bottom:0;z-index:5;display:flex;gap:10px;align-items:center;background:rgba(255,255,255,.96);backdrop-filter:blur(4px);border:1px solid var(--line);border-radius:14px;padding:10px 12px;box-shadow:var(--sh)}
+.wz-bar .sp{flex:1}
+@media(max-width:760px){.wz-card{padding:14px}.wz-det,.wz-cx,.wz-pr{grid-template-columns:1fr}.wz-pr .wz-ring{margin:0 auto}.wz-cons{grid-template-columns:repeat(2,1fr)}.wz-bar{bottom:64px}.wz-h h3{font-size:18px}}
 </style>
 </head>
 <body>
@@ -391,18 +509,31 @@ function login(primeiro){
 
 // ---------- shell ----------
 function shell(){
+  const ini=String((S.user&&(S.user.nome||S.user.login))||'R').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
   $('#root').innerHTML = `<header class="topbar">
-      <div class="tb-brand" id="tbhome"><b>RAFA</b><small>busca peças</small></div>
-      <div class="tb-search"><input id="gbusca" type="search" placeholder="Busca..." autocomplete="off"></div>
-      <button class="tb-btn" id="scanbtn" title="Escanear etiqueta (QR)"><span class="material-icons">qr_code_scanner</span></button>
+      <div class="tb-brand" id="tbhome"><span class="tb-logo">R</span><span><b>RAFA</b><small>busca peças</small></span></div>
+      <div class="tb-search"><input id="gbusca" type="search" placeholder="Código, nome, part number ou veículo…" autocomplete="off"></div>
+      <div class="tb-acts">
+        <button class="tb-btn" id="scanbtn" title="Ler etiqueta (QR)"><span class="material-icons">qr_code_scanner</span></button>
+        <button class="tb-btn tb-hide-m" id="tbperg" title="Perguntas do Mercado Livre"><span class="material-icons">forum</span><span class="tb-badge" id="tbpergn" style="display:none"></span></button>
+        <button class="tb-btn tb-hide-m" id="tbvend" title="Vendas"><span class="material-icons">shopping_cart</span></button>
+        <div class="tb-user" id="tbuser"><span class="tb-av">${esc(ini)}</span><span><b>${esc((S.user&&(S.user.nome||S.user.login))||'')}</b><small>${S.user&&S.user.papel==='admin'?'Administrador':'Equipe'} · Rafa Busca Peças</small></span>
+          <div class="tb-menu" id="tbmenu"><a id="sair"><span class="material-icons">logout</span>Sair</a></div></div>
+      </div>
     </header>
-    <div class="app">
-      <nav class="side"><div id="nav"></div>
-        <a id="sair"><span class="i material-icons">cancel</span>Sair</a></nav>
+    <div class="app${(()=>{ try{ return localStorage.getItem('rafa_menu_rec')==='1'?' rec':''; }catch(_){ return ''; } })()}">
+      <nav class="side"><div class="sd-busca"><label><span class="material-icons">search</span><input id="sdq" placeholder="Buscar área ou atalho" autocomplete="off"></label><button class="sd-rec" id="sdrec" title="Recolher menu"><span class="material-icons">chevron_left</span></button></div>
+        <div id="nav"></div></nav>
       <main><div id="main"></div><footer class="foot">Copyright © ${new Date().getFullYear()} RAFA BUSCA PEÇAS</footer></main>
     </div>
     <nav class="bottom" id="navb"></nav>`;
-  $('#sair').onclick=async()=>{ await api('/logout',{method:'POST'}); location.reload(); };
+  $('#sair').onclick=async e=>{ e.stopPropagation(); await api('/logout',{method:'POST'}); location.reload(); };
+  $('#tbuser').onclick=e=>{ e.stopPropagation(); $('#tbmenu').classList.toggle('on'); };
+  document.addEventListener('click',()=>{ const m=$('#tbmenu'); if(m)m.classList.remove('on'); });
+  $('#tbperg').onclick=()=>go('perguntas'); $('#tbvend').onclick=()=>go('vendas');
+  $('#sdrec').onclick=()=>{ const a=document.querySelector('.app'); a.classList.toggle('rec'); try{ localStorage.setItem('rafa_menu_rec',a.classList.contains('rec')?'1':'0'); }catch(_){ } };
+  $('#sdq').oninput=()=>renderNav();
+  $('#sdq').onkeydown=e=>{ if(e.key==='Enter'){ const a=document.querySelector('#nav a[data-v],#nav a[data-a]'); if(a){ a.click(); e.target.value=''; renderNav(); } } };
   $('#tbhome').onclick=()=>go('painel');
   $('#scanbtn').onclick=escanear;
   $('#gbusca').onkeydown=e=>{ if(e.key==='Enter'){ S.ui.q=e.target.value.trim(); S.ui.status='todos'; S.ui.loc=''; e.target.blur(); go('estoque'); } };
@@ -410,15 +541,86 @@ function shell(){
   contaPerguntas(); clearInterval(window._pergT); window._pergT=setInterval(contaPerguntas,120000);
   if(codigoDoLink){ const c=codigoDoLink; codigoDoLink=null; tratarCodigo(c); }
 }
+// menu lateral: grupos como num sistema de gestão (Peças, Localizações, Mercado Livre)
+const MENU=[
+  {v:'painel',i:'home',t:'Início'},
+  {g:'pecas',i:'inventory_2',t:'Peças',itens:[
+    {v:'estoque',i:'search',t:'Consulta de Peças'},
+    {v:'nova',i:'add_box',t:'Cadastro de Peças'},
+    {a:'massa',i:'checklist',t:'Ações em massa'},
+    {v:'incompletos',i:'assignment_late',t:'Cadastros incompletos'},
+    {v:'medidas',i:'straighten',t:'Problemas peso e medidas'},
+    {a:'fotos',i:'add_a_photo',t:'Completar fotos'}]},
+  {g:'locais',i:'place',t:'Localizações',itens:[
+    {v:'locais',i:'account_tree',t:'Localização'},
+    {v:'mover',i:'swap_horiz',t:'Movimentar'},
+    {v:'etiquetas',i:'label',t:'Etiquetas'}]},
+  {v:'vendas',i:'shopping_cart',t:'Vendas'},
+  {g:'ml',i:'storefront',t:'Mercado Livre',itens:[
+    {v:'integracoes',i:'store',t:'Anúncios ML'},
+    {v:'perguntas',i:'question_answer',t:'Perguntas ML'},
+    {a:'vincular',i:'link',t:'Vincular anúncios',admin:1},
+    {a:'importar',i:'cloud_download',t:'Importar do ML',admin:1}]},
+  {a:'download',i:'file_download',t:'Download do estoque'},
+];
+const MENU_ACAO={massa:()=>{ S.ui.selMode=true; go('estoque'); },fotos:()=>completarFotos(),vincular:()=>vincularML(),importar:()=>importarML(),download:()=>baixarEstoque()};
 function renderNav(){
   const link=curto=>([k,i,l,c])=>`<a data-v="${k}" class="${k===S.view?'on':''}"><span class="i material-icons">${i}</span>${curto?c:l}${k==='perguntas'&&S.nPerg?`<span class="nbadge">${S.nPerg>99?'99+':S.nPerg}</span>`:''}</a>`;
-  $('#nav').innerHTML=VIEWS.map(link(false)).join('');
   $('#navb').innerHTML=VIEWS.filter(v=>v[0]!=='nova'&&v[0]!=='download').map(link(true)).join('');
+  const adm=S.user&&S.user.papel==='admin', q=nrm(($('#sdq')||{}).value||'').trim();
+  const pode=x=>!x.admin||adm, bate=x=>!q||nrm(x.t).includes(q);
+  let abertos={}; try{ abertos=JSON.parse(localStorage.getItem('rafa_menu_grp')||'{}'); }catch(_){ }
+  const item=x=>`<a ${x.v?`data-v="${x.v}"`:`data-a="${x.a}"`} class="${x.v&&x.v===S.view?'on':''}" title="${esc(x.t)}"><span class="i material-icons">${x.i}</span><span class="t">${esc(x.t)}</span>${x.v==='perguntas'&&S.nPerg?`<span class="nbadge">${S.nPerg>99?'99+':S.nPerg}</span>`:''}</a>`;
+  $('#nav').innerHTML=MENU.map(x=>{
+    if(!x.g)return pode(x)&&bate(x)?item(x):'';
+    const filhos=x.itens.filter(y=>pode(y)&&(bate(y)||bate(x))); if(!filhos.length)return '';
+    const ativo=filhos.some(y=>y.v===S.view), aberto=!!q||ativo||abertos[x.g]!==false;   // aberto, a não ser que a pessoa tenha fechado
+    return `<div class="grp${aberto?' aberto':''}" data-g="${x.g}"><a data-grp="${x.g}" title="${esc(x.t)}"><span class="i material-icons">${x.i}</span><span class="t">${esc(x.t)}</span><span class="material-icons chev">expand_more</span></a><div class="sub">${filhos.map(item).join('')}</div></div>`;
+  }).join('')+`<div class="sd-sep"></div><a data-a="sair" title="Sair"><span class="i material-icons">logout</span><span class="t">Sair</span></a>`;
+  if(q)$('#nav').closest('nav').classList.add('filtrando'); else { const n=$('#nav').closest('nav'); if(n)n.classList.remove('filtrando'); }
+  document.querySelectorAll('[data-grp]').forEach(a=>a.onclick=()=>{ const g=a.closest('.grp'); g.classList.toggle('aberto');
+    try{ const o=JSON.parse(localStorage.getItem('rafa_menu_grp')||'{}'); o[a.dataset.grp]=g.classList.contains('aberto'); localStorage.setItem('rafa_menu_grp',JSON.stringify(o)); }catch(_){ } });
+  document.querySelectorAll('[data-a]').forEach(a=>a.onclick=async()=>{ if(a.dataset.a==='sair'){ await api('/logout',{method:'POST'}); location.reload(); return; } (MENU_ACAO[a.dataset.a]||(()=>{}))(); });
   document.querySelectorAll('[data-v]').forEach(a=>a.onclick=()=>a.dataset.v==='download'?baixarEstoque():go(a.dataset.v));
+  const b=$('#tbpergn'); if(b){ b.style.display=S.nPerg?'':'none'; b.textContent=S.nPerg>99?'99+':(S.nPerg||''); }
 }
 async function go(v){ S.view=v; if(v!=='nova'){ S.ui.editId=null; S.ui.fotos=[]; } renderNav(); window.scrollTo(0,0);
-  const f={painel,estoque,nova,locais,mover,etiquetas,vendas,integracoes,perguntas,ficha:fichaPeca}[v]; $('#main').innerHTML='<p class="mut">carregando…</p>'; try{ await f(); }catch(e){ $('#main').innerHTML='<div class="empty">Erro: '+esc(e.message)+'</div>'; } }
+  const f={painel,estoque,nova,locais,mover,etiquetas,vendas,integracoes,perguntas,ficha:fichaPeca,incompletos,medidas}[v]; $('#main').innerHTML='<p class="mut">carregando…</p>'; try{ await f(); }catch(e){ $('#main').innerHTML='<div class="empty">Erro: '+esc(e.message)+'</div>'; } }
 
+// ---------- pendências: cadastros incompletos e peças sem peso/medidas ----------
+async function incompletos(){ return pendencias('incompletos'); }
+async function medidas(){ return pendencias('medidas'); }
+const ETAPA_DO_ITEM={'foto':6,'3 fotos ou mais':6,'preço':3,'estoque':2,'marca e modelo':2,'ano':2,'part number':2,'condição':2,'embalagem (peso e medidas)':4,'localização':2};
+async function pendencias(tipo){
+  await carregaLocais(); const {pecas}=await api('/pecas?todas=1'); S.pecas=pecas;
+  if(S.view!==tipo)return;
+  const ui=S.ui; ui.pdFalta=ui.pdFalta||'';
+  const ativos=pecas.filter(p=>Number(p.qtd)>0);
+  const semMed=p=>!(p.peso_g&&p.alt_cm&&p.larg_cm&&p.comp_cm);
+  const desenha=()=>{
+    let lista=tipo==='medidas'?ativos.filter(semMed).map(p=>({p,r:prontidao(p)})):ativos.map(p=>({p,r:prontidao(p)})).filter(x=>x.r.falta.length);
+    const conta={}; if(tipo==='incompletos')lista.forEach(x=>x.r.falta.forEach(f=>conta[f]=(conta[f]||0)+1));
+    if(tipo==='incompletos'&&ui.pdFalta)lista=lista.filter(x=>x.r.falta.includes(ui.pdFalta));
+    lista.sort((a,b)=>a.r.pct-b.r.pct||a.p.codigo-b.p.codigo);
+    $('#main').innerHTML=`<div class="top"><h2>${tipo==='medidas'?'Problemas de peso e medidas':'Cadastros incompletos'}</h2><span class="small mut">${lista.length} peça(s) com estoque</span></div>
+      <p class="small mut" style="margin-top:-8px">${tipo==='medidas'?'Sem peso e medidas da embalagem o Mercado Livre não calcula o frete. Toque num tamanho para aplicar na hora, ou em Completar.':'Peças com estoque que ainda não estão prontas para anunciar. Toque em Completar para abrir o cadastro na etapa que falta.'}</p>
+      ${tipo==='incompletos'?`<div class="filters" style="margin-bottom:10px"><button class="chip ${!ui.pdFalta?'on':''}" data-pf="">Tudo</button>${Object.entries(conta).sort((a,b)=>b[1]-a[1]).map(([k,n])=>`<button class="chip ${ui.pdFalta===k?'on':''}" data-pf="${esc(k)}">Sem ${esc(k)} (${n})</button>`).join('')}</div>`:''}
+      ${lista.length?lista.slice(0,300).map(({p,r})=>`<div class="pd-row"><div class="pd-ft">${p.fotos&&p.fotos[0]?`<img src="/api/foto/${p.fotos[0]}" loading="lazy" alt="">`:'<span class="material-icons">image</span>'}</div>
+        <div class="pd-tx"><b>${cod(p.codigo)} · ${esc(p.nome)}</b><span class="small mut">${p.local_id&&S.locais[p.local_id]?'📍 '+esc(codigoTxt(p.local_id))+' · ':''}${brl(p.preco)} · ${Number(p.qtd)||0} un</span>
+          ${tipo==='medidas'?`<div class="pd-chips" style="margin-top:6px">${EMB_PRESETS.map((e,i)=>`<button class="chip" data-pe="${esc(p.id)}:${i}" style="font-size:12px">${esc(e[0])}</button>`).join('')}</div>`
+            :`<div class="pd-bar"><i style="width:${r.pct}%"></i></div><div class="pd-chips">${r.falta.map(f=>`<span>${esc(f)}</span>`).join('')}</div>`}</div>
+        <button class="btn sm p" data-pc2="${esc(p.id)}">Completar</button></div>`).join('')+(lista.length>300?`<p class="small mut">Mostrando 300 de ${lista.length}.</p>`:'')
+        :'<div class="card">✅ Nada pendente aqui.</div>'}`;
+    document.querySelectorAll('[data-pf]').forEach(b=>b.onclick=()=>{ ui.pdFalta=b.dataset.pf; desenha(); });
+    document.querySelectorAll('[data-pc2]').forEach(b=>b.onclick=()=>{ const p=S.pecas.find(x=>x.id===b.dataset.pc2); if(!p)return;
+      const r=prontidao(p), et=tipo==='medidas'?4:(ETAPA_DO_ITEM[(ui.pdFalta&&r.falta.includes(ui.pdFalta))?ui.pdFalta:r.falta[0]]||2);
+      S.ui.etapaInicial=et; S.ui.voltaPara=tipo; editar(p.id); });
+    document.querySelectorAll('[data-pe]').forEach(b=>b.onclick=async()=>{ const [id,i]=b.dataset.pe.split(':'), e=EMB_PRESETS[+i]; b.disabled=true;
+      try{ const r=await api('/pecas/'+id,{method:'PATCH',body:{peso_g:e[1],alt_cm:e[2],larg_cm:e[3],comp_cm:e[4]}}); const p=S.pecas.find(x=>x.id===id); if(p)Object.assign(p,{peso_g:e[1],alt_cm:e[2],larg_cm:e[3],comp_cm:e[4]});
+        toast('📦 '+e[0]+' aplicada em '+cod(p?p.codigo:'')); desenha(); }catch(err){ toast(err.message); b.disabled=false; } });
+  };
+  desenha();
+}
 // ---------- dados ----------
 async function carregaLocais(){ const { locais }=await api('/locais'); S.locais={}; locais.forEach(l=>S.locais[l.id]=l); }
 function locPath(id){ const p=[]; let c=S.locais[id],g=0; while(c&&g++<20){ p.unshift(c.nome); c=S.locais[c.pai]; } return p.join(' › '); }
@@ -1434,47 +1636,103 @@ async function nova(){
   await carregaLocais();
   const p=S.ui.editId?(S.pecas.find(x=>x.id===S.ui.editId)||{}):{};
   if(S.view!=='nova')return; // usuário já foi para outra tela
-  $('#main').innerHTML=`<div class="top"><h2>${S.ui.editId?'Editar peça '+cod(p.codigo):'Cadastro de Peças'}</h2></div>
-  <form id="pf" class="card"><div class="form">
-    <label class="f full">Nome da peça *<div class="withmic"><input name="nome" required value="${esc(p.nome)}" placeholder="Ex.: Caixa de fusível" autocomplete="off"><button type="button" class="mic" title="Ditar por voz">🎤</button></div></label>
+  const edit=!!S.ui.editId, js=v=>{ if(Array.isArray(v))return v; try{ const x=JSON.parse(v||'[]'); return Array.isArray(x)?x:[]; }catch(_){ return []; } };
+  const W=S.ui.wz={etapa:S.ui.etapaInicial||(edit?2:1),edit,vistas:new Set(),cat:null,ref:null,ml:null};
+  S.ui.etapaInicial=null;
+  const MARC=['Reservada','Separar','Conferir','Não anunciar','Com avaria','Vitrine'];
+  const CONS=[['A','Excelente','Como nova: sem marcas de uso, pronta para vitrine.'],['B','Muito bom','Pouquíssimas marcas de uso, funcionamento perfeito.'],['C','Bom','Marcas de uso visíveis, funcionando normalmente.'],['D','Razoável','Marcas fortes ou pequenos reparos — descreva no anúncio.']];
+  const ETAPAS=['Catálogo','Dados da peça','Preço','Peso e medidas','Compatibilidade','Imagens','Canais de venda'];
+  const cab=(n,t,d)=>`<div class="wz-h"><span class="wz-n">${n}</span><div><small>Etapa ${n}</small><h3>${t}</h3><p>${d}</p></div></div>`;
+  $('#main').innerHTML=`<div class="top"><h2>${edit?'Editar peça '+cod(p.codigo):'Cadastro de Peças'}</h2>${edit?`<span class="small mut">${esc(p.nome||'')}</span>`:''}</div>
+  <div class="wz-steps" id="wzsteps">${ETAPAS.map((t,i)=>`<button type="button" class="wz-step" data-wz="${i+1}"><i>${i+1}</i>${t}</button>`).join('')}</div>
+  <form id="pf" novalidate>
+   <section class="wz-card" data-et="1">${cab(1,'Identificação no catálogo','Procure a peça entre as que você já cadastrou: o sistema aproveita nome, marca, código, preço, medidas, categoria e até as fotos.')}
+    <div class="wz-modos"><button type="button" class="wz-modo on"><span class="material-icons">search</span>Por palavras-chave</button><button type="button" class="wz-modo" disabled><span class="tag zero">em breve</span><span class="material-icons">photo_camera</span>Por foto</button></div>
+    <div class="wz-sec">Escreva o nome, a marca, o modelo ou o código da peça</div><p class="wz-dica">Quanto mais detalhes, melhor o resultado.</p>
+    <div class="mlbusca"><input id="wzq" placeholder="Ex.: alternador hb20, 26100-0E020…" autocomplete="off"><button type="button" class="btn p" id="wzb">Buscar</button></div>
+    <div id="wzres"><div class="wz-vazio">Digite acima e toque em <b>Buscar</b>.<br>Peça diferente de tudo que já tem? <a href="#" id="wzpula">Cadastrar sem o catálogo →</a></div></div>
+   </section>
+   <section class="wz-card" data-et="2">${cab(2,'Dados da peça','Nome, categoria, códigos, quantidade, local e o estado da peça.')}
+    <div class="form">
+    <label class="f full">Nome principal da peça * <span class="wz-cnt" id="wzcnt"></span><div class="withmic"><input name="nome" required value="${esc(p.nome)}" placeholder="Ex.: Alternador HB20 1.6 2013 a 2019" autocomplete="off"><button type="button" class="mic" title="Ditar por voz">🎤</button></div>
+      <span class="small mut" style="display:block;font-weight:400">Nome claro, com a peça, o lado e o carro quando ajudar. O título do anúncio usa até 60 letras.</span></label>
     <div class="full" id="sugwrap"></div>
-    <label class="f">Marca<input name="marca" value="${esc(p.marca)}"></label>
-    <label class="f">Modelo<input name="modelo" value="${esc(p.modelo)}"></label>
-    <label class="f">Ano<input name="ano" value="${esc(p.ano)}" placeholder="2008/2014"></label>
-    <label class="f">Part number<input name="pn" value="${esc(p.pn)}"></label>
-    <label class="f">Condição<select name="cond">${[...new Set(['Usada, em bom estado','Usada, com marcas de uso','Usada, com avaria','Nova','Recondicionada',...(p.cond?[p.cond]:[])])].map(c=>`<option ${p.cond===c?'selected':''}>${c}</option>`).join('')}</select></label>
-    <label class="f">Sucata de origem<input name="veiculo" value="${esc(p.veiculo)}"></label>
-    <label class="f">Preço (R$) *<input name="preco" type="number" step="0.01" min="0" required value="${p.preco??''}"></label>
-    <label class="f">Quantidade *<input name="qtd" type="number" min="0" required value="${p.qtd??1}"></label>
-    <label class="f">Custo (R$)<input name="custo" type="number" step="0.01" min="0" value="${p.custo??''}" placeholder="quanto pagou (opcional)"></label>
-    <label class="f">Qualidade<select name="qualidade"><option value="">—</option>${['A','B','C'].map(q=>`<option ${p.qualidade===q?'selected':''}>${q}</option>`).join('')}</select></label>
-    <div class="f full chk2"><label><input type="checkbox" name="seguranca" ${p.seguranca?'checked':''}> Item de segurança <span class="mut">(airbag, freio, cinto…)</span></label><label><input type="checkbox" name="rastreavel" ${p.rastreavel?'checked':''}> Item rastreável</label></div>
-    <div class="full sec-t">Embalagem <span class="small mut">— o Mercado Livre usa pra calcular o frete</span></div>
-    <label class="f">Peso (g)<input name="peso_g" type="number" min="0" step="1" value="${p.peso_g??''}" placeholder="ex.: 850"></label>
-    <label class="f">Altura (cm)<input name="alt_cm" type="number" min="0" step="0.1" value="${p.alt_cm??''}"></label>
-    <label class="f">Largura (cm)<input name="larg_cm" type="number" min="0" step="0.1" value="${p.larg_cm??''}"></label>
-    <label class="f">Comprimento (cm)<input name="comp_cm" type="number" min="0" step="0.1" value="${p.comp_cm??''}"></label>
-    <div class="full sec-t">Categoria no Mercado Livre <span class="small mut">— onde o anúncio vai ser publicado</span></div>
-    <div class="full"><input type="hidden" name="ml_cat" value="${esc(p.ml_cat||'')}"><input type="hidden" name="ml_cat_nome" value="${esc(p.ml_cat_nome||'')}">
+    <label class="f full">Sucata de origem (veículo de onde saiu)<input name="veiculo" value="${esc(p.veiculo)}" placeholder="Ex.: HB20 1.6 2015 prata — opcional"></label>
+    <div class="full"><div class="wz-sec">Categoria no Mercado Livre</div><input type="hidden" name="ml_cat" value="${esc(p.ml_cat||'')}"><input type="hidden" name="ml_cat_nome" value="${esc(p.ml_cat_nome||'')}">
       <div id="mlcatv"></div>
       <div class="mlbusca" style="margin-top:6px"><input id="mlcq" placeholder="Ex.: solenoide bomba alta pressão (ou o código MLB…)"><button class="btn sm" id="mlcb" type="button">🔎 Buscar</button></div>
       <div id="mlcatbox" class="mlcats"></div></div>
+    <label class="f">Marca<input name="marca" value="${esc(p.marca)}"></label>
+    <label class="f">Modelo<input name="modelo" value="${esc(p.modelo)}"></label>
+    <label class="f">Ano<input name="ano" value="${esc(p.ano)}" placeholder="2008/2014"></label>
+    <label class="f">Código da peça (part number / OEM)<input name="pn" value="${esc(p.pn)}"></label>
+    <label class="f">NCM<input name="ncm" value="${esc(p.ncm||'')}" inputmode="numeric" maxlength="10" placeholder="8 dígitos — para nota fiscal"></label>
+    <label class="f">Quantidade *<input name="qtd" type="number" min="0" required value="${p.qtd??1}"></label>
+    <label class="f">SKU<input value="${edit?esc(cod(p.codigo)):'Automático (código da peça)'}" disabled></label>
+    <label class="f">Condição<select name="cond">${[...new Set(['Usada, em bom estado','Usada, com marcas de uso','Usada, com avaria','Nova','Recondicionada',...(p.cond?[p.cond]:[])])].map(c=>`<option ${p.cond===c?'selected':''}>${c}</option>`).join('')}</select></label>
     <label class="f full">Localização<select name="local_id"><option value="">— sem localização —</option>${locOptions(p.local_id)}</select>
       <button type="button" class="btn sm" id="sugloc" style="margin-top:6px;align-self:flex-start">🎯 Sugerir caixa com espaço</button><span class="small" id="locdica" style="display:block;margin-top:6px"></span></label>
-    <label class="f full">Observações<div class="withmic ta"><textarea name="obs" rows="2">${esc(p.obs)}</textarea><button type="button" class="mic" title="Ditar por voz">🎤</button></div></label>
-    <label class="f full">Vídeo da peça (link do YouTube, opcional)<input name="video" value="${esc(p.video||'')}" placeholder="https://www.youtube.com/watch?v=..."></label>
-    <div class="full"><div class="small mut" style="font-weight:600;margin-bottom:6px">Fotos (até 12) — a primeira é a principal; toque na ★ pra trocar</div>
-      <div class="thumbs" id="thumbs"></div>
-      <label class="btn sm" style="margin-top:8px">📷 Adicionar fotos<input type="file" accept="image/*" multiple id="pfoto" hidden></label>
-      <button type="button" class="btn sm" id="iafb" style="margin-top:8px">✨ Fundo branco agora</button>
-      <div class="chk2" style="margin-top:8px"><label><input type="checkbox" id="iaf" ${iaPref('iaFundo')?'checked':''}> ✨ Foto principal com fundo branco automático (IA)</label>
-        <label><input type="checkbox" id="iaa" ${iaPref('iaArte')?'checked':''}> 🖼️ Arte "onde fica no carro" ao salvar</label>
-        <label id="iapcl" style="display:none"><input type="checkbox" id="iapc" ${iaPref('iaPC')?'checked':''}> 🖥️ Melhorar a foto no PC com IA forte (recorte, qualidade, luz; troca a do celular quando ficar pronta)</label></div>
-      <div class="small mut" id="iast" style="margin-top:6px"></div></div>
-  </div><div class="top" style="margin-top:16px">
-    <button class="btn p" type="submit">${S.ui.editId?'Salvar':'Cadastrar'}</button>
-    ${S.ui.editId?'<button class="btn" type="button" id="canc">Cancelar</button>':'<label class="small"><input type="checkbox" id="outra" checked style="width:auto"> continuar na mesma sucata</label>'}
-  </div></form>`;
+    <div class="full"><div class="wz-sec">Marcadores <span class="small mut" style="font-weight:400">— regras rápidas para reserva, separação e conferência</span></div>
+      <input type="hidden" name="marcadores" value="${esc(JSON.stringify(js(p.marcadores)))}"><div class="wz-mk" id="wzmk">${MARC.map(m=>`<button type="button" class="chip ${js(p.marcadores).includes(m)?'on':''}" data-mk="${esc(m)}">${esc(m)}</button>`).join('')}</div></div>
+    <div class="full"><div class="wz-sec">Conservação da peça</div><p class="wz-dica">Escolha a que melhor representa o estado real.</p>
+      <input type="hidden" name="qualidade" value="${esc(p.qualidade||'')}">
+      <div class="wz-cons" id="wzcons">${CONS.map(([k,t])=>`<button type="button" class="wz-con ${p.qualidade===k?'on':''}" data-cs="${k}"><b>${k}</b><br>${t}</button>`).join('')}</div>
+      <div class="wz-nota" id="wzcnota" style="${p.qualidade?'':'display:none'}">${esc((CONS.find(c=>c[0]===p.qualidade)||[])[2]||'')}</div></div>
+    <div class="f full chk2"><label><input type="checkbox" name="seguranca" ${p.seguranca?'checked':''}> Item de segurança <span class="mut">(airbag, freio, cinto…)</span></label><label><input type="checkbox" name="rastreavel" ${p.rastreavel?'checked':''}> Item rastreável</label></div>
+    <label class="f full">Descrição do anúncio <button type="button" class="btn sm" id="wzmod" style="float:right;margin-top:-4px">↻ Gerar modelo</button>
+      <textarea name="descricao" rows="6" placeholder="Estado da peça, aplicação, lado e observações para o comprador. Se ficar vazia, o sistema monta uma descrição ao publicar.">${esc(p.descricao||'')}</textarea></label>
+    <label class="f full">Observações internas (não vão no anúncio)<div class="withmic ta"><textarea name="obs" rows="2">${esc(p.obs)}</textarea><button type="button" class="mic" title="Ditar por voz">🎤</button></div></label>
+    </div>
+   </section>
+   <section class="wz-card" data-et="3">${cab(3,'Precificação','Preço de balcão e preço para os marketplaces, com a referência do mercado.')}
+    <div id="wzref"></div>
+    <div class="form" style="margin-top:12px">
+     <label class="f">Preço de balcão (R$) *<input name="preco" type="number" step="0.01" min="0" required value="${p.preco??''}"></label>
+     <label class="f">Preço marketplace (R$)<input name="preco_mkp" type="number" step="0.01" min="0" value="${p.preco_mkp??''}" placeholder="vazio = mesmo do balcão"></label>
+     <label class="f">Custo (R$)<input name="custo" type="number" step="0.01" min="0" value="${p.custo??''}" placeholder="quanto pagou (opcional)"></label>
+    </div>
+    <div class="wz-nota" id="wzmarg" style="display:none"></div>
+   </section>
+   <section class="wz-card" data-et="4">${cab(4,'Pesos e medidas','Altura, largura, comprimento e peso da peça já embalada — o Mercado Livre usa para calcular o frete.')}
+    <div class="wz-cx"><div class="wz-3d" id="wz3d"><div class="wz-cubo" id="wzcubo">${'<div></div>'.repeat(6)}</div></div>
+      <div class="wz-dim" id="wzdim"></div></div>
+    <div class="small" style="margin:12px 0 4px">Rápido: ${EMB_PRESETS.map((e,i)=>`<button type="button" class="chip" data-wpe="${i}">${e[0]}</button>`).join(' ')}</div>
+    <div class="form emb4">
+     <label class="f">Altura da embalagem (cm) *<input name="alt_cm" type="number" min="0" step="0.1" value="${p.alt_cm??''}"></label>
+     <label class="f">Largura da embalagem (cm) *<input name="larg_cm" type="number" min="0" step="0.1" value="${p.larg_cm??''}"></label>
+     <label class="f">Comprimento da embalagem (cm) *<input name="comp_cm" type="number" min="0" step="0.1" value="${p.comp_cm??''}"></label>
+     <label class="f">Peso da embalagem (g) *<input name="peso_g" type="number" min="0" step="1" value="${p.peso_g??''}" placeholder="ex.: 850"></label>
+    </div>
+   </section>
+   <section class="wz-card" data-et="5">${cab(5,'Compatibilidade','Veículos em que esta peça serve. Entram na descrição do anúncio e ajudam o comprador a achar a peça.')}
+    <input type="hidden" name="compat" value="${esc(JSON.stringify(js(p.compat)))}">
+    <div class="form">
+     <label class="f">Marca<input id="wcm" placeholder="Hyundai"></label><label class="f">Modelo<input id="wco" placeholder="HB20"></label>
+     <label class="f">Ano inicial<input id="wca" inputmode="numeric" placeholder="2013"></label><label class="f">Ano final<input id="wcb" inputmode="numeric" placeholder="2019"></label>
+     <label class="f full">Versão / motor (opcional)<input id="wcv" placeholder="1.6 16v Flex"></label>
+    </div>
+    <div class="top" style="margin:10px 0 0"><button type="button" class="btn p sm" id="wcadd">+ Adicionar veículo</button><button type="button" class="btn sm" id="wcsug">✨ Sugerir pelo nome da peça</button><span class="sp" style="flex:1"></span><button type="button" class="btn sm" id="wcclr">Tirar todos</button></div>
+    <div class="wz-sec" style="display:flex;align-items:center;gap:8px">Veículos adicionados <span class="small mut" id="wcn"></span></div>
+    <div id="wcl"></div>
+   </section>
+   <section class="wz-card" data-et="6">${cab(6,'Imagens','Fotos que vão aparecer no anúncio. A primeira é a principal; toque na ★ para trocar.')}
+    <label class="wz-drop" id="wzdrop"><span class="material-icons" style="font-size:30px;color:var(--pri)">upload</span><br><b>Enviar fotos da peça</b><br><span class="small mut">Toque ou arraste os arquivos aqui · JPG, PNG, WEBP · até 12</span><input type="file" accept="image/*" multiple id="pfoto" hidden></label>
+    <div class="thumbs" id="thumbs" style="margin-top:12px"></div>
+    <button type="button" class="btn sm" id="iafb" style="margin-top:10px">✨ Fundo branco agora</button>
+    <div class="chk2" style="margin-top:8px"><label><input type="checkbox" id="iaf" ${iaPref('iaFundo')?'checked':''}> ✨ Foto principal com fundo branco automático (IA)</label>
+      <label><input type="checkbox" id="iaa" ${iaPref('iaArte')?'checked':''}> 🖼️ Arte "onde fica no carro" ao salvar</label>
+      <label id="iapcl" style="display:none"><input type="checkbox" id="iapc" ${iaPref('iaPC')?'checked':''}> 🖥️ Melhorar a foto no PC com IA forte (recorte, qualidade, luz; troca a do celular quando ficar pronta)</label></div>
+    <div class="small mut" id="iast" style="margin-top:6px"></div>
+    <label class="f">Vídeo da peça (link do YouTube, opcional)<input name="video" value="${esc(p.video||'')}" placeholder="https://www.youtube.com/watch?v=..."></label>
+   </section>
+   <section class="wz-card" data-et="7">${cab(7,'Canais de venda','Onde esta peça vai ser anunciada.')}
+    <div class="wz-can" id="wzcan"><p class="small mut">Carregando…</p></div>
+    ${edit?'':'<label class="small" style="display:flex;gap:8px;align-items:center;margin-top:14px"><input type="checkbox" id="outra" checked style="width:auto"> Depois de cadastrar, continuar na mesma sucata (marca, modelo, ano e local)</label>'}
+   </section>
+   <div class="wz-bar"><button type="button" class="btn" id="wzvolta">← Voltar</button>${edit?'<button class="btn" type="button" id="canc">Cancelar</button>':''}<span class="sp"></span>
+     <span class="small mut" id="wzpos"></span><button type="button" class="btn" id="wzseg">Continuar →</button><button class="btn p" type="submit" id="wzok">${edit?'Salvar alterações':'Cadastrar peça'}</button></div>
+  </form>`;
+  ligaEtapas(p);
   drawThumbs();
   if($('#canc'))$('#canc').onclick=()=>{ S.ui.editId=null; S.ui.fotos=[]; go('estoque'); };
   if($('#sugloc'))$('#sugloc').onclick=sugereCaixa;
@@ -1486,7 +1744,6 @@ async function nova(){
   $('#iapc').onchange=e=>iaSet('iaPC',e.target.checked);
   api('/agente/status').then(a=>{ S.agente=a; if(a.configurado&&$('#iapcl'))$('#iapcl').style.display=''; }).catch(()=>{});
   $('#iafb').onclick=()=>iaFundoPrincipal(true);
-  $('#pf').onsubmit=salvaPeca;
 }
 // sugestões enquanto digita o nome ou o part number (catálogo próprio; ML entra na Etapa 2)
 let _sugT;
@@ -1774,7 +2031,154 @@ function ligaCatForm(){
     $('#mlcb').disabled=false; };
   $('#mlcb').onclick=busca; $('#mlcq').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); busca(); } };
   pinta();
+  $('#pf').onsubmit=e=>{ e.preventDefault(); const f=e.target, falta=[['nome',2,'o nome da peça'],['qtd',2,'a quantidade'],['preco',3,'o preço de balcão']].find(([k])=>String(f.elements[k].value).trim()==='');
+    if(falta){ irEtapa(falta[1]); toast('Falta '+falta[2]); setTimeout(()=>f.elements[falta[0]].focus(),50); return; }
+    salvaPeca(e); };
 }
+// ---------- etapas do cadastro ----------
+function irEtapa(n){ const W=S.ui.wz; if(!W)return; W.etapa=Math.max(1,Math.min(7,n)); W.vistas.add(W.etapa);
+  document.querySelectorAll('#pf [data-et]').forEach(sec=>sec.style.display=+sec.dataset.et===W.etapa?'':'none');
+  document.querySelectorAll('[data-wz]').forEach(b=>{ const k=+b.dataset.wz; b.classList.toggle('on',k===W.etapa); b.classList.toggle('ok',k!==W.etapa&&W.vistas.has(k)); });
+  const on=document.querySelector('.wz-step.on'); if(on&&on.scrollIntoView)on.scrollIntoView({block:'nearest',inline:'center'});
+  $('#wzvolta').style.visibility=W.etapa>1?'':'hidden'; $('#wzseg').style.display=W.etapa<7?'':'none';
+  $('#wzok').style.display=W.edit||W.etapa===7?'':'none'; $('#wzpos').textContent='Etapa '+W.etapa+' de 7';
+  if(W.etapa===3)refMercado(false); if(W.etapa===4)desenhaCaixa(); if(W.etapa===7)canaisVenda();
+  window.scrollTo({top:0}); }
+function ligaEtapas(p){
+  const f=$('#pf'), W=S.ui.wz, jsv=k=>{ try{ return JSON.parse(f.elements[k].value||'[]'); }catch(_){ return []; } };
+  document.querySelectorAll('[data-wz]').forEach(b=>b.onclick=()=>irEtapa(+b.dataset.wz));
+  $('#wzvolta').onclick=()=>irEtapa(W.etapa-1); $('#wzseg').onclick=()=>irEtapa(W.etapa+1);
+  // 1) catálogo: peças já cadastradas, agrupadas pelo nome
+  const buscaCat=async()=>{ const q=nrm($('#wzq').value).split(/\s+/).filter(Boolean); if(!q.length)return toast('Digite o nome ou o código da peça');
+    $('#wzres').innerHTML='<div class="wz-vazio"><span class="spin-s"></span> Procurando…</div>';
+    if(!S.catalogo){ try{ S.catalogo=(await api('/pecas?todas=1')).pecas; }catch(e){ $('#wzres').innerHTML='<div class="wz-vazio">⚠️ '+esc(e.message)+'</div>'; return; } }
+    const grupos=new Map();
+    for(const x of S.catalogo){ if(W.edit&&x.id===S.ui.editId)continue; const t=nrm([x.nome,x.marca,x.modelo,x.pn,x.ano,cod(x.codigo)].join(' ')); if(!q.every(w=>t.includes(w)))continue;
+      const k=nrm(x.nome).trim()+'|'+nrm(x.pn||''); const g=grupos.get(k)||{itens:[],est:0}; g.itens.push(x); g.est+=Math.max(0,Number(x.qtd)||0); grupos.set(k,g); }
+    const lista=[...grupos.values()].map(g=>({...g,rep:g.itens.find(x=>(x.fotos||[]).length)||g.itens[0]})).sort((a,b)=>b.est-a.est||b.itens.length-a.itens.length).slice(0,40);
+    W.cat=lista;
+    $('#wzres').innerHTML=lista.length?`<div class="wz-res"><div class="wz-res-h"><b>Foram encontrados ${lista.length} resultado(s)</b><span class="small mut">Escolha o mais parecido para adiantar o cadastro.</span></div>
+      ${lista.map((g,i)=>{ const x=g.rep; return `<div class="wz-it" data-wzi="${i}"><div class="wz-mini">${(x.fotos||[])[0]?`<img src="/api/foto/${x.fotos[0]}" loading="lazy" alt="">`:'<span class="material-icons">image</span>'}</div>
+        <div style="flex:1;min-width:0"><b>${esc(x.nome)}</b><div class="wz-tags"><span>📦 ${g.est} em estoque</span>${x.ml_cat_nome?`<span>${esc(String(x.ml_cat_nome).split('›').pop().trim())}</span>`:''}${x.marca?`<span>${esc(x.marca)}</span>`:''}${x.modelo?`<span>${esc(x.modelo)}</span>`:''}${x.pn?`<span>${esc(x.pn)}</span>`:''}</div></div>
+        <span class="material-icons" style="color:#9aa0b4">chevron_right</span></div>`; }).join('')}</div>
+      <p class="small" style="margin-top:10px">Não é nenhuma? <a href="#" id="wzpula2">Cadastrar sem o catálogo →</a></p>`
+      :'<div class="wz-vazio">Nada parecido entre as suas peças. <a href="#" id="wzpula2">Cadastrar sem o catálogo →</a></div>';
+    document.querySelectorAll('[data-wzi]').forEach(el=>el.onclick=()=>detalheCat(W.cat[+el.dataset.wzi]));
+    if($('#wzpula2'))$('#wzpula2').onclick=e=>{ e.preventDefault(); pulaCat(); }; };
+  const pulaCat=()=>{ const q=$('#wzq').value.trim(); if(q&&!f.elements.nome.value)f.elements.nome.value=q; irEtapa(2); contaNome(); };
+  const detalheCat=g=>{ const x=g.rep, fts=[...new Set(g.itens.flatMap(y=>y.fotos||[]))].slice(0,12);
+    const kv=[['Marca',x.marca],['Modelo',x.modelo],['Ano',x.ano],['Código',x.pn],['Condição',x.cond],['Preço balcão',Number(x.preco)?brl(x.preco):''],['Embalagem',x.peso_g&&x.alt_cm?`${x.alt_cm}×${x.larg_cm}×${x.comp_cm} cm · ${x.peso_g} g`:''],['Em estoque',g.est+' un'],['Categoria ML',x.ml_cat_nome]].filter(k=>k[1]);
+    $('#wzres').innerHTML=`<div class="wz-res" style="padding:14px"><a href="#" id="wzvb" class="small">← Voltar aos resultados</a>
+      <h3 style="margin:8px 0 2px">${esc(x.nome)}</h3><p class="small mut" style="margin:0">Confira antes de usar como base para o cadastro.</p>
+      <div class="wz-det"><div><div class="ft" id="wzft">${fts[0]?`<img src="/api/foto/${fts[0]}" alt="">`:'<span class="material-icons" style="font-size:48px;color:#c5cbe8">image</span>'}</div>
+        <div class="wz-ths">${fts.map(k=>`<img src="/api/foto/${k}" data-ft="${esc(k)}" alt="">`).join('')}</div></div>
+        <div><div class="wz-kv">${kv.map(([k,v])=>`<div><small>${k}</small>${esc(v)}</div>`).join('')}</div>
+          ${fts.length?`<label class="small" style="display:flex;gap:8px;align-items:center;margin-top:12px"><input type="checkbox" id="wzfts" style="width:auto"> Reaproveitar as ${fts.length} foto(s) desta peça</label>`:''}
+          <button type="button" class="btn p" id="wzusa" style="margin-top:12px;width:100%">Usar este item do catálogo</button></div></div></div>`;
+    $('#wzvb').onclick=e=>{ e.preventDefault(); buscaCat(); };
+    document.querySelectorAll('[data-ft]').forEach(im=>im.onclick=()=>{ $('#wzft').innerHTML=`<img src="/api/foto/${im.dataset.ft}" alt="">`; });
+    $('#wzusa').onclick=()=>{ const E=f.elements, set=(k,v)=>{ if(E[k]&&v!=null&&v!=='')E[k].value=v; };
+      ['nome','marca','modelo','ano','pn','ncm','preco','preco_mkp','peso_g','alt_cm','larg_cm','comp_cm','ml_cat','ml_cat_nome'].forEach(k=>set(k,x[k]));
+      if(x.cond)set('cond',x.cond); if(x.compat&&jsv('compat').length===0){ try{ const c=Array.isArray(x.compat)?x.compat:JSON.parse(x.compat||'[]'); E.compat.value=JSON.stringify(c); pintaCompat(); }catch(_){ } }
+      if($('#wzfts')&&$('#wzfts').checked)fts.forEach(k=>{ if(S.ui.fotos.length<12&&!S.ui.fotos.some(y=>y.key===k))S.ui.fotos.push({key:k}); });
+      drawThumbs(); ligaCatForm(); contaNome(); toast('Dados de '+cod(x.codigo)+' aproveitados — confira e ajuste'); irEtapa(2); };
+  };
+  $('#wzb').onclick=buscaCat; $('#wzq').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); buscaCat(); } };
+  $('#wzpula').onclick=e=>{ e.preventDefault(); pulaCat(); };
+  // 2) dados: contador do nome, marcadores, conservação, modelo de descrição
+  const contaNome=()=>{ const n=f.elements.nome.value.length; $('#wzcnt').textContent=n+'/60'; $('#wzcnt').classList.toggle('alto',n>60); };
+  f.elements.nome.addEventListener('input',contaNome); contaNome();
+  document.querySelectorAll('[data-mk]').forEach(b=>b.onclick=()=>{ b.classList.toggle('on'); f.elements.marcadores.value=JSON.stringify([...document.querySelectorAll('[data-mk].on')].map(x=>x.dataset.mk)); });
+  const CONS={A:'Como nova: sem marcas de uso, pronta para vitrine.',B:'Pouquíssimas marcas de uso, funcionamento perfeito.',C:'Marcas de uso visíveis, funcionando normalmente.',D:'Marcas fortes ou pequenos reparos — descreva no anúncio.'};
+  document.querySelectorAll('[data-cs]').forEach(b=>b.onclick=()=>{ const k=b.dataset.cs, j=f.elements.qualidade.value===k; f.elements.qualidade.value=j?'':k;
+    document.querySelectorAll('[data-cs]').forEach(x=>x.classList.toggle('on',!j&&x.dataset.cs===k)); $('#wzcnota').style.display=j?'none':''; $('#wzcnota').textContent=j?'':CONS[k]; });
+  $('#wzmod').onclick=()=>{ const E=f.elements, veic=[E.marca.value,E.modelo.value,E.ano.value].filter(Boolean).join(' '), cp=jsv('compat');
+    const cons={A:'excelente estado, sem marcas de uso',B:'muito bom estado',C:'bom estado, com marcas normais de uso',D:'estado razoável, com marcas de uso'}[E.qualidade.value];
+    const txt=`${E.nome.value}${veic?' — '+veic:''}\n\n✅ Condição: ${E.cond.value}${cons?' ('+cons+')':''}\n${E.pn.value?'🔢 Código original: '+E.pn.value+'\n':''}${cp.length?'🚗 Compatível com: '+cp.map(textoVeic).join('; ')+'\n':''}${E.veiculo.value?'🔧 Retirada de '+E.veiculo.value+'\n':''}Confira a compatibilidade pelo código antes de comprar.\n📦 Enviamos para todo o Brasil.\n🛡️ Garantia de 90 dias.`;
+    if(E.descricao.value.trim()&&!confirm('Trocar a descrição atual pelo modelo?'))return; E.descricao.value=txt; };
+  // 3) preço: margem sobre o custo
+  const margem=()=>{ const E=f.elements, c=Number(E.custo.value), pb=Number(E.preco.value), pm=Number(E.preco_mkp.value)||pb, el=$('#wzmarg');
+    if(!(c>0&&pb>0)){ el.style.display='none'; return; } el.style.display=''; el.innerHTML=`Margem: <b>${Math.round((pb-c)/pb*100)}%</b> no balcão · <b>${Math.round((pm*0.86-c)/pm*100)}%</b> no marketplace (já tirando ~14% de tarifa)`; };
+  ['preco','preco_mkp','custo'].forEach(k=>f.elements[k].addEventListener('input',margem)); margem();
+  // 4) medidas: caixa 3D que acompanha os números
+  document.querySelectorAll('[data-wpe]').forEach(b=>b.onclick=()=>{ const e=EMB_PRESETS[+b.dataset.wpe]; f.elements.peso_g.value=e[1]; f.elements.alt_cm.value=e[2]; f.elements.larg_cm.value=e[3]; f.elements.comp_cm.value=e[4]; desenhaCaixa(); toast('Confira e ajuste se precisar'); });
+  ['peso_g','alt_cm','larg_cm','comp_cm'].forEach(k=>f.elements[k].addEventListener('input',desenhaCaixa));
+  { const box=$('#wz3d'); let arr=null; W.rx=-18; W.ry=-32;
+    box.onpointerdown=e=>{ arr={x:e.clientX,y:e.clientY,rx:W.rx,ry:W.ry}; box.setPointerCapture(e.pointerId); box.style.cursor='grabbing'; };
+    box.onpointermove=e=>{ if(!arr)return; W.ry=arr.ry+(e.clientX-arr.x)*.6; W.rx=Math.max(-80,Math.min(80,arr.rx-(e.clientY-arr.y)*.6)); desenhaCaixa(); };
+    box.onpointerup=()=>{ arr=null; box.style.cursor=''; }; }
+  // 5) compatibilidade
+  const pintaCompat=()=>{ const l=jsv('compat'); $('#wcn').textContent=l.length?l.length+' veículo(s)':'';
+    $('#wcl').innerHTML=l.length?`<div class="wz-vs">${l.map((v,i)=>`<div class="wz-v"><span class="material-icons" style="font-size:18px;color:#9aa0b4">directions_car</span><span>${esc(textoVeic(v))}</span><button type="button" data-wcx="${i}" title="Tirar">✕</button></div>`).join('')}</div>`
+      :'<div class="wz-vazio">Nenhum veículo ainda. Adicione acima ou toque em “Sugerir pelo nome da peça”.</div>';
+    document.querySelectorAll('[data-wcx]').forEach(b=>b.onclick=()=>{ const l2=jsv('compat'); l2.splice(+b.dataset.wcx,1); f.elements.compat.value=JSON.stringify(l2); pintaCompat(); }); };
+  const addVeic=v=>{ const l=jsv('compat'); if(l.some(x=>textoVeic(x).toLowerCase()===textoVeic(v).toLowerCase()))return false; l.push(v); f.elements.compat.value=JSON.stringify(l); pintaCompat(); return true; };
+  $('#wcadd').onclick=()=>{ const v={marca:$('#wcm').value.trim(),modelo:$('#wco').value.trim(),de:$('#wca').value.trim(),ate:$('#wcb').value.trim(),versao:$('#wcv').value.trim()};
+    if(!v.modelo)return toast('Informe pelo menos o modelo do veículo'); if(!addVeic(v))return toast('Esse veículo já está na lista'); ['wco','wca','wcb','wcv'].forEach(k=>$('#'+k).value=''); };
+  $('#wcsug').onclick=()=>{ const v=veicDoNome(f.elements.nome.value,f.elements.marca.value,f.elements.modelo.value,f.elements.ano.value);
+    if(!v)return toast('Não reconheci o veículo no nome — adicione à mão'); toast(addVeic(v)?'Adicionado: '+textoVeic(v):'Esse veículo já está na lista'); };
+  $('#wcclr').onclick=()=>{ if(jsv('compat').length&&confirm('Tirar todos os veículos?')){ f.elements.compat.value='[]'; pintaCompat(); } };
+  pintaCompat();
+  // 6) imagens: arrastar para a área de envio
+  const dz=$('#wzdrop'); dz.ondragover=e=>{ e.preventDefault(); dz.classList.add('sobre'); }; dz.ondragleave=()=>dz.classList.remove('sobre');
+  dz.ondrop=e=>{ e.preventDefault(); dz.classList.remove('sobre'); const fs=[...(e.dataTransfer.files||[])].filter(x=>/^image\//.test(x.type)); if(!fs.length)return;
+    const dt=new DataTransfer(); fs.forEach(x=>dt.items.add(x)); $('#pfoto').files=dt.files; $('#pfoto').dispatchEvent(new Event('change')); };
+  irEtapa(W.etapa);
+}
+const textoVeic=v=>[v.marca,v.modelo,v.versao,v.de&&v.ate&&v.de!==v.ate?v.de+' a '+v.ate:(v.de||v.ate||'')].filter(Boolean).join(' ');
+// tenta achar o carro no nome da peça (ex.: "Alternador HB20 1.6 2013 a 2019")
+function veicDoNome(nome,marca,modelo,ano){
+  const t=' '+String(nome||'')+' ', anos=(t.match(/\b(19[6-9]\d|20[0-4]\d)\b/g)||[]).map(Number), a2=(String(ano||'').match(/\d{4}/g)||[]).map(Number);
+  const MARCAS=['Chevrolet','GM','Volkswagen','VW','Fiat','Ford','Renault','Hyundai','Kia','Toyota','Honda','Nissan','Mitsubishi','Peugeot','Citroën','Citroen','Jeep','BMW','Mercedes','Audi','Volvo','Land Rover','Chery','JAC','Porsche','Suzuki','Subaru','Dodge','Ram','Troller','Caoa'];
+  const mk=MARCAS.find(m=>new RegExp('\\b'+m+'\\b','i').test(t))||marca||'';   // o carro escrito no nome vale mais que os campos
+  let md=''; { const m=t.match(/\b(HB20S?|HB20X|Onix|Prisma|Cruze|S10|Trailblazer|Spin|Cobalt|Celta|Corsa|Gol|Voyage|Saveiro|Fox|Polo|Virtus|T-Cross|Amarok|Jetta|Golf|Up|Uno|Palio|Siena|Strada|Toro|Argo|Cronos|Mobi|Ka|Fiesta|Focus|EcoSport|Ranger|Fusion|Edge|Sandero|Logan|Duster|Kwid|Captur|Corolla|Hilux|SW4|Etios|Yaris|Civic|Fit|City|HR-V|CR-V|Kicks|March|Versa|Frontier|L200|Pajero|ASX|Outlander|208|2008|3008|C3|C4|Aircross|Compass|Renegade|Tucson|Creta|i30|Azera|Santa Fe|Sportage|Sorento|Soul|Cerato|Picanto|Evoque|Discovery|Cayenne|XC60|QQ|J6|X1|320i|118i|120i)\b/i); md=m?m[1]:(modelo||''); }
+  if(!md)return null;
+  const de=anos.length?Math.min(...anos):(a2[0]||''), ate=anos.length>1?Math.max(...anos):(a2[1]||de||'');
+  const ver=(t.match(/\b(\d\.\d(?:\s?(?:8v|16v|turbo|tsi|flex|v6|v8))*)\b/i)||[])[1]||'';
+  return {marca:mk,modelo:md,de:String(de||''),ate:String(ate||''),versao:ver};
+}
+function desenhaCaixa(){ const f=$('#pf'), W=S.ui.wz; if(!f||!$('#wzcubo'))return; const E=f.elements;
+  const a=Number(E.alt_cm.value)||10, l=Number(E.larg_cm.value)||10, c=Number(E.comp_cm.value)||10, k=140/Math.max(a,l,c);
+  const A=a*k, L=l*k, C=c*k, fs=$('#wzcubo').children;
+  const faces=[[L,A,`translateZ(${C/2}px)`],[L,A,`rotateY(180deg) translateZ(${C/2}px)`],[C,A,`rotateY(90deg) translateZ(${L/2}px)`],[C,A,`rotateY(-90deg) translateZ(${L/2}px)`],[L,C,`rotateX(90deg) translateZ(${A/2}px)`],[L,C,`rotateX(-90deg) translateZ(${A/2}px)`]];
+  faces.forEach(([w,h,t],i)=>{ fs[i].style.cssText=`width:${w}px;height:${h}px;margin:${-h/2}px 0 0 ${-w/2}px;transform:${t}`; });
+  $('#wzcubo').style.transform=`rotateX(${W.rx||-18}deg) rotateY(${W.ry||-32}deg)`;
+  const v=(x,u)=>x?x+' '+u:'—';
+  $('#wzdim').innerHTML=`<div><small>Altura</small><b>${v(E.alt_cm.value,'cm')}</b></div><div><small>Largura</small><b>${v(E.larg_cm.value,'cm')}</b></div><div><small>Comprimento</small><b>${v(E.comp_cm.value,'cm')}</b></div><div><small>Peso</small><b>${E.peso_g.value?(E.peso_g.value>=1000?(E.peso_g.value/1000).toLocaleString('pt-BR')+' kg':E.peso_g.value+' g'):'—'}</b></div>
+    <div style="grid-column:1/-1" class="small mut">Arraste a caixa para girar.</div>`; }
+// referência de preço no Mercado Livre para a peça que está sendo cadastrada
+async function refMercado(forcar){ const f=$('#pf'), W=S.ui.wz, el=$('#wzref'); if(!f||!el)return; const E=f.elements;
+  const chave=[E.nome.value,E.marca.value,E.modelo.value,E.pn.value].join('|'); if(!E.nome.value.trim()){ el.innerHTML='<div class="wz-vazio">Preencha o nome da peça (etapa 2) para ver a referência de mercado.</div>'; return; }
+  if(W.ref&&W.ref.chave===chave&&!forcar){ pintaRef(); return; }
+  el.innerHTML='<div class="wz-vazio"><span class="spin-s"></span> Buscando anúncios parecidos no Mercado Livre…</div>';
+  try{ const d=await api('/ml/preco-ref?'+new URLSearchParams({nome:E.nome.value,marca:E.marca.value,modelo:E.modelo.value,pn:E.pn.value,cat:E.ml_cat.value})); W.ref={chave,d}; }
+  catch(e){ W.ref={chave,erro:e.message}; }
+  pintaRef(); }
+function pintaRef(){ const W=S.ui.wz, el=$('#wzref'), f=$('#pf'); if(!el||!W.ref)return;
+  if(W.ref.erro){ el.innerHTML=`<div class="wz-vazio">⚠️ ${esc(W.ref.erro)} <button type="button" class="btn sm" id="wzrf">Tentar de novo</button></div>`; $('#wzrf').onclick=()=>refMercado(true); return; }
+  const d=W.ref.d, s=d.sugerido;
+  if(!s){ el.innerHTML=`<div class="wz-vazio">Nenhum anúncio usado parecido no Mercado Livre (${esc((d.buscas||[]).join(' e '))}). Defina o preço abaixo.</div>`; return; }
+  const n=(d.usados||[]).length, base=/^boa/.test(d.confianca)?80:/^m[ée]dia/.test(d.confianca)?60:35, disp=s.mediana?(s.max-s.min)/s.mediana:2;
+  const nota=Math.max(5,Math.min(99,Math.round(base+Math.min(15,n*1.5)-(disp>1.5?10:0)))), cor=nota>=75?'var(--ok)':nota>=50?'var(--amber)':'var(--red)', C=2*Math.PI*50;
+  el.innerHTML=`<div class="wz-pr"><div class="wz-ring"><svg width="120" height="120"><circle cx="60" cy="60" r="50" fill="none" stroke="#e8eaf6" stroke-width="12"/><circle cx="60" cy="60" r="50" fill="none" stroke="${cor}" stroke-width="12" stroke-linecap="round" stroke-dasharray="${C*nota/100} ${C}"/></svg><span><span><b>${nota}</b>confiança</span></span></div>
+    <div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px"><b style="font-size:16px">Referência de mercado para esta peça</b><span class="tag ${nota>=75?'price':nota>=50?'ml':'zero'}">${esc(d.confianca)}</span><button type="button" class="btn sm" id="wzrf" style="margin-left:auto">↻ Atualizar</button></div>
+      <div class="wz-pv"><div><small>Mediana no ML</small><b>${brl(Math.round(s.mediana))}</b></div><div><small>Faixa de preço</small><b style="font-size:15px">${brl(Math.round(s.min))} – ${brl(Math.round(s.max))}</b></div><div><small>Anúncios usados</small><b>${n}</b>${d.nDescartados?`<small>${d.nDescartados} fora da curva descartados</small>`:''}</div></div>
+      <div class="mlact" style="margin-top:10px"><button type="button" class="btn sm p" id="wzusm">Usar a mediana no marketplace</button><button type="button" class="btn sm" id="wzusb">Balcão 10% abaixo da mediana</button></div></div></div>`;
+  $('#wzrf').onclick=()=>refMercado(true);
+  $('#wzusm').onclick=()=>{ f.elements.preco_mkp.value=Math.round(s.mediana); if(!f.elements.preco.value)f.elements.preco.value=Math.round(s.mediana*0.9); f.elements.preco_mkp.dispatchEvent(new Event('input')); toast('Preço marketplace: '+brl(Math.round(s.mediana))); };
+  $('#wzusb').onclick=()=>{ f.elements.preco.value=Math.round(s.mediana*0.9); f.elements.preco.dispatchEvent(new Event('input')); toast('Preço de balcão: '+brl(Math.round(s.mediana*0.9))); }; }
+// canais de venda: Mercado Livre (conectado) e os que ainda não estão ligados
+async function canaisVenda(){ const W=S.ui.wz, el=$('#wzcan'), f=$('#pf'); if(!el)return;
+  if(!W.ml){ try{ const c=await api('/config'); W.ml={conectado:!!(c.ml&&c.ml.conectado)}; }catch(_){ W.ml={conectado:false}; } }
+  if(W.publicar==null)W.publicar=W.ml.conectado&&!W.edit;
+  const pm=Number(f.elements.preco_mkp.value)||Number(f.elements.preco.value)||0;
+  const outro=(nome,cor,letra)=>`<div class="wz-cn off"><div class="hd"><span class="lg" style="background:${cor}">${letra}</span><b>${nome}</b><span class="st">não conectado</span></div><p class="small mut" style="margin:8px 0 0">Integração em breve.</p></div>`;
+  el.innerHTML=`<div class="wz-cn"><div class="hd"><span class="lg" style="background:#ffe600;color:#2d3277">ML</span><div><b>Mercado Livre</b><br><span class="small mut">${W.ml.conectado?'conta conectada':'conecte em Anúncios ML'}</span></div><span class="st ${W.ml.conectado?'ok':''}">${W.ml.conectado?'● Ativo':'desligado'}</span></div>
+      ${pm?`<div class="small" style="margin-top:8px">Valor estimado: <b>~ ${brl(Math.round(pm*0.86))}</b> <span class="mut">(preço ${brl(pm)} menos ~14% de tarifa)</span></div>`:''}
+      ${W.edit?'':`<label class="small" style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="checkbox" id="wzpub" ${W.publicar?'checked':''} ${W.ml.conectado?'':'disabled'} style="width:auto"> Abrir a publicação no ML depois de cadastrar</label>`}
+      <p class="small mut" style="margin:6px 0 0">Condição (novo, usado, recondicionado), tipo do anúncio e ficha técnica você confere na tela de publicar.</p></div>
+    ${outro('Shopee','#ee4d2d','S')}${outro('Google Merchant','#4285f4','G')}${outro('Loja própria','#5c6bc0','L')}`;
+  if($('#wzpub'))$('#wzpub').onchange=e=>{ W.publicar=e.target.checked; }; }
 async function salvaPeca(e){
   e.preventDefault(); const btn=e.target.querySelector('button[type=submit]'); btn.disabled=true;
   const fd=Object.fromEntries(new FormData(e.target).entries());
@@ -1782,7 +2186,9 @@ async function salvaPeca(e){
   const keysExistentes=S.ui.fotos.filter(f=>f.key).map(f=>f.key);
   const body={ nome:fd.nome.trim(),marca:fd.marca.trim(),modelo:fd.modelo.trim(),ano:fd.ano.trim(),pn:fd.pn.trim(),cond:fd.cond,veiculo:fd.veiculo.trim(),preco:fd.preco,qtd:fd.qtd,local_id:fd.local_id,obs:fd.obs.trim(),fotos:keysExistentes,
     custo:fd.custo,qualidade:fd.qualidade,seguranca:!!fd.seguranca,rastreavel:!!fd.rastreavel,peso_g:fd.peso_g,alt_cm:fd.alt_cm,larg_cm:fd.larg_cm,comp_cm:fd.comp_cm,video:(fd.video||'').trim(),
-    ml_cat:fd.ml_cat||'',ml_cat_nome:fd.ml_cat_nome||'' };
+    ml_cat:fd.ml_cat||'',ml_cat_nome:fd.ml_cat_nome||'',
+    ncm:(fd.ncm||'').replace(/\D/g,''),descricao:(fd.descricao||'').trim(),preco_mkp:fd.preco_mkp,marcadores:(()=>{ try{ return JSON.parse(fd.marcadores||'[]'); }catch(_){ return []; } })(),
+    compat:(()=>{ try{ return JSON.parse(fd.compat||'[]'); }catch(_){ return []; } })() };
   try{
     if(iaPref('iaArte')&&(zonaDe(body.nome)||memArte(body.nome))&&S.ui.fotos.length&&!S.ui.fotos.some(f=>f.ia==='arte')){ btn.textContent='🖼️ Gerando arte…'; await iaArteAoSalvar(body); }
     let peca; const editando=!!S.ui.editId;
@@ -1794,11 +2200,12 @@ async function salvaPeca(e){
     toast(editando?'Peça atualizada':'Peça '+cod(peca.codigo)+' cadastrada');
     if(!editando&&iaPref('iaPC')&&S.agente&&S.agente.configurado&&S.ui.fotos.length){
       try{ const c=await cmdIA(); await api('/ia/foto',{method:'POST',body:{peca_id:peca.id,opcoes:leComandoFoto(c.foto).op}}); toast('🖥️ Foto enviada pro PC melhorar com IA'); }catch(_){ } }
-    const manter=!editando && $('#outra') && $('#outra').checked;
-    S.ui.editId=null; S.ui.fotos=[]; S.ui.recorte=null;
-    if(manter){ await nova(); ['marca','modelo','ano','veiculo','local_id'].forEach(k=>{ const el=$('#pf').elements[k]; if(el) el.value=body[k]||''; }); $('#pf').elements.nome.focus(); }
-    else go('estoque');
-  }catch(err){ toast('Erro: '+err.message); btn.disabled=false; btn.textContent=S.ui.editId?'Salvar':'Cadastrar'; }
+    const manter=!editando && $('#outra') && $('#outra').checked, publicar=!editando&&S.ui.wz&&S.ui.wz.publicar&&S.ui.wz.ml&&S.ui.wz.ml.conectado, volta=S.ui.voltaPara;
+    S.ui.editId=null; S.ui.fotos=[]; S.ui.recorte=null; S.ui.voltaPara=null; S.catalogo=null;
+    if(manter){ await nova(); ['marca','modelo','ano','veiculo','local_id'].forEach(k=>{ const el=$('#pf').elements[k]; if(el) el.value=body[k]||''; }); }
+    else await go(volta||'estoque');
+    if(publicar){ try{ const { peca:pc }=await api('/pecas/'+peca.id); publicarML(pc); }catch(err){ toast('Cadastrada, mas não abri a publicação: '+err.message); } }
+  }catch(err){ toast('Erro: '+err.message); btn.disabled=false; btn.textContent=S.ui.editId?'Salvar alterações':'Cadastrar peça'; }
 }
 
 // ---------- Venda ----------

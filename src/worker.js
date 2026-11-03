@@ -223,6 +223,11 @@ async function api(request, env, url) {
   if (p === '/api/ml/ficha-parecida' && m === 'GET') return mlFichaParecida(url, env);
   mt = p.match(/^\/api\/ml\/preco\/([\w-]+)$/);
   if (mt && m === 'GET') return mlPreco(mt[1], env);
+  if (p === '/api/ml/preco-ref' && m === 'GET') {
+    const q = k => String(url.searchParams.get(k) || '').slice(0, 120).trim();
+    if (!q('nome')) return bad('informe o nome da peça');
+    return mlPreco(null, env, { nome: q('nome'), marca: q('marca'), modelo: q('modelo'), pn: q('pn'), ml_cat: q('cat') || null });
+  }
   mt = p.match(/^\/api\/ml\/item\/([\w-]+)$/);
   if (mt && m === 'GET') return mlItem(mt[1], env);
   if (mt && m === 'POST') return mlItemAcao(mt[1], request, env, user);
@@ -355,6 +360,7 @@ function anuncioDe(p) {
   const veic = [p.marca, p.modelo, p.ano].filter(Boolean).join(' ');
   let titulo = [p.nome, p.pn, veic].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
   if (titulo.length > 60) titulo = titulo.slice(0, 60).replace(/\s\S*$/, '');
+  if (p.descricao && String(p.descricao).trim()) return { titulo, desc: String(p.descricao).trim() };
   const desc = `${p.nome}${veic ? ' ' + veic : ''}\n\n` +
     `✅ Condição: ${p.cond || 'Usada, em bom estado'}\n` +
     (p.pn ? `🔢 Código original: ${p.pn}\n` : '') +
@@ -414,7 +420,7 @@ async function mlRascunho(pecaId, env, url, user) {
     const c = i >= 0 ? categorias.splice(i, 1)[0] : { id: p.ml_cat, nome: '', dominio: '', caminho: p.ml_cat_nome || p.ml_cat, previstos: {} };
     c.cadastro = true; categorias.unshift(c);
   }
-  return json({ rascunho: { titulo, desc, preco: p.preco, qtd: Math.max(1, Number(p.qtd) || 1), fotos, categorias, categoria: categorias[0] ? categorias[0].id : null, embalagem } });
+  return json({ rascunho: { titulo, desc, preco: Number(p.preco_mkp) > 0 ? p.preco_mkp : p.preco, qtd: Math.max(1, Number(p.qtd) || 1), fotos, categorias, categoria: categorias[0] ? categorias[0].id : null, embalagem } });
 }
 // buscar categorias por um texto livre
 async function mlBuscaCategorias(url, env) {
@@ -765,13 +771,16 @@ async function mlFichaParecida(url, env) {
   }
   return json({ anuncios: usa.length, fortes, valores, exemplos: usa.slice(0, 3).map(({ it }) => ({ id: it.id, titulo: it.title, link: it.permalink || null })) });
 }
-async function mlPreco(pecaId, env) {
+async function mlPreco(pecaId, env, virtual) {
   const token = await mlToken(env);
   if (!token) return bad('conecte o Mercado Livre primeiro (Anúncios ML → Conexão)');
   await garanteColsPecas(env);
-  const row = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(pecaId).first();
-  if (!row) return bad('peça não encontrada', 404);
-  const p = parsePeca(row);
+  let p = virtual;
+  if (!p) {
+    const row = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(pecaId).first();
+    if (!row) return bad('peça não encontrada', 404);
+    p = parsePeca(row);
+  }
   const eu = String((await getCfg(env, 'ml_user_id')) || '-');
   const q = [p.nome, p.marca, p.modelo].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
   const pal = palavrasDe(p.nome + ' ' + (p.marca || '') + ' ' + (p.modelo || ''));
@@ -1033,7 +1042,7 @@ let colsPecasOk = false;
 async function garanteColsPecas(env) {
   if (colsPecasOk) return;
   for (const c of ['custo REAL', 'qualidade TEXT', 'seguranca INTEGER DEFAULT 0', 'rastreavel INTEGER DEFAULT 0', 'peso_g INTEGER',
-    'alt_cm REAL', 'larg_cm REAL', 'comp_cm REAL', 'video TEXT', 'etq_em INTEGER', 'ml_status TEXT', 'ml_em INTEGER', 'ml_cat TEXT', 'ml_cat_nome TEXT', 'ml_attrs TEXT', 'fotos_erro TEXT', 'fotos_tent INTEGER']) {
+    'alt_cm REAL', 'larg_cm REAL', 'comp_cm REAL', 'video TEXT', 'etq_em INTEGER', 'ml_status TEXT', 'ml_em INTEGER', 'ml_cat TEXT', 'ml_cat_nome TEXT', 'ml_attrs TEXT', 'fotos_erro TEXT', 'fotos_tent INTEGER', 'ncm TEXT', 'marcadores TEXT', 'descricao TEXT', 'preco_mkp REAL', 'compat TEXT']) {
     try { await env.DB.prepare('ALTER TABLE pecas ADD COLUMN ' + c).run(); } catch { /* já existe */ }
   }
   try { await env.DB.prepare('CREATE TABLE IF NOT EXISTS ml_extras (ml_id TEXT PRIMARY KEY, peca_id TEXT NOT NULL, status TEXT, criado_em INTEGER)').run(); } catch { /* já existe */ }
@@ -1156,7 +1165,8 @@ async function sugestoes(url, env) {
   return json({ sugestoes: r.results });
 }
 const CAMPOS = ['nome', 'marca', 'modelo', 'ano', 'pn', 'cond', 'veiculo', 'preco', 'qtd', 'local_id', 'obs', 'ml', 'ml_id', 'ml_link', 'olx', 'olx_link',
-  'custo', 'qualidade', 'seguranca', 'rastreavel', 'peso_g', 'alt_cm', 'larg_cm', 'comp_cm', 'video', 'ml_cat', 'ml_cat_nome'];
+  'custo', 'qualidade', 'seguranca', 'rastreavel', 'peso_g', 'alt_cm', 'larg_cm', 'comp_cm', 'video', 'ml_cat', 'ml_cat_nome',
+  'ncm', 'marcadores', 'descricao', 'preco_mkp', 'compat'];
 async function criaPeca(request, env, user) {
   await garanteColsPecas(env);
   const b = await request.json();
@@ -1174,6 +1184,12 @@ async function inserePeca(env, b, user, id = uid()) {
     buscaDe({ ...b, codigo }), JSON.stringify(b.fotos || []), b.ml ? 1 : 0, b.ml_link || null, b.olx ? 1 : 0, b.olx_link || null, now(), (user && user.id) || null,
     numOuNull(b.custo), b.qualidade || null, b.seguranca ? 1 : 0, b.rastreavel ? 1 : 0, numOuNull(b.peso_g), numOuNull(b.alt_cm), numOuNull(b.larg_cm),
     numOuNull(b.comp_cm), b.video || null, b.ml_cat || null, b.ml_cat_nome || null).run();
+  if (b.ncm || b.marcadores || b.descricao || b.preco_mkp || b.compat) {
+    await garanteColsPecas(env);
+    const lista = v => Array.isArray(v) ? JSON.stringify(v) : (v || null);
+    await env.DB.prepare('UPDATE pecas SET ncm=?, marcadores=?, descricao=?, preco_mkp=?, compat=? WHERE id=?')
+      .bind(b.ncm || null, lista(b.marcadores), b.descricao || null, numOuNull(b.preco_mkp), lista(b.compat), id).run();
+  }
   return id;
 }
 // ---------- perguntas dos compradores no Mercado Livre ----------
@@ -1682,7 +1698,8 @@ async function atualizaPeca(id, request, env) {
       if (c === 'preco') binds.push(Number(b[c]) || 0);
       else if (c === 'qtd') binds.push(parseInt(b[c]) || 0);
       else if (c === 'ml' || c === 'olx' || c === 'seguranca' || c === 'rastreavel') binds.push(b[c] ? 1 : 0);
-      else if (['custo', 'peso_g', 'alt_cm', 'larg_cm', 'comp_cm'].includes(c)) binds.push(numOuNull(b[c]));
+      else if (['custo', 'peso_g', 'alt_cm', 'larg_cm', 'comp_cm', 'preco_mkp'].includes(c)) binds.push(numOuNull(b[c]));
+      else if (c === 'marcadores' || c === 'compat') binds.push(Array.isArray(b[c]) ? JSON.stringify(b[c]) : (b[c] || null));
       else binds.push(b[c] ?? null);
     }
   }
