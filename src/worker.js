@@ -69,6 +69,7 @@ async function leSessao(token, secret) {
 // ---------- roteador ----------
 export default {
   async fetch(request, env) {
+    ENV_ML = env;
     const url = new URL(request.url);
     if (url.pathname.startsWith('/api/')) {
       try { return await api(request, env, url); }
@@ -86,7 +87,11 @@ export default {
   },
   // a cada 2 min: confere os vídeos que o Google está gerando (mesmo com o app fechado)
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(veoAtualiza(env).catch(e => console.log('veo', e && e.message)));
+    ENV_ML = env;
+    ctx.waitUntil(Promise.all([
+      veoAtualiza(env).catch(e => console.log('veo', e && e.message)),
+      mlPausaPosVenda(env).catch(e => console.log('pausa pós-venda', e && e.message)),
+    ]));
   },
 };
 
@@ -180,6 +185,9 @@ async function api(request, env, url) {
   if (mt && m === 'GET') return mlPergDiagnostico(mt[1], env);
   mt = p.match(/^\/api\/ml\/perguntas\/(\d+)\/(responder|sugerir)$/);
   if (mt && m === 'POST') return mt[2] === 'responder' ? mlResponde(mt[1], request, env) : mlSugereResposta(mt[1], env);
+  // regras do ML: pausar a cada venda e anúncios protegidos
+  if (p === '/api/ml/regras' && m === 'GET') return mlRegras(env, user);
+  if (p === '/api/ml/regras' && m === 'POST') return mlRegrasSalva(request, env, user);
   // ligar anúncios do ML às peças que já estão no sistema
   if (p === '/api/ml/vincular' && m === 'GET') return mlVincularSugestoes(url, env, user);
   if (p === '/api/ml/vincular' && m === 'POST') return mlVincula(request, env, user);
@@ -510,7 +518,22 @@ const mlAvisos = d => (Array.isArray(d && d.warnings) ? d.warnings : []).map(w =
 // condição do anúncio a partir da condição da peça
 const condML = c => /^nov/.test(norm(c)) ? 'new' : 'used';
 // chamada genérica à API do ML (lança erro com o motivo que o ML devolver)
+// 🔒 ANÚNCIOS PROTEGIDOS: o sistema NUNCA altera esses anúncios no Mercado Livre (status, estoque, preço,
+// fotos, descrição, nada). A trava fica aqui porque TODA alteração de anúncio existente passa por mlReq.
+// Se não der para conferir a lista, NÃO altera (falha fechada).
+let ENV_ML = null;
+async function mlProtegidos(env) {
+  let l = []; try { l = JSON.parse((await getCfg(env, 'ml_protegidos')) || '[]'); } catch { throw new Error('🔒 lista de anúncios protegidos ilegível — nada foi alterado'); }
+  return new Set(l.map(x => String(x).toUpperCase()));
+}
 async function mlReq(token, metodo, caminho, corpo) {
+  const mi = metodo !== 'GET' && String(caminho).match(/^\/items\/(MLB\d+)/i);
+  if (mi) {
+    if (!ENV_ML) throw new Error('🔒 não consegui conferir os anúncios protegidos — nada foi alterado');
+    if ((await mlProtegidos(ENV_ML)).has(mi[1].toUpperCase())) {
+      const e = new Error('🔒 anúncio protegido: o sistema não altera esse anúncio no Mercado Livre'); e.protegido = true; throw e;
+    }
+  }
   const r = await fetch(ML_API + caminho, { method: metodo, headers: { Authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: corpo ? JSON.stringify(corpo) : undefined });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) {
@@ -533,7 +556,7 @@ async function mlItem(pecaId, env) {
     const d = await mlReq(token, 'GET', '/items/' + encodeURIComponent(p.ml_id) + '?attributes=' + ML_ITEM_CAMPOS);
     const st = (p.ml_status === 'paused_venda' && d.status === 'paused') ? 'paused_venda' : d.status;
     if (st && st !== p.ml_status) await env.DB.prepare('UPDATE pecas SET ml_status=?, ml_link=COALESCE(?,ml_link) WHERE id=?').bind(st, d.permalink || null, p.id).run();
-    return json({ item: { id: d.id, status: st, sub: d.sub_status || [], link: d.permalink || null, preco: d.price, qtd: d.available_quantity, vendidos: d.sold_quantity || 0, tipo: d.listing_type_id, saude: d.health ?? null, criado: d.date_created || null, avisos: mlAvisos(d) } });
+    return json({ item: { protegido: (await mlProtegidos(env)).has(String(d.id).toUpperCase()), id: d.id, status: st, sub: d.sub_status || [], link: d.permalink || null, preco: d.price, qtd: d.available_quantity, vendidos: d.sold_quantity || 0, tipo: d.listing_type_id, saude: d.health ?? null, criado: d.date_created || null, avisos: mlAvisos(d) } });
   } catch (e) { return bad('não consegui ler o anúncio no Mercado Livre: ' + e.message); }
 }
 // pausar / retomar / sincronizar preço e estoque / finalizar / desvincular
@@ -588,14 +611,21 @@ async function mlSemEstoque(token, mlId) {
   catch { return await mlReq(token, 'PUT', '/items/' + encodeURIComponent(mlId), { status: 'paused' }); }
 }
 // depois de venda/cancelamento: sem estoque → pausa o anúncio; com estoque → atualiza a quantidade (e reativa se foi pausado pela venda)
-async function mlAposEstoque(env, pecaId) {
+async function mlAposEstoque(env, pecaId, venda) {
   try {
     await garanteColsPecas(env);
     const p = await env.DB.prepare('SELECT id,ml_id,ml_status,qtd FROM pecas WHERE id=?').bind(pecaId).first();
     if (!p || !p.ml_id || p.ml_status === 'closed') return null;
+    if ((await mlProtegidos(env)).has(String(p.ml_id).toUpperCase())) return 'protegido';
     const token = await mlToken(env);
     if (!token) return null;
     const q = Number(p.qtd) || 0;
+    if (venda && q > 0 && (await getCfg(env, 'ml_pausar_venda')) === '1') {   // regra: pausar a cada venda, mesmo com estoque
+      await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), { available_quantity: q });
+      await mlReq(token, 'PUT', '/items/' + encodeURIComponent(p.ml_id), { status: 'paused' });
+      await env.DB.prepare("UPDATE pecas SET ml_status='paused' WHERE id=?").bind(p.id).run();
+      return 'pausado_regra';
+    }
     if (q <= 0) {
       await mlSemEstoque(token, p.ml_id);
       await env.DB.prepare("UPDATE pecas SET ml_status='paused_venda' WHERE id=?").bind(p.id).run();
@@ -1248,6 +1278,55 @@ async function baixaFotosML(env, it, pecaId) {
     } catch { falhas++; }
   }
   return { fotos, falhas };
+}
+// ---------- regras do Mercado Livre ----------
+async function mlRegras(env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  const ids = [...(await mlProtegidos(env))], token = await mlToken(env), info = {};
+  if (token) for (let i = 0; i < ids.length; i += 20) {
+    try { for (const x of await mlReq(token, 'GET', '/items?ids=' + ids.slice(i, i + 20).join(',') + '&attributes=id,title,status,permalink,available_quantity,sold_quantity'))
+      if (x && x.body && x.body.id) info[x.body.id] = { titulo: x.body.title, status: x.body.status, link: x.body.permalink, qtd: x.body.available_quantity, vendidos: x.body.sold_quantity }; } catch { /* sem detalhes */ }
+  }
+  return json({ pausarVenda: (await getCfg(env, 'ml_pausar_venda')) === '1', desde: await getCfg(env, 'ml_pausa_desde'),
+    protegidos: ids.map(id => ({ id, ...(info[id] || {}) })) });
+}
+async function mlRegrasSalva(request, env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  const b = await request.json().catch(() => ({}));
+  if (typeof b.pausarVenda === 'boolean') {
+    const antes = (await getCfg(env, 'ml_pausar_venda')) === '1';
+    await setCfg(env, 'ml_pausar_venda', b.pausarVenda ? '1' : '0');
+    if (b.pausarVenda && !antes) { await setCfg(env, 'ml_pausa_desde', new Date().toISOString()); await setCfg(env, 'ml_pausa_vistos', '[]'); }   // só vale para vendas a partir de agora
+  }
+  const prot = await mlProtegidos(env), id = s => String(s || '').toUpperCase().replace(/^MLB-?/, 'MLB');
+  if (b.proteger) { const x = id(b.proteger); if (!/^MLB\d{6,}$/.test(x)) return bad('código do anúncio inválido (ex.: MLB1234567890)'); prot.add(x); }
+  if (b.desproteger) prot.delete(id(b.desproteger));
+  if (b.proteger || b.desproteger) await setCfg(env, 'ml_protegidos', JSON.stringify([...prot]));
+  return mlRegras(env, user);
+}
+// a cada 2 min (cron): com a regra ligada, pausa no ML o anúncio de cada venda nova que entrou pelo ML
+async function mlPausaPosVenda(env) {
+  if ((await getCfg(env, 'ml_pausar_venda')) !== '1') return;
+  const token = await mlToken(env), seller = await getCfg(env, 'ml_user_id');
+  if (!token || !seller) return;
+  const desde = new Date((await getCfg(env, 'ml_pausa_desde')) || new Date().toISOString());
+  let vistos = []; try { vistos = JSON.parse((await getCfg(env, 'ml_pausa_vistos')) || '[]'); } catch { vistos = []; }
+  const ja = new Set(vistos.map(String)), prot = await mlProtegidos(env);
+  const d = await mlReq(token, 'GET', '/orders/search?seller=' + encodeURIComponent(seller) + '&order.status=paid&sort=date_desc&limit=50');
+  let mudou = false;
+  for (const o of d.results || []) {
+    if (ja.has(String(o.id)) || new Date(o.date_created || o.date_closed || 0) < desde) continue;
+    for (const oi of o.order_items || []) {
+      const mlId = String((oi.item && oi.item.id) || '').toUpperCase();
+      if (!mlId || prot.has(mlId)) continue;   // protegido: nunca mexe
+      try {
+        await mlReq(token, 'PUT', '/items/' + encodeURIComponent(mlId), { status: 'paused' });
+        await env.DB.prepare("UPDATE pecas SET ml_status='paused' WHERE ml_id=?").bind(mlId).run();
+      } catch (e) { console.log('pausa pós-venda', mlId, e.message); }
+    }
+    vistos.push(String(o.id)); ja.add(String(o.id)); mudou = true;
+  }
+  if (mudou) await setCfg(env, 'ml_pausa_vistos', JSON.stringify(vistos.slice(-400)));
 }
 // ---------- vincular anúncios do ML às peças que já estão no sistema (ex.: importadas do iBR) ----------
 const skuDe = it => { const a = (it.attributes || []).find(x => x.id === 'SELLER_SKU'); return String((a && a.value_name) || it.seller_custom_field || '').trim(); };
@@ -2179,7 +2258,7 @@ async function criaVenda(request, env) {
   ).bind(id, peca.id, peca.nome, peca.codigo, qtd, unit, qtd * unit, b.canal || 'Balcão',
     b.cliente || null, b.pagamento || null, b.local_path || null, now(), b.ml_pedido ? String(b.ml_pedido) : null).run();
   await env.DB.prepare('UPDATE pecas SET qtd=qtd-?, atualizado_em=? WHERE id=?').bind(qtd, now(), peca.id).run();
-  const ml = await mlAposEstoque(env, peca.id);
+  const ml = await mlAposEstoque(env, peca.id, true);
   return json({ ok: true, id, ml });
 }
 async function cancelaVenda(id, env) {

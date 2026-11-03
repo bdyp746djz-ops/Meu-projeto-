@@ -1073,6 +1073,28 @@ async function caixaVideo(p){
   el.querySelectorAll('[data-vr]').forEach(b=>b.onclick=async()=>{ await api('/videos/'+b.dataset.vr+'/repetir',{method:'POST'}); caixaVideo(p); });
   if((v&&(v.status==='fila'||v.status==='gerando'))||fpend)window._vidT=setTimeout(async()=>{ if(fpend){ try{ const {peca}=await api('/pecas/'+p.id); if(peca&&JSON.stringify(peca.fotos)!==JSON.stringify(p.fotos)){ Object.assign(p,peca); const i=S.pecas.findIndex(x=>x.id===p.id); if(i>=0)S.pecas[i]=p; if($('#vidbox'))return abrePeca(p.id); } }catch(_){ } } caixaVideo(p); },8000);
 }
+// regras do Mercado Livre: pausar a cada venda + anúncios protegidos (o sistema nunca altera)
+async function cartaoRegras(){
+  const el=$('#regcard'); if(!el||!(S.user&&S.user.papel==='admin'))return; let r;
+  try{ r=await api('/ml/regras'); }catch(e){ return; }
+  if(!$('#regcard'))return;
+  const st=s=>({active:'🟢 ativo',paused:'⏸️ pausado',closed:'⛔ finalizado'}[s]||esc(s||'?'));
+  el.innerHTML=`<div class="card" style="max-width:960px;margin:0 auto 12px"><b>⚙️ Regras do Mercado Livre</b>
+    <label class="small" style="display:flex;gap:8px;align-items:flex-start;margin:10px 0"><input type="checkbox" id="rgpv" ${r.pausarVenda?'checked':''} style="width:20px;height:20px;flex:none;margin:0">
+      <span><b>Pausar o anúncio a cada venda</b>, mesmo com mais em estoque. Vale para venda feita no sistema e para venda que entra pelo ML (o sistema confere a cada 2 minutos). Para voltar a vender, toque em <b>Retomar</b> na peça ou ative no ML.${r.pausarVenda&&r.desde?`<br><span class="mut">Ligado desde ${new Date(r.desde).toLocaleString('pt-BR')} (vendas anteriores não são mexidas).</span>`:''}</span></label>
+    <div style="border-top:1px solid var(--line);padding-top:10px"><b>🔒 Anúncios protegidos</b> <span class="small mut">— o sistema <b>nunca</b> altera esses anúncios no ML: não pausa, não muda estoque, preço, fotos nem finaliza. Continuam ativos como estão.</span>
+      ${r.protegidos.length?r.protegidos.map(x=>`<div class="sel small" style="align-items:center"><span style="flex:1">🔒 <b>${esc(x.id)}</b>${x.titulo?' · '+esc(x.titulo):''}<br><span class="mut">${x.status?st(x.status):'não consegui ler no ML agora'}${x.qtd!=null?' · '+x.qtd+' em estoque':''}${x.vendidos!=null?' · '+x.vendidos+' vendido(s)':''}</span></span>${x.link?`<a class="btn sm" href="${esc(x.link)}" target="_blank" rel="noopener">Ver</a>`:''}<button class="btn sm" data-rgx="${esc(x.id)}" title="Tirar a proteção">✖</button></div>`).join('')
+        :'<p class="small mut">Nenhum anúncio protegido ainda.</p>'}
+      <div class="mlbusca" style="margin-top:8px"><input id="rgnovo" placeholder="Código ou link do anúncio (ex.: MLB1234567890)"><button class="btn sm p" id="rgadd" type="button">🔒 Proteger</button></div></div></div>`;
+  const salva=async corpo=>{ try{ await api('/ml/regras',{method:'POST',body:corpo}); await cartaoRegras(); return true; }catch(e){ toast(e.message); return false; } };
+  $('#rgpv').onchange=async e=>{ const on=e.target.checked;
+    if(on&&!confirm('Ligar a regra? A partir de agora, cada venda PAUSA o anúncio no Mercado Livre, mesmo que tenha mais peças em estoque. Os anúncios protegidos 🔒 nunca são pausados.')){ e.target.checked=false; return; }
+    if(await salva({pausarVenda:on}))toast(on?'✅ Regra ligada: pausar a cada venda':'Regra desligada'); };
+  $('#rgadd').onclick=async()=>{ const m=String($('#rgnovo').value).toUpperCase().match(/MLB-?(\d{6,})/); if(!m)return toast('Cole o código MLB ou o link do anúncio');
+    if(await salva({proteger:'MLB'+m[1]}))toast('🔒 MLB'+m[1]+' protegido'); };
+  el.querySelectorAll('[data-rgx]').forEach(b=>b.onclick=async()=>{ if(!confirm('Tirar a proteção do anúncio '+b.dataset.rgx+'? O sistema volta a poder pausar e mudar o estoque dele.'))return;
+    if(await salva({desproteger:b.dataset.rgx}))toast('Proteção removida de '+b.dataset.rgx); });
+}
 // IA do Google (Gemini): chaves da API, vídeo (Veo) e fotos (Nano Banana)
 async function cartaoVeo(){
   const el=$('#veocard'); if(!el)return; let c={}; try{ c=await api('/veo'); }catch(_){ }
@@ -1181,6 +1203,9 @@ async function caixaAnuncio(p){
       +(it.avisos&&it.avisos.length?`<div style="margin-top:4px;color:var(--amber)">⚠️ ${it.avisos.map(esc).join('<br>⚠️ ')}</div>`:'')
       +(st&&st.startsWith('paused')&&!(it.sub||[]).includes('picture_download_pending')&&!(it.sub||[]).includes('out_of_stock')?'<div class="small" style="margin-top:4px">Se não houver motivo do ML, toque em <b>Retomar</b> para ativar.</div>':''):esc(p.ml_id);
     const b=(k,t,ic,cl)=>`<button class="btn sm ${cl||''}" data-ma="${k}"><span class="material-icons" style="font-size:16px;vertical-align:-3px">${ic}</span> ${t}</button>`;
+    if(it&&it.protegido){ $('#mlact').innerHTML=(link?`<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener"><span class="material-icons" style="font-size:16px;vertical-align:-3px">open_in_new</span> Ver</a>`+b('copiar','Copiar link','content_copy'):'')
+        +'<div class="small" style="width:100%;margin-top:6px;color:var(--ok)">🔒 <b>Anúncio protegido</b>: o sistema nunca altera esse anúncio no Mercado Livre (status, estoque, preço, fotos). Vender a peça aqui só baixa o estoque do sistema.</div>';
+      document.querySelectorAll('[data-ma]').forEach(x=>x.onclick=()=>acaoAnuncio(p,x.dataset.ma,link)); return; }
     $('#mlact').innerHTML=(link?`<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener"><span class="material-icons" style="font-size:16px;vertical-align:-3px">open_in_new</span> Ver</a>`+b('copiar','Copiar link','content_copy'):'')
       +(st==='active'?b('pausar','Pausar','pause'):'')+(st&&st.startsWith('paused')?b('retomar','Retomar','play_arrow'):'')
       +(st!=='closed'?b('sincronizar','Atualizar preço e estoque','sync')+(it&&it.vendidos===0?b('finalizar','Finalizar','stop_circle','red'):''):'')+b('desvincular','Desvincular','link_off')
@@ -1592,7 +1617,7 @@ function vender(p){
   $('#cc').onclick=()=>S.view==='ficha'?fecha():abrePeca(p.id);
   $('#ok').onclick=async()=>{ try{
     const rv=await api('/vendas',{method:'POST',body:{peca_id:p.id,qtd:$('#vq').value,unit:$('#vp').value,canal:$('#vc').value,cliente:$('#vcl').value,pagamento:$('#vpg').value,local_path:p.local_id?locPath(p.local_id):''}});
-    fecha(); toast('Venda registrada! Retirar em '+(p.local_id?locPath(p.local_id):'—')+(rv.ml==='pausado'?' · anúncio do ML pausado (sem estoque)':rv.ml==='atualizado'?' · estoque do ML atualizado':rv.ml&&rv.ml.startsWith('erro')?' · ⚠️ não consegui atualizar o ML':''));
+    fecha(); toast('Venda registrada! Retirar em '+(p.local_id?locPath(p.local_id):'—')+(rv.ml==='pausado_regra'?' · anúncio do ML pausado (regra: pausar a cada venda)':rv.ml==='protegido'?' · 🔒 anúncio protegido: o ML não foi alterado':rv.ml==='pausado'?' · anúncio do ML pausado (sem estoque)':rv.ml==='atualizado'?' · estoque do ML atualizado':rv.ml&&rv.ml.startsWith('erro')?' · ⚠️ não consegui atualizar o ML':''));
     if(S.view==='estoque')listaEstoque(); else if(S.view==='ficha')fichaPeca();
   }catch(err){ toast('Erro: '+err.message); } };
 }
@@ -1659,6 +1684,7 @@ async function integracoes(){
      </div></div>
    ${flash}${ml.conectado?'':cartaoML(ml,admin)}
    <div class="dp-mini" id="mresumo"></div>
+   <div id="regcard" style="padding:0 12px"></div>
    <div id="veocard" style="padding:0 12px"></div>
    <div id="vidcard" style="padding:0 12px"></div>
    <div class="dp-lista" id="mlista"></div>`;
@@ -1688,7 +1714,7 @@ async function integracoes(){
   $('#mcfg').onclick=()=>{ modal(cartaoML(ml,admin)); ligaML(ml,integracoes); };
   if($('#mimp'))$('#mimp').onclick=importarML;
   if($('#mvinc'))$('#mvinc').onclick=vincularML;
-  cartaoVeo(); cartaoGerador();
+  cartaoRegras(); cartaoVeo(); cartaoGerador();
   ligaML(ml,integracoes);
   desenha();
 }
