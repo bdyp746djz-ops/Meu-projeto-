@@ -554,6 +554,7 @@ async function estoque(){
   $('#main').innerHTML=`<div class="top"><h2>Consulta de Peças</h2>
     <button class="btn sm" id="dlbtn" title="Baixar planilha do estoque">⬇️ Download</button>
     ${S.user&&S.user.papel==='admin'?'<button class="btn sm" id="impbtn" title="Importar peças de uma planilha (ex.: estoque do iBR)">⬆️ Importar</button>':''}
+    <button class="btn sm" id="cfbtn" title="Peças com estoque sem foto: buscar no iBR e colar as fotos">📷 Completar fotos</button>
     <button class="btn sm" id="selbtn">${S.ui.selMode?'✖ Cancelar':'☑️ Selecionar'}</button>
     <button class="btn p" id="novapeca">+ Nova peça</button></div>
     <div class="q" style="margin-bottom:10px"><div class="withmic"><input id="gq" placeholder="Buscar nome, código, part number ou veículo…" value="${esc(S.ui.q)}"><button type="button" class="mic" title="Ditar por voz">🎤</button></div></div>
@@ -585,6 +586,7 @@ async function estoque(){
   $('#novapeca').onclick=()=>go('nova');
   $('#dlbtn').onclick=baixarEstoque;
   if($('#impbtn'))$('#impbtn').onclick=importarPlanilha;
+  if($('#cfbtn'))$('#cfbtn').onclick=completarFotos;
   $('#selbtn').onclick=()=>{ S.ui.selMode=!S.ui.selMode; S.ui.sel=new Set(); const b=document.getElementById('bulkbar'); if(b)b.remove(); estoque(); };
   $('#gq').oninput=e=>{ S.ui.q=e.target.value.trim(); clearTimeout(window._t); window._t=setTimeout(listaEstoque,250); };
   $('#floc').onchange=e=>{ S.ui.loc=e.target.value; listaEstoque(); };
@@ -1975,10 +1977,11 @@ async function avisoSemFoto(){ const el=$('#lfotos'); if(!el)return; let r; try{
   const pinta=()=>{ if(!$('#lfotos'))return;
     el.innerHTML=`<div class="card small" style="margin:8px 12px;box-shadow:none;background:#f5f7fa">🖼️ <b>${r.total} peça(s) com estoque sem foto</b>
       ${com.length?`<br>• ${com.length} ligada(s) a anúncio: o sistema busca as fotos sozinho, aos poucos. <button class="btn sm p" id="lfbusca" ${st.rodando?'disabled':''}>Buscar agora</button>`:''}
-      ${sem.length?`<br>• ${sem.length} sem anúncio ligado: não tem de onde buscar — tire a foto ou use <b>🔗 Vincular anúncios</b>.`:''}
+      ${sem.length?`<br>• ${sem.length} sem anúncio ligado: as fotos podem estar no iBR. <button class="btn sm p" id="lfcomp">📷 Completar fotos</button>`:''}
       <br><a href="#" id="lfver">${st.aberto?'Esconder':'Ver quais e por quê'}</a><div id="lfprog"></div>
       ${st.aberto?`<div style="margin-top:6px;max-height:260px;overflow:auto">${r.pecas.map(p=>`<div class="sel" style="align-items:flex-start"><span style="flex:1"><a href="#" data-lfp="${esc(p.id)}"><b>${cod(p.codigo)}</b> ${esc(p.nome)}</a><br><span class="mut">${p.anuncio?(p.erro?'⚠️ '+esc(p.erro):p.tentou?'ainda sem foto':'na fila para buscar do anúncio'):'sem anúncio ligado'}</span></span></div>`).join('')}</div>`:''}</div>`;
     $('#lfver').onclick=e=>{ e.preventDefault(); st.aberto=!st.aberto; pinta(); };
+    if($('#lfcomp'))$('#lfcomp').onclick=completarFotos;
     el.querySelectorAll('[data-lfp]').forEach(a=>a.onclick=e=>{ e.preventDefault(); abrePeca(a.dataset.lfp); });
     if($('#lfbusca'))$('#lfbusca').onclick=async()=>{ st.rodando=true; pinta(); let ok=0;
       for(let i=0;i<com.length;i++){ if(!$('#lfprog'))return; $('#lfprog').innerHTML=`<span class="spin-s"></span> Buscando ${i+1} de ${com.length}…`;
@@ -1987,6 +1990,59 @@ async function avisoSemFoto(){ const el=$('#lfotos'); if(!el)return; let r; try{
       st.rodando=false; toast(`🖼️ ${ok} peça(s) ganharam foto`); if(S.ui._redesenhaLoc)S.ui._redesenhaLoc(); avisoSemFoto(); };
   };
   pinta(); }
+// ---------- Completar fotos: peças sem foto, com link para a peça no iBR e colar/arrastar as fotos ----------
+const IBR_EMPRESA='388';   // empresa da Rafa no iBR (está no QR das etiquetas do iBR)
+const linkIBR=c=>`https://desmonte.ibrsoftweb.com.br/rastreabilidade?topic=product&code=${encodeURIComponent(c)}&companyId=${IBR_EMPRESA}`;
+async function completarFotos(){
+  modal(`<h3>📷 Completar fotos</h3>
+   <p class="small mut">Peças com estoque e sem foto. Toque em <b>🔎 Ver no iBR</b>, na foto use o botão direito → <b>Copiar imagem</b>, volte aqui, passe o mouse no cartão da peça e aperte <b>Ctrl+V</b>. Também dá para <b>arrastar</b> a foto até o cartão, ou escolher do celular/computador.</p>
+   <div id="cfl"><span class="spin-s"></span> Carregando…</div>
+   <div class="top" style="margin-top:10px"><button class="btn" id="cfcc">Fechar</button></div>`);
+  const sai=()=>{ document.removeEventListener('paste',cola); fecha(); if(S.view==='locais')locais(); else if(S.view==='estoque')go('estoque'); };
+  $('#cfcc').onclick=sai;
+  let r; try{ r=await api('/fotos/resumo'); }catch(e){ if($('#cfl'))$('#cfl').innerHTML=esc(e.message); return; }
+  if(!$('#cfl'))return;
+  if(!r.total){ $('#cfl').innerHTML='<p>✅ Todas as peças com estoque têm foto.</p>'; return; }
+  const st={ativo:null,n:{}};
+  const ordem=[...r.pecas.filter(p=>!p.anuncio),...r.pecas.filter(p=>p.anuncio)];
+  $('#cfl').innerHTML=`<p class="small"><b>${r.total} peça(s)</b>${ordem.some(p=>p.anuncio)?' · as ligadas a anúncio o sistema também busca sozinho':''}</p>`+ordem.map(p=>`
+    <div class="card cf-card" data-cf="${esc(p.id)}" tabindex="0" style="margin:8px 0;padding:10px;border:2px dashed var(--line);box-shadow:none">
+      <div class="small"><b>${cod(p.codigo)}</b> ${esc(p.nome)}${p.local_id&&S.locais&&S.locais[p.local_id]?` <span class="mut">· 📍 ${esc(codigoTxt(p.local_id))}</span>`:''}${p.anuncio?' <span class="tag ml">tem anúncio</span>':''}</div>
+      <div class="mlact" style="margin-top:6px"><a class="btn sm" href="${linkIBR(p.codigo)}" target="_blank" rel="noopener">🔎 Ver no iBR</a>
+        <label class="btn sm" style="cursor:pointer">📁 Escolher fotos<input type="file" accept="image/*" multiple data-cff="${esc(p.id)}" style="display:none"></label>
+        <span class="small mut" data-cfs="${esc(p.id)}">arraste ou cole (Ctrl+V) aqui</span></div>
+      <div data-cft="${esc(p.id)}" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div></div>`).join('');
+  const card=id=>document.querySelector(`[data-cf="${CSS.escape(id)}"]`);
+  const ativa=id=>{ st.ativo=id; document.querySelectorAll('[data-cf]').forEach(c=>c.style.borderColor=c.dataset.cf===id?'var(--blue,#3f51b5)':''); };
+  const status=(id,t)=>{ const e=document.querySelector(`[data-cfs="${CSS.escape(id)}"]`); if(e)e.innerHTML=t; };
+  const pronto=(id,key)=>{ st.n[id]=(st.n[id]||0)+1; const t=document.querySelector(`[data-cft="${CSS.escape(id)}"]`);
+    if(t)t.insertAdjacentHTML('beforeend',`<img src="/api/foto/${esc(key)}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--line)">`);
+    const c=card(id); if(c){ c.style.borderStyle='solid'; c.style.borderColor='var(--ok)'; }
+    status(id,`✅ ${st.n[id]} foto(s) — pode colar mais`); (S.pecas||[]).forEach(p=>{ if(p.id===id)p.fotos=[...(p.fotos||[]),key]; }); };
+  const sobeArquivo=async(id,file)=>{ status(id,'<span class="spin-s"></span> enviando…');
+    try{ const b=await shrink(file).catch(()=>file); const x=await fetch('/api/pecas/'+id+'/foto',{method:'POST',headers:{'content-type':'image/jpeg'},body:b}); const j=await x.json().catch(()=>({}));
+      if(!j.key)throw new Error(j.erro||'falha ao enviar'); pronto(id,j.key); }
+    catch(e){ status(id,'⚠️ '+esc(e.message)); } };
+  const sobeLink=async(id,url)=>{ status(id,'<span class="spin-s"></span> baixando…');
+    try{ if(/^data:image\//.test(url)){ await sobeArquivo(id,await (await fetch(url)).blob()); return; }
+      if(!/^https?:/i.test(url))throw new Error('não deu para pegar essa foto arrastando: use botão direito → Copiar imagem e cole com Ctrl+V');
+      const j=await api('/pecas/'+id+'/foto-url',{method:'POST',body:{url}}); pronto(id,j.key); }
+    catch(e){ status(id,'⚠️ '+esc(e.message)); } };
+  function cola(e){ if(!$('#cfl')){ document.removeEventListener('paste',cola); return; } if(!st.ativo)return toast('Passe o mouse ou toque no cartão da peça antes de colar');
+    const fs=[...(e.clipboardData&&e.clipboardData.items||[])].filter(i=>i.kind==='file'&&/^image\//.test(i.type)).map(i=>i.getAsFile());
+    if(fs.length){ e.preventDefault(); fs.forEach(f=>sobeArquivo(st.ativo,f)); return; }
+    const t=(e.clipboardData&&e.clipboardData.getData('text'))||''; if(/^(https?:|data:image)/i.test(t.trim())){ e.preventDefault(); sobeLink(st.ativo,t.trim()); } }
+  document.addEventListener('paste',cola);
+  document.querySelectorAll('[data-cf]').forEach(c=>{ const id=c.dataset.cf;
+    c.onmouseenter=()=>ativa(id); c.onclick=()=>ativa(id); c.onfocus=()=>ativa(id);
+    c.ondragover=e=>{ e.preventDefault(); ativa(id); };
+    c.ondrop=e=>{ e.preventDefault(); ativa(id); const dt=e.dataTransfer;
+      const fs=[...(dt.files||[])].filter(f=>/^image\//.test(f.type)); if(fs.length){ fs.forEach(f=>sobeArquivo(id,f)); return; }
+      let url=(dt.getData('text/uri-list')||'').split('\n').find(l=>l&&!l.startsWith('#'))||'';
+      const h=dt.getData('text/html'); const m=h&&h.match(/<img[^>]+src=["']([^"']+)["']/i); if(m)url=m[1].replace(/&amp;/g,'&');
+      if(!url)url=(dt.getData('text/plain')||'').trim(); if(url)sobeLink(id,url); else status(id,'⚠️ não reconheci o que foi arrastado'); }; });
+  document.querySelectorAll('[data-cff]').forEach(i=>i.onchange=()=>{ [...i.files].forEach(f=>sobeArquivo(i.dataset.cff,f)); i.value=''; });
+}
 function ocupacaoTotal(id){ let t=Number(S.locais[id]&&S.locais[id].ocupacao)||0; for(const c of locChildren(id)) t+=ocupacaoTotal(c.id); return t; }
 function pecasDentro(id,tudo){ const r=[...(S.ui._porLocal&&S.ui._porLocal[id]||[])]; if(tudo)locChildren(id).forEach(c=>r.push(...pecasDentro(c.id,true))); return r; }
 function linhaPeca(p,d,comLocal){ const foto=p.fotos&&p.fotos[0]?`<img src="/api/foto/${p.fotos[0]}" loading="lazy" alt="">`:'<span class="material-icons">build</span>';

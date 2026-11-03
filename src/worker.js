@@ -150,6 +150,8 @@ async function api(request, env, url) {
   mt = p.match(/^\/api\/pecas\/([\w-]+)\/fotos\/conferir$/);
   if (mt && m === 'POST') return conferirFotos(mt[1], env);
   if (p === '/api/fotos/resumo' && m === 'GET') return fotosResumo(env);
+  mt = p.match(/^\/api\/pecas\/([\w-]+)\/foto-url$/);
+  if (mt && m === 'POST') return fotoPorUrl(mt[1], request, env);
 
   // fotos (R2): servidas publicamente na seção pública acima
 
@@ -1766,6 +1768,28 @@ async function fotosResumo(env) {
   const r = (await env.DB.prepare(`SELECT id,codigo,nome,ml_id,fotos_erro,fotos_tent,local_id,(SELECT COUNT(*) FROM ml_extras e WHERE e.peca_id=pecas.id) AS extras FROM pecas
       WHERE qtd>0 AND (fotos IS NULL OR fotos IN ('','[]')) ORDER BY codigo`).all()).results;
   return json({ total: r.length, pecas: r.map(p => ({ id: p.id, codigo: p.codigo, nome: p.nome, local_id: p.local_id, anuncio: !!(p.ml_id || p.extras), erro: p.fotos_erro || null, tentou: p.fotos_tent || null })) });
+}
+// foto arrastada de outra aba (ex.: página da peça no iBR): o servidor baixa pelo link e guarda
+async function fotoPorUrl(pecaId, request, env) {
+  const p = await env.DB.prepare('SELECT id,fotos FROM pecas WHERE id=?').bind(pecaId).first();
+  if (!p) return bad('peça não encontrada', 404);
+  const b = await request.json().catch(() => ({}));
+  let u; try { u = new URL(String(b.url || '')); } catch { return bad('link da foto inválido'); }
+  if (!/^https?:$/.test(u.protocol)) return bad('link da foto inválido');
+  let r;
+  try { r = await fetch(u.toString(), { headers: { 'user-agent': 'Mozilla/5.0 (compatible; RafaBuscaPecas/1.0)', accept: 'image/jpeg,image/png,image/webp,image/*;q=0.8' } }); }
+  catch (e) { return bad('não consegui baixar a foto: ' + ((e && e.message) || e)); }
+  if (!r.ok) return bad('o site da foto respondeu HTTP ' + r.status + ' — copie a foto (botão direito → Copiar imagem) e cole com Ctrl+V');
+  const buf = await r.arrayBuffer();
+  if (buf.byteLength > 15e6) return bad('foto grande demais');
+  const tipo = tipoImagem(new Uint8Array(buf, 0, Math.min(16, buf.byteLength)));
+  if (!tipo || buf.byteLength < 800) return bad('esse link não é de uma foto — copie a foto (botão direito → Copiar imagem) e cole com Ctrl+V');
+  const key = `pecas/${p.id}/${uid()}.${tipo === 'image/png' ? 'png' : tipo === 'image/webp' ? 'webp' : 'jpg'}`;
+  await env.FOTOS.put(key, buf, { httpMetadata: { contentType: tipo } });
+  let fotos = []; try { fotos = JSON.parse(p.fotos || '[]'); } catch { fotos = []; }
+  fotos.push(key);
+  await env.DB.prepare('UPDATE pecas SET fotos=?, fotos_erro=NULL, atualizado_em=? WHERE id=?').bind(JSON.stringify(fotos), now(), p.id).run();
+  return json({ key, fotos });
 }
 async function subirFoto(pecaId, request, env) {
   const peca = await env.DB.prepare('SELECT fotos FROM pecas WHERE id=?').bind(pecaId).first();
