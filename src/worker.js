@@ -180,6 +180,9 @@ async function api(request, env, url) {
   if (mt && m === 'GET') return mlPergDiagnostico(mt[1], env);
   mt = p.match(/^\/api\/ml\/perguntas\/(\d+)\/(responder|sugerir)$/);
   if (mt && m === 'POST') return mt[2] === 'responder' ? mlResponde(mt[1], request, env) : mlSugereResposta(mt[1], env);
+  // ligar anúncios do ML às peças que já estão no sistema
+  if (p === '/api/ml/vincular' && m === 'GET') return mlVincularSugestoes(url, env, user);
+  if (p === '/api/ml/vincular' && m === 'POST') return mlVincula(request, env, user);
   // importar anúncios da conta do ML para o sistema (com fotos e ficha técnica)
   if (p === '/api/ml/importar' && m === 'GET') return mlImportLista(url, env, user);
   mt = p.match(/^\/api\/ml\/importar\/(MLB\d+)$/i);
@@ -1229,6 +1232,86 @@ function mlMedida(a, alvo) {
   if (alvo === 'g') return Math.round(u === 'kg' ? n * 1000 : u === 'mg' ? n / 1000 : n);
   return Math.round((u === 'mm' ? n / 10 : u === 'm' ? n * 100 : n) * 10) / 10;
 }
+// fotos do anúncio: baixa cada uma do ML e guarda como foto original da peça
+async function baixaFotosML(env, it, pecaId) {
+  const fotos = []; let falhas = 0;
+  for (const pic of (it.pictures || []).slice(0, 12)) {
+    const src = pic.secure_url || pic.url; if (!src) continue;
+    try {
+      const r = await fetch(src);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const ct = (r.headers.get('content-type') || 'image/jpeg').split(';')[0];
+      const ext = ct.includes('png') ? 'png' : ct.includes('webp') ? 'webp' : 'jpg';
+      const key = `pecas/${pecaId}/${uid()}.${ext}`;
+      await env.FOTOS.put(key, await r.arrayBuffer(), { httpMetadata: { contentType: ct } });
+      fotos.push(key);
+    } catch { falhas++; }
+  }
+  return { fotos, falhas };
+}
+// ---------- vincular anúncios do ML às peças que já estão no sistema (ex.: importadas do iBR) ----------
+const skuDe = it => { const a = (it.attributes || []).find(x => x.id === 'SELLER_SKU'); return String((a && a.value_name) || it.seller_custom_field || '').trim(); };
+const palavras = t => new Set(norm(t).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 1));
+function parecenca(a, b) { const A = palavras(a), B = palavras(b); if (!A.size || !B.size) return 0; let n = 0; for (const w of A) if (B.has(w)) n++; return n / Math.max(A.size, B.size); }
+async function mlVincularSugestoes(url, env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  const token = await mlToken(env), seller = await getCfg(env, 'ml_user_id');
+  if (!token || !seller) return bad('conecte o Mercado Livre primeiro');
+  await garanteColsPecas(env);
+  const st = url.searchParams.get('status') === 'paused' ? 'paused' : 'active', off = Math.max(0, parseInt(url.searchParams.get('offset')) || 0);
+  const s = await mlReq(token, 'GET', `/users/${seller}/items/search?limit=100&offset=${off}&status=${st}`);
+  const ids = s.results || [], itens = [];
+  for (let i = 0; i < ids.length; i += 20) {
+    const r = await mlReq(token, 'GET', '/items?ids=' + ids.slice(i, i + 20).join(',') + '&attributes=id,title,price,available_quantity,sold_quantity,status,secure_thumbnail,thumbnail,permalink,seller_custom_field,attributes');
+    for (const x of r) if (x && x.body && x.body.id) itens.push(x.body);
+  }
+  const caminho = await caminhosLocais(env);
+  const pecas = (await env.DB.prepare('SELECT id,codigo,nome,qtd,local_id,ml_id,fotos FROM pecas').all()).results;
+  const porCod = new Map(pecas.map(p => [Number(p.codigo), p])), porMl = new Map(pecas.filter(p => p.ml_id).map(p => [p.ml_id, p]));
+  const resumoP = p => p && { id: p.id, codigo: p.codigo, nome: p.nome, qtd: p.qtd, local: p.local_id ? caminho(p.local_id) : null, ml_id: p.ml_id || null, semFoto: !(p.fotos && p.fotos !== '[]') };
+  const lista = itens.map(it => {
+    const item = { id: it.id, titulo: it.title, preco: it.price, qtd: it.available_quantity, vendidos: it.sold_quantity, status: it.status, foto: it.secure_thumbnail || it.thumbnail || null, link: it.permalink, sku: skuDe(it) };
+    const ja = porMl.get(it.id); if (ja) return { item, peca: resumoP(ja), como: 'ja' };
+    const livre = p => p && !p.ml_id;
+    const m = item.sku.match(/(\d{1,12})\D*$/), ps = m && porCod.get(Number(m[1]));
+    if (livre(ps)) return { item, peca: resumoP(ps), como: 'sku' };
+    const iguais = pecas.filter(p => livre(p) && norm(p.nome).trim() === norm(it.title).trim());
+    if (iguais.length === 1) return { item, peca: resumoP(iguais[0]), como: 'titulo' };
+    const notas = pecas.filter(livre).map(p => [p, parecenca(it.title, p.nome)]).sort((a, b) => b[1] - a[1]);
+    if (notas[0] && notas[0][1] >= 0.6 && (!notas[1] || notas[0][1] - notas[1][1] >= 0.15)) return { item, peca: resumoP(notas[0][0]), como: 'parecido', nota: Math.round(notas[0][1] * 100) };
+    return { item, peca: null, como: 'sem' };
+  });
+  return json({ status: st, offset: off, total: (s.paging && s.paging.total) || ids.length, proximo: off + ids.length < ((s.paging && s.paging.total) || 0) ? off + ids.length : null, lista });
+}
+// liga um anúncio a uma peça; traz a ficha técnica, a embalagem e (se pedir) as fotos do anúncio
+async function mlVincula(request, env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  const token = await mlToken(env);
+  if (!token) return bad('conecte o Mercado Livre primeiro');
+  await garanteColsPecas(env);
+  const b = await request.json().catch(() => ({}));
+  const mlId = String(b.ml_id || '').toUpperCase().replace(/^MLB-?/, 'MLB');
+  if (!/^MLB\d+$/.test(mlId)) return bad('código do anúncio inválido (ex.: MLB1234567890)');
+  const p = await env.DB.prepare('SELECT * FROM pecas WHERE id=?').bind(b.peca_id || '').first();
+  if (!p) return bad('peça não encontrada', 404);
+  if (p.ml_id && p.ml_id !== mlId) return bad(`a peça #${String(p.codigo).padStart(6, '0')} já está ligada ao anúncio ${p.ml_id}`);
+  const outra = await env.DB.prepare('SELECT codigo FROM pecas WHERE ml_id=? AND id<>?').bind(mlId, p.id).first();
+  if (outra) return bad(`esse anúncio já está ligado à peça #${String(outra.codigo).padStart(6, '0')}`);
+  let it; try { it = await mlReq(token, 'GET', '/items/' + mlId); } catch (e) { return bad('não achei o anúncio no ML: ' + e.message); }
+  const seller = await getCfg(env, 'ml_user_id');
+  if (seller && it.seller_id && String(it.seller_id) !== String(seller)) return bad('esse anúncio não é da sua conta do Mercado Livre');
+  const at = {}; for (const a of it.attributes || []) at[a.id] = a;
+  const val = (...ks) => { for (const k of ks) { const v = at[k] && at[k].value_name; if (v && !/^n[ãa]o se aplica$/i.test(v)) return String(v).trim(); } return ''; };
+  const attrs = (it.attributes || []).filter(a => a.value_name).map(a => [a.id, a.name || a.id, String(a.value_name).slice(0, 200)]);
+  let fotos = []; try { fotos = JSON.parse(p.fotos || '[]'); } catch { /* sem fotos */ }
+  let trazidas = 0, falhas = 0;
+  if (b.fotos && !fotos.length) { const r = await baixaFotosML(env, it, p.id); fotos = r.fotos; trazidas = r.fotos.length; falhas = r.falhas; }
+  await env.DB.prepare(`UPDATE pecas SET ml=?, ml_id=?, ml_link=?, ml_status=?, ml_em=?, ml_cat=COALESCE(ml_cat,?), ml_attrs=?, fotos=?,
+      pn=COALESCE(NULLIF(pn,''),?), peso_g=COALESCE(peso_g,?), alt_cm=COALESCE(alt_cm,?), larg_cm=COALESCE(larg_cm,?), comp_cm=COALESCE(comp_cm,?), atualizado_em=? WHERE id=?`)
+    .bind(it.status === 'closed' ? 0 : 1, mlId, it.permalink || null, it.status || null, now(), it.category_id || null, JSON.stringify(attrs), JSON.stringify(fotos),
+      val('PART_NUMBER', 'OEM', 'ORIGINAL_PART_NUMBER', 'MPN') || null, mlMedida(at.SELLER_PACKAGE_WEIGHT, 'g'), mlMedida(at.SELLER_PACKAGE_HEIGHT), mlMedida(at.SELLER_PACKAGE_WIDTH), mlMedida(at.SELLER_PACKAGE_LENGTH), now(), p.id).run();
+  return json({ ok: true, fotos: trazidas, falhas, qtdML: it.available_quantity, qtdPeca: p.qtd });
+}
 async function mlImportaItem(mlId, request, env, user) {
   if (user.papel !== 'admin') return bad('somente o administrador', 403);
   const token = await mlToken(env);
@@ -1246,20 +1329,7 @@ async function mlImportaItem(mlId, request, env, user) {
   const at = {}; for (const a of it.attributes || []) at[a.id] = a;
   const val = (...ks) => { for (const k of ks) { const v = at[k] && at[k].value_name; if (v && !/^n[ãa]o se aplica$/i.test(v)) return String(v).trim(); } return ''; };
   const id = uid();
-  // fotos: baixa cada uma do ML (a maior que tiver) e guarda como foto original da peça
-  const fotos = []; let falhas = 0;
-  for (const pic of (it.pictures || []).slice(0, 12)) {
-    const src = pic.secure_url || pic.url; if (!src) continue;
-    try {
-      const r = await fetch(src);
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const ct = (r.headers.get('content-type') || 'image/jpeg').split(';')[0];
-      const ext = ct.includes('png') ? 'png' : ct.includes('webp') ? 'webp' : 'jpg';
-      const key = `pecas/${id}/${uid()}.${ext}`;
-      await env.FOTOS.put(key, await r.arrayBuffer(), { httpMetadata: { contentType: ct } });
-      fotos.push(key);
-    } catch { falhas++; }
-  }
+  const { fotos, falhas } = await baixaFotosML(env, it, id);
   // ficha técnica completa do anúncio (nome e valor de cada característica)
   const attrs = (it.attributes || []).filter(a => a.value_name).map(a => [a.id, a.name || a.id, String(a.value_name).slice(0, 200)]);
   const cond = it.condition === 'new' ? 'Nova' : it.condition === 'used' ? 'Usada' : it.condition === 'refurbished' ? 'Recondicionada' : null;
