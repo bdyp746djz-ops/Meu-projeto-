@@ -901,9 +901,13 @@ function parsePeca(row) {
   if (row && typeof row.fotos === 'string') { try { row.fotos = JSON.parse(row.fotos); } catch { row.fotos = []; } }
   return row;
 }
+// próximo número de peça: segue a numeração normal (ignora números fora do padrão, acima de 999999,
+// como 150032432 que veio do iBR) e pula os que já existem
 async function proxCodigo(env) {
-  const r = await env.DB.prepare('SELECT MAX(codigo) m FROM pecas').first();
-  return (r.m || 0) + 1;
+  const r = await env.DB.prepare('SELECT MAX(codigo) m FROM pecas WHERE codigo < 1000000').first();
+  let c = ((r && r.m) || 0) + 1;
+  while (await env.DB.prepare('SELECT 1 FROM pecas WHERE codigo=?').bind(c).first()) c++;
+  return c;
 }
 async function listaPecas(url, env) {
   await garanteColsPecas(env);
