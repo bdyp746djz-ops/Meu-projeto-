@@ -5,13 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rafa Busca Peças</title>
 <meta name="theme-color" content="#3f51b5">
-<link rel="manifest" href="/manifest.json">
-<link rel="icon" type="image/png" href="/icons/favicon-64.png">
-<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="RAFA">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
@@ -231,8 +224,6 @@ nav.bottom{display:none}
 .btn.p{background:var(--pri);border-color:var(--pri);color:#fff;box-shadow:var(--sh)}
 .btn.g{background:var(--ok);border-color:var(--ok);color:#fff;box-shadow:var(--sh)}
 .btn.p:hover,.btn.g:hover{filter:brightness(1.08)}
-#printarea{display:none}
-@media print{body.so-impressao>*:not(#printarea){display:none!important}body.so-impressao #printarea{display:block!important;color:#111;font-family:Arial,sans-serif}}
 .nbadge{display:inline-block;background:var(--red);color:#fff;border-radius:9px;font-size:10px;line-height:16px;min-width:16px;padding:0 4px;margin-left:6px;text-align:center;font-weight:600}
 .perg{background:var(--card);box-shadow:var(--sh);border-radius:var(--rad);padding:12px;margin:0 auto 10px;max-width:760px}
 .perg .q{font-size:16px;margin:8px 0;white-space:pre-wrap}
@@ -430,7 +421,6 @@ async function painel(){
   if(S.view!=='painel')return; // usuário já foi para outra tela
   $('#main').innerHTML=`<div class="top"><h2>Início</h2></div>
   <div class="atalhos">${at.map(([v,ic,t])=>`<button class="atl" data-go="${v}"><span class="material-icons">${ic}</span>${t}</button>`).join('')}<button class="atl" id="atscan"><span class="material-icons">qr_code_scanner</span>Ler etiqueta</button></div>
-  <div id="instslot">${cartaoInstalar()}</div>
   ${S.nPerg?`<div class="card" style="background:#fff7e6;box-shadow:none;margin:0 0 12px;cursor:pointer" data-go="perguntas">❓ <b>${S.nPerg} pergunta(s) sem resposta</b> no Mercado Livre — toque para responder</div>`:''}
   <div class="kpis">
     <div class="card kpi"><div class="l">Vendas hoje</div><div class="v">${brl(p.vendasHoje?p.vendasHoje.total:0)}</div><div class="small mut">${p.vendasHoje?p.vendasHoje.n:0} venda(s)</div></div>
@@ -463,7 +453,7 @@ async function painel(){
   </div>`;
   document.querySelectorAll('[data-st]').forEach(e=>e.onclick=()=>{ S.ui.status=e.dataset.st; S.ui.loc=''; S.ui.q=''; S.ui.f={}; go('estoque'); });
   document.querySelectorAll('[data-fx]').forEach(e=>e.onclick=()=>{ const [k,v]=e.dataset.fx.split(':'); S.ui.status='disp'; S.ui.loc=''; S.ui.q=''; S.ui.f={[k]:v}; S.ui.fOpen=true; go('estoque'); });
-  document.querySelectorAll('[data-go]').forEach(e=>e.onclick=()=>go(e.dataset.go)); ligaInstalar();
+  document.querySelectorAll('[data-go]').forEach(e=>e.onclick=()=>go(e.dataset.go));
   $('#atscan').onclick=()=>escanear();
   $('#expr').onclick=expedicao;
   expedicao();
@@ -521,8 +511,6 @@ async function verDce(orderId){
   document.querySelectorAll('[data-dpdf]').forEach(b=>b.onclick=()=>abrePdf('/api/ml/dce/'+orderId+'/doc/'+encodeURIComponent(b.dataset.dpdf),'dce-'+orderId+'.pdf'));
 }
 async function abrePdf(caminho,nome){
-  if(modoApp()){ toast('Buscando no Mercado Livre…'); try{ const r=await fetch(caminho); const ct=r.headers.get('content-type')||'';
-      if(!r.ok||!ct.includes('pdf')){ const j=await r.json().catch(()=>({})); throw new Error(j.erro||('HTTP '+r.status)); } entregaArquivo(await r.blob(),nome); }catch(e){ toast(e.message); } return; }
   const win=window.open('','_blank'); if(win){ try{ win.document.write('<title>'+nome+'</title><p style="font-family:sans-serif;padding:20px">Buscando no Mercado Livre…</p>'); }catch(_){} }
   try{ const r=await fetch(caminho); const ct=r.headers.get('content-type')||'';
     if(!r.ok||!ct.includes('pdf')){ const j=await r.json().catch(()=>({})); throw new Error(j.erro||('HTTP '+r.status)); }
@@ -531,11 +519,6 @@ async function abrePdf(caminho,nome){
   }catch(e){ if(win&&!win.closed)win.close(); toast(e.message); }
 }
 async function etiquetaEnvio(id,pedido){
-  if(modoApp()){ toast('Buscando a etiqueta no Mercado Livre…');
-    try{ const r=await fetch('/api/ml/etiqueta-envio/'+encodeURIComponent(id)); const ct=r.headers.get('content-type')||'';
-      if(!r.ok||!ct.includes('pdf')){ const j=await r.json().catch(()=>({})); throw new Error(j.erro||('HTTP '+r.status)); } entregaArquivo(await r.blob(),'etiqueta-envio-'+id+'.pdf'); }
-    catch(e){ if(pedido&&/invoice_pending/i.test(e.message)){ if(confirm('O Mercado Livre só libera a etiqueta depois da declaração de conteúdo (DC-e). Emitir a DC-e deste pedido agora?'))emiteDce(pedido,false); } else toast(e.message); }
-    return; }
   const win=window.open('','_blank'); if(win){ try{ win.document.write('<title>Etiqueta de envio</title><p style="font-family:sans-serif;padding:20px">Buscando a etiqueta no Mercado Livre…</p>'); }catch(_){} }
   try{ const r=await fetch('/api/ml/etiqueta-envio/'+encodeURIComponent(id)); const ct=r.headers.get('content-type')||'';
     if(!r.ok||!ct.includes('pdf')){ const j=await r.json().catch(()=>({})); throw new Error(j.erro||('HTTP '+r.status)); }
@@ -1795,24 +1778,15 @@ function pecasRelacionadas(id){
     try{ await api('/mover',{method:'POST',body:{ids,local_id:''}}); fecha(); toast(ids.length+' peça(s) desvinculada(s)'); locais(); }catch(e){ toast(e.message); } };
 }
 function imprimeRelacao(id,ps,tq,tv){
-  const doc=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Relação de peças — ${esc(codigoTxt(id))}</title><style>
+  const w=window.open('','_blank'); if(!w)return toast('Libere a abertura de janelas para imprimir');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Relação de peças — ${esc(codigoTxt(id))}</title><style>
    body{font-family:Arial,sans-serif;margin:18mm 14mm;color:#111}h1{font-size:18px;margin:0 0 2px}p{margin:0 0 10px;color:#555;font-size:12px}
    table{width:100%;border-collapse:collapse;font-size:12px}th,td{border-bottom:1px solid #ccc;padding:5px 6px;text-align:left}th{background:#eee}
    .tot{margin-top:10px;font-size:13px}.tot b{margin-right:18px}</style></head><body>
    <h1>Relação de peças — ${esc(codigoTxt(id))}</h1><p>${esc(locPath(id))} · ${esc(LOJA)} · ${new Date().toLocaleString('pt-BR')}</p>
    <table><tr><th>Código</th><th>Local</th><th>Descrição</th><th>Qtd</th><th>Preço</th></tr>${ps.map(p=>`<tr><td>${cod(p.codigo)}</td><td>${esc(codigoTxt(p.local_id))}</td><td>${esc(p.nome)}</td><td>${Number(p.qtd)||0}</td><td>${brl(p.preco)}</td></tr>`).join('')}</table>
    <div class="tot"><b>Total de peças: ${tq}</b><b>Valor total de venda: ${brl(tv)}</b></div>
-   </body></html>`;
-  if(modoApp()){ imprimeAqui(doc); return; }
-  const w=window.open('','_blank'); if(!w)return toast('Libere a abertura de janelas para imprimir');
-  w.document.write(doc.replace('</body>','<script>onload=()=>setTimeout(()=>print(),300)<\/script></body>')); w.document.close();
-}
-// no app instalado não abre outra janela: imprime a própria página só com esse conteúdo
-function imprimeAqui(html){
-  let el=document.getElementById('printarea'); if(!el){ el=document.createElement('div'); el.id='printarea'; document.body.appendChild(el); }
-  const m=html.match(/<style>([\s\S]*?)<\/style>/), corpo=(html.match(/<body>([\s\S]*?)<\/body>/)||[,''])[1];
-  el.innerHTML=(m?'<style>@media print{'+m[1].replace(/body\{/g,'#printarea{')+'}</style>':'')+corpo;
-  document.body.classList.add('so-impressao'); setTimeout(()=>{ window.print(); setTimeout(()=>document.body.classList.remove('so-impressao'),500); },100);
+   <script>onload=()=>setTimeout(()=>print(),300)<\/script></body></html>`); w.document.close();
 }
 // visão geral das regras
 function telaRegras(){
@@ -1935,7 +1909,6 @@ function abreGerador(itens){
     if(!sel.length)return toast('Marque ao menos uma etiqueta');
     S.ui.etqW=$('#gw').value; S.ui.etqH=$('#gh').value;
     const cop=Math.min(50,Math.max(1,parseInt($('#gcop').value,10)||1));
-    if(modoApp()){ try{ const b=await gerarPDF(sel,cop,true); fecha(); entregaArquivo(b,'etiquetas.pdf'); }catch(e){ toast('Erro: '+e.message); } return; }
     const win=window.open('','_blank'); if(win){ try{ win.document.write('<title>Gerador de Etiquetas</title><p style="font-family:sans-serif;padding:20px">Gerando etiquetas…</p>'); }catch(_){} }
     try{ const url=await gerarPDF(sel,cop);
       if(win&&!win.closed) win.location.href=url; else { const a=document.createElement('a'); a.href=url; a.download='etiquetas.pdf'; document.body.appendChild(a); a.click(); a.remove(); }
@@ -1949,7 +1922,7 @@ function carregaPDF(){ if(window.jspdf)return Promise.resolve();
   return pdfPromessa; }
 const PT=0.3528; // 1 ponto em mm
 const pdfTxt=x=>String(x??'').replace(/›/g,'>').replace(/[–—]/g,'-').replace(/[^\x20-\x7E -ÿ]/g,'').trim();
-async function gerarPDF(itens,copias,comoBlob){
+async function gerarPDF(itens,copias){
   await carregaPDF();
   const W=Math.max(20,parseFloat(S.ui.etqW)||100), H=Math.max(15,parseFloat(S.ui.etqH)||50), ori=W>=H?'landscape':'portrait';
   const doc=new window.jspdf.jsPDF({orientation:ori,unit:'mm',format:[W,H]});
@@ -1958,7 +1931,7 @@ async function gerarPDF(itens,copias,comoBlob){
   for(const it of itens)for(let c=0;c<(copias||1);c++){ if(n++)doc.addPage([W,H],ori); it.tipo==='local'?desenhaLocal(doc,it,W,H):desenhaPeca(doc,it,W,H); }
   const ids=[...new Set(itens.filter(i=>i.tipo==='peca'&&i.id).map(i=>i.id))];
   if(ids.length)api('/pecas/etiquetas',{method:'POST',body:{ids}}).then(r=>ids.forEach(id=>{ const p=(S.pecas||[]).find(x=>x.id===id); if(p)p.etq_em=r.em; })).catch(()=>{});
-  return doc.output(comoBlob?'blob':'bloburl');
+  return doc.output('bloburl');
 }
 function qrPDF(doc,txt,x,y,t){ const q=qrcode(0,'M'); q.addData(txt); q.make(); const n=q.getModuleCount(), m=t/n; doc.setFillColor(0,0,0);
   for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(q.isDark(r,c))doc.rect(x+c*m,y+r*m,m+0.02,m+0.02,'F'); }
@@ -2152,7 +2125,6 @@ function baixarCSV(nome,cols,linhas){
   const cel=v=>{ v=v==null?'':String(v); if(/^[=+\-@]/.test(v)&&isNaN(Number(v.replace(',','.'))))v="'"+v; return /[";\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
   const txt=[cols.map(c=>c[0]).join(';'),...linhas.map(p=>cols.map(([,f])=>cel(f(p))).join(';'))].join('\r\n');
   const blob=new Blob(['﻿'+txt],{type:'text/csv;charset=utf-8'});
-  if(modoApp()){ entregaArquivo(blob,nome+'.csv'); return; }
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=nome+'.csv';
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),10000);
   toast(linhas.length+' linha(s) na planilha');
@@ -2208,35 +2180,9 @@ function modal(html){ $('#modal').innerHTML=`<div class="modal" id="ov"><div cla
   $('#ov').onclick=e=>{ if(e.target.id==='ov')fecha(); }; $('#xb').onclick=fecha; }
 function fecha(){ $('#modal').innerHTML=''; }
 
-// ---------- app instalado (ícone na tela do celular) ----------
-const modoApp=()=>window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
-if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
-window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); window._instEvt=e; const s=$('#instslot'); if(s)s.innerHTML=cartaoInstalar(); ligaInstalar(); });
-// no app instalado não dá para abrir PDF/planilha em outra janela: mostra o arquivo com o botão
-// Imprimir / Compartilhar (abre o menu do iPhone: Imprimir, Salvar em Arquivos, WhatsApp…)
-function entregaArquivo(blob,nome){
-  const file=new File([blob],nome,{type:blob.type||(/\.pdf$/i.test(nome)?'application/pdf':'text/csv')}), url=URL.createObjectURL(blob);
-  modal(`<h3 style="margin-right:28px;overflow-wrap:anywhere">📄 ${esc(nome)}</h3><p class="small mut">Pronto. Para imprimir na etiquetadora, escolha <b>Imprimir</b> (ou o app da impressora) no menu que abrir.</p>
-    <div class="top" style="flex-wrap:wrap;gap:8px;margin:0"><button class="btn p" id="arqsh">🖨️ Imprimir / Compartilhar</button>${/\.pdf$/i.test(nome)?'<button class="btn" id="arqver">👁️ Ver aqui</button>':''}<button class="btn" id="arqcc">Fechar</button></div><div id="arqprev"></div>`);
-  $('#arqsh').onclick=async()=>{ try{ if(navigator.canShare&&navigator.canShare({files:[file]}))await navigator.share({files:[file],title:nome});
-      else { const a=document.createElement('a'); a.href=url; a.download=nome; document.body.appendChild(a); a.click(); a.remove(); } }
-    catch(e){ if(e.name!=='AbortError')toast(e.message); } };
-  if($('#arqver'))$('#arqver').onclick=()=>{ $('#arqprev').innerHTML=`<iframe src="${url}" title="${esc(nome)}" style="width:100%;height:70vh;border:1px solid var(--line);margin-top:10px;background:#fff"></iframe>`; };
-  $('#arqcc').onclick=fecha;
-}
-function cartaoInstalar(){
-  if(modoApp())return '';
-  try{ if(localStorage.getItem('rafa_inst_off'))return ''; }catch(_){ }
-  const ios=/iPhone|iPad|iPod/.test(navigator.userAgent);
-  const x='<a href="#" id="instx" class="small" style="margin-left:6px">Agora não</a>';
-  if(ios)return `<div class="card small" style="background:var(--pri-t);box-shadow:none;margin:0 0 12px">📲 <b>Instale o app RAFA no iPhone:</b> toque em <b>Compartilhar</b> (o quadrado com a seta ↑, embaixo) → <b>Adicionar à Tela de Início</b> → <b>Adicionar</b>. Depois abra pelo ícone RAFA e entre com seu login (só na 1ª vez).${x}</div>`;
-  if(window._instEvt)return `<div class="card small" style="background:var(--pri-t);box-shadow:none;margin:0 0 12px">📲 <b>Instale o app RAFA</b> neste aparelho: abre em tela cheia, com ícone. <button class="btn sm p" id="instbtn">Instalar</button>${x}</div>`;
-  return '';
-}
-function ligaInstalar(){
-  if($('#instx'))$('#instx').onclick=e=>{ e.preventDefault(); try{ localStorage.setItem('rafa_inst_off','1'); }catch(_){ } const s=$('#instslot'); if(s)s.innerHTML=''; };
-  if($('#instbtn'))$('#instbtn').onclick=async()=>{ const ev=window._instEvt; if(!ev)return; ev.prompt(); try{ await ev.userChoice; }catch(_){ } window._instEvt=null; const s=$('#instslot'); if(s)s.innerHTML=''; };
-}
+// o app instalável foi retirado: desliga o serviço que algum aparelho tenha registrado nesse meio-tempo
+if('serviceWorker' in navigator){ try{ navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())).catch(()=>{});
+  if(window.caches)caches.keys().then(ks=>ks.filter(k=>/^rafa-/.test(k)).forEach(k=>caches.delete(k))).catch(()=>{}); }catch(_){ } }
 
 // ---------- versão nova do sistema ----------
 // o iPhone deixa a página aberta na memória e não pega sozinho o que foi publicado: confere de tempos em tempos
