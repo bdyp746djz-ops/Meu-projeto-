@@ -1392,19 +1392,24 @@ function mlMedida(a, alvo) {
 }
 // fotos do anúncio: baixa cada uma do ML e guarda como foto original da peça
 async function baixaFotosML(env, it, pecaId) {
-  const fotos = []; let falhas = 0, motivo = '';
+  return baixaFotos(env, (it.pictures || []).slice(0, 12).map(pic => [...new Set([pic.secure_url, pic.url, pic.secure_url && pic.secure_url.replace(/-[A-Z]\.(jpe?g|webp|png)$/i, '-F.$1')].filter(Boolean))]), pecaId);
+}
+// baixa as fotos (cada item = endereços alternativos da mesma foto) e guarda só o que é imagem de verdade
+async function baixaFotos(env, listas, pecaId) {
+  const fotos = []; let falhas = 0, motivo = '', acessos = 0;
   const cab = { 'user-agent': 'Mozilla/5.0 (compatible; RafaBuscaPecas/1.0)', accept: 'image/jpeg,image/png,image/webp,image/*;q=0.8' };
-  for (const pic of (it.pictures || []).slice(0, 12)) {
-    const urls = [...new Set([pic.secure_url, pic.url, pic.secure_url && pic.secure_url.replace(/-[A-Z]\.(jpe?g|webp|png)$/i, '-F.$1')].filter(Boolean))]; if (!urls.length) continue;
+  for (const urls of listas.slice(0, 12)) {
+    if (!urls || !urls.length) continue;
     let ok = false;
     if (!fotos.length && falhas >= 2) { falhas++; continue; }   // as 2 primeiras falharam: o ML está bloqueando, não insiste (economiza acessos)
     for (const src of [...urls, urls[0]]) {   // cada endereço 1 vez e mais uma tentativa no principal
       if (ok) break;
       try {
+        acessos++;
         const r = await fetch(src, { headers: cab });
-        if (!r.ok) { motivo = 'o ML respondeu HTTP ' + r.status + ' ao baixar a foto'; continue; }
+        if (!r.ok) { motivo = 'o site respondeu HTTP ' + r.status + ' ao baixar a foto'; continue; }
         const buf = await r.arrayBuffer(), tipo = tipoImagem(new Uint8Array(buf, 0, Math.min(16, buf.byteLength)));
-        if (!tipo || buf.byteLength < 800) { motivo = 'o ML devolveu algo que não é foto (' + (r.headers.get('content-type') || '?') + ')'; continue; }   // não guarda
+        if (!tipo || buf.byteLength < 800) { motivo = 'o site devolveu algo que não é foto (' + (r.headers.get('content-type') || '?') + ')'; continue; }   // não guarda
         const key = `pecas/${pecaId}/${uid()}.${tipo === 'image/png' ? 'png' : tipo === 'image/webp' ? 'webp' : 'jpg'}`;
         await env.FOTOS.put(key, buf, { httpMetadata: { contentType: tipo } });
         fotos.push(key); ok = true; break;
@@ -1412,7 +1417,7 @@ async function baixaFotosML(env, it, pecaId) {
     }
     if (!ok) falhas++;
   }
-  return { fotos, falhas, motivo };
+  return { fotos, falhas, motivo, acessos };
 }
 // ---------- regras do Mercado Livre ----------
 async function mlRegras(env, user) {
@@ -1716,29 +1721,66 @@ async function fotoValida(env, key) {
     return !!tipoImagem(new Uint8Array(await o.arrayBuffer()));
   } catch { return null; }
 }
+// fotos no iBR: a página pública de rastreabilidade (QR das etiquetas) busca a peça pelo código e depois as fotos dela.
+// Só da empresa da Rafa, e só se o nome da peça no iBR bater com o nome no sistema (código novo pode ser outra peça no iBR).
+const IBR_API = 'https://api-desmonte.ibrsoftweb.com.br/api/v1/', IBR_EMPRESA = '388', IBR_MIDIA = 'https://files.ibrsoftweb.com.br/media/';
+function nomesBatem(a, b) {
+  const A = [...new Set(palavrasDe(a))], B = new Set(palavrasDe(b));
+  if (!A.length || !B.size) return false;
+  const comum = A.filter(w => B.has(w)).length;
+  return comum >= Math.min(2, A.length, B.size) && comum / Math.min(A.length, B.size) >= 0.5;
+}
+async function fotosDoIBR(env, p) {
+  const cab = { accept: 'application/json', 'user-agent': 'Mozilla/5.0 (compatible; RafaBuscaPecas/1.0)' };
+  let acessos = 0;
+  try {
+    acessos++;
+    const r = await fetch(IBR_API + 'Utils/Product?code=' + encodeURIComponent(p.codigo) + '&companyId=' + IBR_EMPRESA, { headers: cab });
+    if (!r.ok) return { fotos: [], acessos, erro: 'o iBR respondeu HTTP ' + r.status };
+    const d = await r.json().catch(() => null), prod = d && (d.id != null ? d : d.data || d.result || null);
+    if (!prod || prod.id == null) return { fotos: [], acessos, erro: 'a peça ' + p.codigo + ' não foi achada no iBR' };
+    const nomeIBR = prod.description || prod.name || prod.title || '';
+    if (!nomesBatem(nomeIBR, p.nome)) return { fotos: [], acessos, erro: 'no iBR o código ' + p.codigo + ' é outra peça (' + String(nomeIBR || 'sem nome').slice(0, 60) + ') — não trouxe as fotos' };
+    acessos++;
+    const ri = await fetch(IBR_API + 'Utils/ProductImages?id=' + encodeURIComponent(prod.id), { headers: cab });
+    if (!ri.ok) return { fotos: [], acessos, erro: 'o iBR respondeu HTTP ' + ri.status + ' nas fotos' };
+    let imgs = await ri.json().catch(() => []);
+    if (!Array.isArray(imgs)) imgs = (imgs && (imgs.data || imgs.images || imgs.items)) || [];
+    const urls = imgs.map(x => typeof x === 'string' ? x : x && (x.url || x.imageUrl || x.path || x.fileName)).filter(Boolean)
+      .map(u => /^https?:/i.test(u) ? u : IBR_MIDIA + String(u).replace(/^\/+/, ''));
+    if (!urls.length) return { fotos: [], acessos, erro: 'a peça não tem fotos no iBR' };
+    const b = await baixaFotos(env, urls.map(u => [u]), p.id);
+    return { fotos: b.fotos, acessos: acessos + b.acessos, erro: b.fotos.length ? null : (b.motivo || 'o iBR não entregou as fotos') };
+  } catch (e) { return { fotos: [], acessos, erro: 'erro ao falar com o iBR: ' + ((e && e.message) || e) }; }
+}
 // tira as fotos quebradas e, se a peça ficar sem foto, busca de novo no anúncio do ML (guarda o motivo se não der)
 async function consertaFotosPeca(env, pecaId) {
   await garanteColsPecas(env);
-  const p = await env.DB.prepare('SELECT id,fotos,ml_id FROM pecas WHERE id=?').bind(pecaId).first();
+  const p = await env.DB.prepare('SELECT id,codigo,nome,fotos,ml_id FROM pecas WHERE id=?').bind(pecaId).first();
   if (!p) return null;
   let fotos = []; try { fotos = JSON.parse(p.fotos || '[]'); } catch { fotos = []; }
   const boas = [], ruins = [];
   for (const k of fotos) ((await fotoValida(env, k)) === false ? ruins : boas).push(k);
-  let trazidas = 0, erro = null;
+  let trazidas = 0, erro = null, acessos = 0;
   if (!boas.length) {
+    const erros = [];
     const mlId = p.ml_id || ((await mlExtrasDa(env, p.id))[0] || {}).ml_id, token = mlId ? await mlToken(env) : null;
-    if (!mlId) erro = 'sem anúncio do ML ligado: não tem de onde buscar a foto';
-    else if (!token) erro = 'o Mercado Livre não está conectado';
-    else {
+    if (mlId && !token) erros.push('ML: não está conectado');
+    else if (mlId) {
       let it = null;
-      try { it = await mlReq(token, 'GET', '/items/' + encodeURIComponent(mlId)); } catch (e) { erro = 'não consegui ler o anúncio ' + mlId + ': ' + e.message; }
-      if (it && !(it.pictures || []).length) erro = 'o anúncio ' + mlId + ' não tem fotos';
-      else if (it) { const r = await baixaFotosML(env, it, p.id); boas.push(...r.fotos); trazidas = r.fotos.length; if (!trazidas) erro = r.motivo || 'o ML não entregou as fotos'; }
+      try { acessos++; it = await mlReq(token, 'GET', '/items/' + encodeURIComponent(mlId)); } catch (e) { erros.push('ML: não consegui ler o anúncio ' + mlId + ': ' + e.message); }
+      if (it && !(it.pictures || []).length) erros.push('ML: o anúncio ' + mlId + ' não tem fotos');
+      else if (it) { const r = await baixaFotosML(env, it, p.id); acessos += r.acessos; boas.push(...r.fotos); trazidas = r.fotos.length; if (!trazidas) erros.push('ML: ' + (r.motivo || 'não entregou as fotos')); }
     }
+    if (!boas.length) {   // sem anúncio ou o ML não deu: tenta o iBR
+      const r = await fotosDoIBR(env, p); acessos += r.acessos; boas.push(...r.fotos); trazidas += r.fotos.length;
+      if (!r.fotos.length) erros.push('iBR: ' + r.erro);
+    }
+    if (!boas.length) erro = erros.join(' · ');
   }
   await env.DB.prepare('UPDATE pecas SET fotos=?, fotos_erro=?, fotos_tent=?' + (ruins.length || trazidas ? ', atualizado_em=?' : '') + ' WHERE id=?')
     .bind(...[JSON.stringify(boas), boas.length ? null : erro, now(), ...(ruins.length || trazidas ? [now()] : []), p.id]).run();
-  return { fotos: boas, removidas: ruins.length, trazidas, erro: boas.length ? null : erro };
+  return { fotos: boas, removidas: ruins.length, trazidas, erro: boas.length ? null : erro, acessos };
 }
 async function conferirFotos(pecaId, env) {
   const r = await consertaFotosPeca(env, pecaId);
@@ -1747,18 +1789,18 @@ async function conferirFotos(pecaId, env) {
 // a cada 2 min: busca as fotos de 2 peças ligadas a anúncio que estão sem foto, e revisa aos poucos as fotos de todas
 async function fotosAuto(env) {
   await garanteColsPecas(env);
-  let feitas = 0;
+  let feitas = 0, acessos = 0;
   const sem = (await env.DB.prepare(`SELECT id FROM pecas WHERE (fotos IS NULL OR fotos IN ('','[]'))
-      AND ((ml_id IS NOT NULL AND ml_id<>'') OR id IN (SELECT peca_id FROM ml_extras)) AND (fotos_tent IS NULL OR fotos_tent < ?)
+      AND (qtd>0 OR (ml_id IS NOT NULL AND ml_id<>'') OR id IN (SELECT peca_id FROM ml_extras)) AND (fotos_tent IS NULL OR fotos_tent < ?)
       ORDER BY fotos_tent IS NOT NULL, codigo LIMIT 2`).bind(now() - 6 * 3600e3).all()).results;
-  for (const p of sem) { await consertaFotosPeca(env, p.id); feitas++; }
+  for (const p of sem) { if (acessos > 25) break; const r = await consertaFotosPeca(env, p.id); acessos += (r && r.acessos) || 0; feitas++; }
   // revisão: 15 peças por vez, em ordem de código
   const cur = Number(await getCfg(env, 'fotos_cursor')) || 0;
   const lote = (await env.DB.prepare(`SELECT id,codigo,fotos FROM pecas WHERE codigo > ? AND fotos IS NOT NULL AND fotos NOT IN ('','[]') ORDER BY codigo LIMIT 15`).bind(cur).all()).results;
   for (const p of lote) {
     let ks = []; try { ks = JSON.parse(p.fotos || '[]'); } catch { ks = []; }
     let quebrada = false; for (const k of ks) if ((await fotoValida(env, k)) === false) { quebrada = true; break; }
-    if (quebrada && feitas < 2) { await consertaFotosPeca(env, p.id); feitas++; }
+    if (quebrada && feitas < 2 && acessos <= 25) { const r = await consertaFotosPeca(env, p.id); acessos += (r && r.acessos) || 0; feitas++; }
   }
   await setCfg(env, 'fotos_cursor', String(lote.length === 15 ? lote[14].codigo : 0));
 }

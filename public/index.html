@@ -1973,13 +1973,13 @@ async function locais(){
 // aviso das peças sem foto (com o motivo) e botão para buscar as fotos dos anúncios agora
 async function avisoSemFoto(){ const el=$('#lfotos'); if(!el)return; let r; try{ r=await api('/fotos/resumo'); }catch(_){ return; }
   if(!$('#lfotos'))return; if(!r.total){ el.innerHTML=''; return; }
-  const com=r.pecas.filter(p=>p.anuncio), sem=r.pecas.filter(p=>!p.anuncio), st={aberto:false,rodando:false};
+  const com=r.pecas, st={aberto:false,rodando:false};
   const pinta=()=>{ if(!$('#lfotos'))return;
     el.innerHTML=`<div class="card small" style="margin:8px 12px;box-shadow:none;background:#f5f7fa">🖼️ <b>${r.total} peça(s) com estoque sem foto</b>
-      ${com.length?`<br>• ${com.length} ligada(s) a anúncio: o sistema busca as fotos sozinho, aos poucos. <button class="btn sm p" id="lfbusca" ${st.rodando?'disabled':''}>Buscar agora</button>`:''}
-      ${sem.length?`<br>• ${sem.length} sem anúncio ligado: as fotos podem estar no iBR. <button class="btn sm p" id="lfcomp">📷 Completar fotos</button>`:''}
+      <br>O sistema busca as fotos sozinho, aos poucos, no anúncio do ML e no iBR (só se o nome da peça bater).
+      <div class="mlact" style="margin-top:6px"><button class="btn sm p" id="lfbusca" ${st.rodando?'disabled':''}>Buscar agora</button><button class="btn sm" id="lfcomp">📷 Completar fotos à mão</button></div>
       <br><a href="#" id="lfver">${st.aberto?'Esconder':'Ver quais e por quê'}</a><div id="lfprog"></div>
-      ${st.aberto?`<div style="margin-top:6px;max-height:260px;overflow:auto">${r.pecas.map(p=>`<div class="sel" style="align-items:flex-start"><span style="flex:1"><a href="#" data-lfp="${esc(p.id)}"><b>${cod(p.codigo)}</b> ${esc(p.nome)}</a><br><span class="mut">${p.anuncio?(p.erro?'⚠️ '+esc(p.erro):p.tentou?'ainda sem foto':'na fila para buscar do anúncio'):'sem anúncio ligado'}</span></span></div>`).join('')}</div>`:''}</div>`;
+      ${st.aberto?`<div style="margin-top:6px;max-height:260px;overflow:auto">${r.pecas.map(p=>`<div class="sel" style="align-items:flex-start"><span style="flex:1"><a href="#" data-lfp="${esc(p.id)}"><b>${cod(p.codigo)}</b> ${esc(p.nome)}</a><br><span class="mut">${p.erro?'⚠️ '+esc(p.erro):p.tentou?'ainda sem foto':'na fila para buscar'+(p.anuncio?' (anúncio e iBR)':' (iBR)')}</span></span></div>`).join('')}</div>`:''}</div>`;
     $('#lfver').onclick=e=>{ e.preventDefault(); st.aberto=!st.aberto; pinta(); };
     if($('#lfcomp'))$('#lfcomp').onclick=completarFotos;
     el.querySelectorAll('[data-lfp]').forEach(a=>a.onclick=e=>{ e.preventDefault(); abrePeca(a.dataset.lfp); });
@@ -1995,7 +1995,7 @@ const IBR_EMPRESA='388';   // empresa da Rafa no iBR (está no QR das etiquetas 
 const linkIBR=c=>`https://desmonte.ibrsoftweb.com.br/rastreabilidade?topic=product&code=${encodeURIComponent(c)}&companyId=${IBR_EMPRESA}`;
 async function completarFotos(){
   modal(`<h3>📷 Completar fotos</h3>
-   <p class="small mut">Peças com estoque e sem foto. Toque em <b>🔎 Ver no iBR</b>, na foto use o botão direito → <b>Copiar imagem</b>, volte aqui, passe o mouse no cartão da peça e aperte <b>Ctrl+V</b>. Também dá para <b>arrastar</b> a foto até o cartão, ou escolher do celular/computador.</p>
+   <p class="small mut">Peças com estoque e sem foto (o sistema também tenta buscar sozinho no ML e no iBR). Toque em <b>🔎 Ver no iBR</b>, na foto use o botão direito → <b>Copiar imagem</b>, volte aqui, passe o mouse no cartão da peça e aperte <b>Ctrl+V</b>. Também dá para <b>arrastar</b> a foto até o cartão, ou escolher do celular/computador.</p>
    <div id="cfl"><span class="spin-s"></span> Carregando…</div>
    <div class="top" style="margin-top:10px"><button class="btn" id="cfcc">Fechar</button></div>`);
   const sai=()=>{ document.removeEventListener('paste',cola); fecha(); if(S.view==='locais')locais(); else if(S.view==='estoque')go('estoque'); };
