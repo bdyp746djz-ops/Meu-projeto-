@@ -460,6 +460,44 @@ main{background:linear-gradient(180deg,#e8ebfa 0,var(--bg) 280px)}
  #main>.filters select{width:auto;max-width:210px}
 }
 @keyframes sobe{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
+
+/* ===== tipos de localização, tabela de peças, ações em massa, scanner ===== */
+.lc-tp{display:inline-flex;align-items:center;gap:3px;font-size:11px;border-radius:6px;padding:0 6px;margin-right:6px;background:color-mix(in srgb,var(--c) 14%,#fff);color:var(--c);font-weight:600}
+.tl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.tl-card{background:#fff;border-radius:14px;box-shadow:var(--sh);padding:14px 74px 14px 14px;display:flex;gap:12px;align-items:flex-start;position:relative}
+.tl-ic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;color:#fff;flex:none}
+.tl-card b{display:block}.tl-card .acs{position:absolute;top:10px;right:10px;display:flex;gap:4px}.tl-card .acs .btn{padding:4px 6px}
+.dp-gerar.dp-sec{background:#fff!important;color:#2b2f3a!important;border:1px solid var(--line)!important;box-shadow:none}.dp-gerar.dp-sec .material-icons{color:var(--pri)}
+.tl-lista .tl-card{margin-bottom:8px}
+.vazio-g{background:#fff;border-radius:16px;box-shadow:var(--sh);padding:28px 18px;text-align:center}
+.vazio-g h3{margin:6px 0}.vazio-g p{color:var(--mut);max-width:520px;margin:0 auto 14px}
+.tb-wrap{background:#fff;border-radius:14px;box-shadow:var(--sh);overflow:auto;max-height:calc(100vh - 250px)}
+table.tbp{border-collapse:separate;border-spacing:0;width:100%;font-size:13px}
+table.tbp th{position:sticky;top:0;background:#f6f7fc;text-align:left;padding:9px 10px;font-weight:600;color:#4a4f60;border-bottom:1px solid var(--line);white-space:nowrap;cursor:pointer;user-select:none;z-index:1}
+table.tbp td{padding:8px 10px;border-bottom:1px solid #f0f1f7;white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis}
+table.tbp tr:hover td{background:#f8f9fe;cursor:pointer}
+table.tbp img{width:38px;height:38px;object-fit:cover;border-radius:8px;display:block}
+.col-it{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin-bottom:6px;background:#fff}
+.col-it .tx{flex:1;min-width:0}.col-it small{display:block;color:var(--mut);font-size:11.5px}
+.col-it .tg{font-size:10.5px;font-weight:700;color:var(--pri);letter-spacing:.04em}
+.ms-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.ms-tab{border:1px solid var(--line);background:#fff;border-radius:12px;padding:11px;cursor:pointer;font-weight:600;display:flex;gap:8px;align-items:center;justify-content:center;color:#4a4f60}
+.ms-tab.on{border-color:var(--pri);color:var(--pri);box-shadow:0 0 0 3px var(--pri-t)}
+.ms-row{display:flex;gap:10px;align-items:center;padding:8px 10px;border-bottom:1px solid #f0f1f7;cursor:pointer}.ms-row:last-child{border-bottom:0}
+.ms-row input{width:20px;height:20px;margin:0;flex:none}
+.ms-hist{display:flex;gap:12px;align-items:center;background:#fff;border-radius:14px;box-shadow:var(--sh);padding:12px 14px;margin-bottom:8px}
+.ms-hist.desf{opacity:.6}
+.sc-kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-bottom:12px}
+.sc-k{background:#fff;border-radius:14px;box-shadow:var(--sh);padding:12px;cursor:pointer;border:2px solid transparent}
+.sc-k.on{border-color:var(--pri)}.sc-k b{font-size:24px;display:block}.sc-k small{color:var(--mut)}
+.sc-it{display:flex;gap:12px;align-items:flex-start;background:#fff;border-radius:14px;box-shadow:var(--sh);padding:10px 12px;margin-bottom:8px}
+.sc-it img{width:56px;height:56px;object-fit:cover;border-radius:10px;flex:none;background:#f2f4fb}
+.sc-pb{display:flex;gap:5px;flex-wrap:wrap;margin-top:5px}.sc-pb span{font-size:11.5px;border-radius:7px;padding:1px 7px;background:#fff4e5;color:#8a5a00}
+.sc-pb span.r{background:#fdecea;color:#b71c1c}
+.cp-hero{border-radius:18px;padding:18px;background:linear-gradient(135deg,#fff6e6,#fff);border:1px solid #f5e1bd;margin-bottom:12px}
+.cp-hero h3{margin:6px 0 4px;font-size:22px}.cp-n{background:#fff;border:1px solid #f0e2c8;border-radius:12px;padding:10px 14px;display:inline-block;margin-top:10px}
+.cp-n b{font-size:26px;color:#b26a00;display:block}
+@media(max-width:760px){.tb-wrap{max-height:calc(100vh - 290px)}}
 </style>
 </head>
 <body>
@@ -587,19 +625,23 @@ const MENU=[
   {g:'pecas',i:'inventory_2',t:'Peças',itens:[
     {v:'estoque',i:'search',t:'Consulta de Peças'},
     {v:'nova',i:'add_box',t:'Cadastro de Peças'},
-    {a:'massa',i:'checklist',t:'Ações em massa'},
+    {v:'tabela',i:'table_chart',t:'Tabela de Peças'},
+    {v:'massa',i:'checklist',t:'Ações em massa',admin:1},
     {v:'incompletos',i:'assignment_late',t:'Cadastros incompletos'},
     {v:'medidas',i:'straighten',t:'Problemas peso e medidas'},
     {a:'fotos',i:'add_a_photo',t:'Completar fotos'},
     {a:'planilha',i:'upload_file',t:'Importar planilha',admin:1}]},
   {g:'locais',i:'place',t:'Localizações',itens:[
-    {v:'locais',i:'account_tree',t:'Localização'},
+    {v:'locais',i:'account_tree',t:'Árvore'},
+    {v:'tiposloc',i:'category',t:'Tipos de localização'},
     {v:'mover',i:'swap_horiz',t:'Movimentar'},
     {v:'etiquetas',i:'label',t:'Etiquetas'}]},
   {v:'vendas',i:'shopping_cart',t:'Vendas'},
   {g:'ml',i:'storefront',t:'Mercado Livre',itens:[
     {v:'integracoes',i:'store',t:'Anúncios ML'},
     {v:'perguntas',i:'question_answer',t:'Perguntas ML'},
+    {v:'scanner',i:'radar',t:'Scanner de anúncios',admin:1},
+    {v:'compat',i:'car_crash',t:'Problemas de compatibilidade',admin:1},
     {a:'vincular',i:'link',t:'Vincular anúncios',admin:1},
     {a:'importar',i:'cloud_download',t:'Importar do ML',admin:1}]},
   {a:'download',i:'file_download',t:'Download do estoque'},
@@ -637,7 +679,7 @@ function renderNav(){
   const b=$('#tbpergn'); if(b){ b.style.display=S.nPerg?'':'none'; b.textContent=S.nPerg>99?'99+':(S.nPerg||''); }
 }
 async function go(v){ S.view=v; fechaGaveta(); if(v!=='nova'){ S.ui.editId=null; S.ui.fotos=[]; } renderNav(); window.scrollTo(0,0);
-  const f={painel,estoque,nova,locais,mover,etiquetas,vendas,integracoes,perguntas,ficha:fichaPeca,incompletos,medidas}[v]; $('#main').innerHTML='<p class="mut">carregando…</p>'; try{ await f(); }catch(e){ $('#main').innerHTML='<div class="empty">Erro: '+esc(e.message)+'</div>'; } }
+  const f={painel,estoque,nova,locais,mover,etiquetas,vendas,integracoes,perguntas,ficha:fichaPeca,incompletos,medidas,tabela:tabelaPecas,massa:acoesMassa,tiposloc:tiposLocal,scanner:scannerML,compat:compatML}[v]; $('#main').innerHTML='<p class="mut">carregando…</p>'; try{ await f(); }catch(e){ $('#main').innerHTML='<div class="empty">Erro: '+esc(e.message)+'</div>'; } }
 // ---------- pendências: cadastros incompletos e peças sem peso/medidas ----------
 async function incompletos(){ return pendencias('incompletos'); }
 async function medidas(){ return pendencias('medidas'); }
@@ -2400,7 +2442,8 @@ function melhorCaixa(raiz){ const f=folhasDe(raiz);
   const com=f.filter(l=>l.capacidade&&(Number(l.ocupacao)||0)<l.capacidade).sort((a,b)=>(b.capacidade-(Number(b.ocupacao)||0))-(a.capacidade-(Number(a.ocupacao)||0)));
   return com[0]||f.find(l=>!l.capacidade)||null; }
 async function locais(){
-  const [,pr]=await Promise.all([carregaLocais(),api('/pecas?todas=1')]); S.pecas=pr.pecas;
+  const [,pr,tl]=await Promise.all([carregaLocais(),api('/pecas?todas=1'),api('/locais/tipos').catch(()=>({tipos:[]}))]); S.pecas=pr.pecas;
+  S.tiposLoc=Object.fromEntries((tl.tipos||[]).map(t=>[t.id,t]));
   S.ui._porLocal={}; for(const p of S.pecas){ if(p.local_id&&(Number(p.qtd)||0)>0)(S.ui._porLocal[p.local_id]=S.ui._porLocal[p.local_id]||[]).push(p); }
   Object.values(S.ui._porLocal).forEach(l=>l.sort((a,b)=>a.codigo-b.codigo));
   const ui=S.ui; ui.locQ=ui.locQ||'';
@@ -2408,8 +2451,11 @@ async function locais(){
   $('#main').innerHTML=`<div class="dp-bar">
      <label class="dp-busca"><span class="material-icons">search</span><input id="lq" placeholder="Procurar local ou peça..." value="${esc(ui.locQ)}" autocomplete="off"></label>
      <div class="dp-ops">
+       <button class="dp-gerar" id="addr" style="background:var(--ok);border-color:var(--ok);color:#fff"><span class="material-icons">add</span>NOVA LOCALIZAÇÃO</button>
+       <button class="dp-gerar dp-sec" id="letq"><span class="material-icons">qr_code_2</span>GERAR ETIQUETAS</button>
+       <button class="dp-gerar dp-sec" id="lmin"><span class="material-icons">unfold_less</span>MINIMIZAR TODOS</button>
+       <button class="dp-gerar dp-sec" id="lmax"><span class="material-icons">unfold_more</span>EXPANDIR TODOS</button>
        <button class="dp-gerar dp-azul" id="lint"><span class="material-icons">auto_awesome</span>LOCALIZAÇÃO INTELIGENTE</button>
-       <button class="dp-gerar" id="addr"><span class="material-icons">add</span>GALPÃO / PÁTIO</button>
      </div></div>
    <div id="lfotos"></div>
    <div class="dp-lista" id="llista"></div>`;
@@ -2426,6 +2472,9 @@ async function locais(){
   };
   $('#lq').oninput=e=>{ ui.locQ=e.target.value; desenha(); };
   $('#addr').onclick=()=>novoLocal('');
+  $('#letq').onclick=()=>{ S.ui.etqTipo='locais'; S.ui.etqSel=new Set(); go('etiquetas'); };
+  $('#lmin').onclick=()=>{ S.ui.open.clear(); desenha(); };
+  $('#lmax').onclick=()=>{ Object.keys(S.locais).forEach(id=>{ if(locChildren(id).length||pecasDentro(id).length)S.ui.open.add(id); }); desenha(); };
   $('#lint').onclick=telaRegras;
   S.ui._redesenhaLoc=desenha; desenha();
 }
@@ -2515,12 +2564,13 @@ function nodeHTML(id,d,plano){ const l=S.locais[id],ch=locChildren(id),open=S.ui
     info=`<span class="occ" data-go="${id}"><span class="track" style="width:70px"><span class="fill" style="width:${pct}%;background:${cor}"></span></span><span class="ct">${dir}/${cap}${pct>=100?' · cheia':' · '+(cap-dir)+' livre(s)'}</span></span>`; }
   else { const t=ocupacaoTotal(id); info=`<span class="ct" data-go="${id}">${t} peça(s)</span>`; }
   const rg=regrasDe(l);
-  const ic=folha&&depth(id)>0?'inventory_2':ICON_NIVEL[Math.min(depth(id),2)];
+  const tp=l.tipo&&S.tiposLoc&&S.tiposLoc[l.tipo];
+  const ic=tp&&tp.icone?tp.icone:folha&&depth(id)>0?'inventory_2':ICON_NIVEL[Math.min(depth(id),2)];
   return `<div class="lc-row" style="--d:${plano?0:d}">
     <span class="lc-tg material-icons" ${abre?`data-tg="${id}"`:''}>${abre?(open?'expand_more':'chevron_right'):''}</span>
     <span class="material-icons lc-ic">${ic}</span>
     <div class="lc-tx"><div class="lc-nm">${esc(plano?locPath(id):l.nome)} <span class="lc-sig">${esc(codigoTxt(id))}</span></div>
-      <div class="lc-sb">${info}${rg.length?` <span class="lc-rg" title="Regras de localização automática"><span class="material-icons">auto_awesome</span>${esc(rg.join(', '))}</span>`:''}</div></div>
+      <div class="lc-sb">${tp?`<span class="lc-tp" style="--c:${esc(tp.cor||'#5c6bc0')}">${esc(tp.nome)}</span>`:''}${info}${rg.length?` <span class="lc-rg" title="Regras de localização automática"><span class="material-icons">auto_awesome</span>${esc(rg.join(', '))}</span>`:''}</div></div>
     <div class="lc-ac"><button class="lc-b" data-mnu="${id}" title="Opções"><span class="material-icons">more_vert</span></button></div></div>
     ${abre&&open?ch.map(c=>nodeHTML(c.id,d+1)).join('')+ps.map(p=>linhaPeca(p,d+1)).join(''):''}`; }
 function bindTree(){
@@ -2535,7 +2585,7 @@ function fechaMenu(){ const m=document.getElementById('lcmnu'); if(m)m.remove();
 function menuLocal(id,btn){
   fechaMenu();
   const ps=pecasDentro(id,true), sub=Object.keys(S.locais).filter(x=>x!==id&&locPath(x).startsWith(locPath(id)+' › '));
-  const it=[['add','Adicionar dentro','add'],['edit','Editar / regras','edit'],['mvl','Mover este local','drive_file_move'],
+  const it=[['add','Adicionar dentro','add'],['edit','Editar / regras','edit'],['tipo','Tipo: '+((S.locais[id].tipo&&S.tiposLoc&&S.tiposLoc[S.locais[id].tipo]||{}).nome||'sem tipo'),'category'],['mvl','Mover este local','drive_file_move'],
     ['mvp',`Mover as peças daqui (${ps.length})`,'swap_horiz',!ps.length],['etl','Imprimir etiqueta do local','qr_code_2'],
     ['eti',`Imprimir etiquetas dos locais internos (${sub.length})`,'account_tree',!sub.length],['etp',`Imprimir etiquetas das peças (${ps.length})`,'print',!ps.length],
     ['rel','Peças relacionadas','inventory'],['del','Excluir','delete_outline']];
@@ -2546,11 +2596,286 @@ function menuLocal(id,btn){
   m.style.left=Math.max(8,Math.min(innerWidth-mw-8,r.right-mw))+'px';
   m.style.top=Math.max(8,(r.bottom+mh+8>innerHeight?r.top-mh-4:r.bottom+4))+'px';
   m.onclick=ev=>{ const b=ev.target.closest('button[data-k]'); if(!b||b.disabled)return; ev.stopPropagation(); fechaMenu(); const k=b.dataset.k;
-    if(k==='add')novoLocal(id); else if(k==='edit')renomear(id); else if(k==='mvl')moverLocal(id); else if(k==='mvp')moverPecas(id,ps);
+    if(k==='add')novoLocal(id); else if(k==='edit')renomear(id); else if(k==='tipo')tipoDoLocal(id); else if(k==='mvl')moverLocal(id); else if(k==='mvp')moverPecas(id,ps);
     else if(k==='etl')abreGerador([itemLocal(id)]); else if(k==='eti')abreGerador(sub.sort((a,b)=>locPath(a).localeCompare(locPath(b),'pt',{numeric:true})).map(itemLocal));
     else if(k==='etp')abreGerador(ps.map(itemPeca)); else if(k==='rel')pecasRelacionadas(id); else if(k==='del'&&confirm('Excluir '+locPath(id)+'?'))excluirLocal(id); };
   setTimeout(()=>document.addEventListener('click',fechaMenu),0);
 }
+function tipoDoLocal(id){ const l=S.locais[id], ts=Object.values(S.tiposLoc||{});
+  if(!ts.length){ if(confirm('Você ainda não tem tipos de localização. Abrir a tela de tipos?'))go('tiposloc'); return; }
+  modal(`<h3>Tipo de ${esc(l.nome)}</h3><label class="f">Tipo<select id="tps"><option value="">— sem tipo —</option>${ts.map(t=>`<option value="${esc(t.id)}" ${l.tipo===t.id?'selected':''}>${esc(t.nome)}</option>`).join('')}</select></label>
+   <div class="top" style="margin-top:14px"><button class="btn p" id="ok">Salvar</button><button class="btn" id="cc">Cancelar</button></div>`);
+  $('#cc').onclick=fecha; $('#ok').onclick=async()=>{ try{ await api('/locais/'+id,{method:'PATCH',body:{tipo:$('#tps').value||null}}); fecha(); toast('Tipo salvo'); locais(); }catch(e){ toast(e.message); } }; }
+// ---------- Tipos de localização ----------
+const ICONES_TL=['warehouse','yard','signpost','shelves','layers','inventory_2','inbox','table_restaurant','garage','local_shipping','place','category','grid_view','view_module','kitchen','door_sliding'];
+async function tiposLocal(){
+  const ui=S.ui; ui.tlModo=ui.tlModo||'grade'; ui.tlQ=ui.tlQ||'';
+  let r; try{ r=await api('/locais/tipos'); }catch(e){ $('#main').innerHTML='<div class="empty">'+esc(e.message)+'</div>'; return; }
+  if(S.view!=='tiposloc')return;
+  const adm=S.user&&S.user.papel==='admin';
+  const pinta=()=>{ const q=nrm(ui.tlQ), ts=r.tipos.filter(t=>!q||nrm(t.nome+' '+(t.descricao||'')).includes(q));
+    $('#main').innerHTML=`<div class="top"><h2>Tipos de localização</h2></div>
+     <div class="card" style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+       <div class="withmic" style="flex:1;min-width:200px"><input id="tlq" placeholder="Buscar por nome ou descrição do tipo" value="${esc(ui.tlQ)}"></div>
+       ${adm?'<button class="btn p" id="tlnovo" style="background:var(--ok);border-color:var(--ok)">+ Novo tipo</button>':''}
+       <div class="filters" style="margin:0"><button class="chip ${ui.tlModo==='lista'?'on':''}" data-tm="lista">☰ Lista</button><button class="chip ${ui.tlModo==='grade'?'on':''}" data-tm="grade">▦ Grade</button></div></div>
+     ${r.tipos.length&&r.semTipo&&adm?`<div class="card small" style="margin-bottom:12px;box-shadow:none;background:#f4f6ff">🏷️ <b>${r.semTipo} local(is) sem tipo.</b> O sistema pode dar o tipo pelo nome (PRT-1 → Prateleira, NÍVEL-C → Nível, CAIXA-3 → Caixa…). <button class="btn sm p" id="tlauto">Aplicar tipos automaticamente</button></div>`:''}
+     ${!r.tipos.length?`<div class="vazio-g"><span class="material-icons" style="font-size:40px;color:var(--pri)">category</span><h3>Você ainda não tem tipos de localização</h3>
+        <p>Quer criar com o nosso catálogo? Ele traz tipos prontos para organizar o estoque por endereço: Galpão, Pátio, Rua, Prateleira, Nível, Caixa, Gaveta e Bancada.</p>
+        ${adm?'<button class="btn p" id="tlcat">Criar com o nosso catálogo</button>':''}</div>`
+      :ts.length?`<div class="${ui.tlModo==='grade'?'tl-grid':'tl-lista'}">${ts.map(t=>`<div class="tl-card"><span class="tl-ic" style="background:${esc(t.cor||'#5c6bc0')}"><span class="material-icons">${esc(t.icone||'place')}</span></span>
+        <div style="min-width:0"><b>${esc(t.nome)}</b><span class="small mut">${esc(t.descricao||'')}</span><div class="small" style="margin-top:4px">${t.n} local(is)${t.capacidade?' · cabe '+t.capacidade+' peças':''}${t.prefixo?` · <span class="mut">nomes: ${esc(t.prefixo.split('|').join(', '))}</span>`:''}</div></div>
+        ${adm?`<div class="acs"><button class="btn sm" data-tle="${esc(t.id)}" title="Editar"><span class="material-icons" style="font-size:16px">edit</span></button><button class="btn sm" data-tld="${esc(t.id)}" title="Excluir"><span class="material-icons" style="font-size:16px">delete_outline</span></button></div>`:''}</div>`).join('')}</div>`
+      :'<div class="vazio-g">Nenhum tipo encontrado para essa busca.</div>'}`;
+    $('#tlq').oninput=e=>{ ui.tlQ=e.target.value; clearTimeout(window._tlq); window._tlq=setTimeout(()=>{ pinta(); const i=$('#tlq'); i.focus(); i.setSelectionRange(i.value.length,i.value.length); },250); };
+    document.querySelectorAll('[data-tm]').forEach(b=>b.onclick=()=>{ ui.tlModo=b.dataset.tm; pinta(); });
+    if($('#tlnovo'))$('#tlnovo').onclick=()=>editaTipo(null);
+    if($('#tlcat'))$('#tlcat').onclick=async()=>{ try{ const x=await api('/locais/tipos/catalogo',{method:'POST'}); toast('✅ '+x.criados+' tipo(s) criados'); tiposLocal(); }catch(e){ toast(e.message); } };
+    if($('#tlauto'))$('#tlauto').onclick=async()=>{ try{ const x=await api('/locais/tipos/auto',{method:'POST'}); toast(`🏷️ Tipo aplicado em ${x.aplicados} local(is)`+(x.restantes?` · ${x.restantes} sem tipo (nome não reconhecido)`:'')); tiposLocal(); }catch(e){ toast(e.message); } };
+    document.querySelectorAll('[data-tle]').forEach(b=>b.onclick=()=>editaTipo(r.tipos.find(t=>t.id===b.dataset.tle)));
+    document.querySelectorAll('[data-tld]').forEach(b=>b.onclick=async()=>{ const t=r.tipos.find(x=>x.id===b.dataset.tld);
+      if(!confirm(`Excluir o tipo "${t.nome}"? ${t.n?t.n+' local(is) ficam sem tipo (os locais não são apagados).':''}`))return;
+      try{ await api('/locais/tipos/'+t.id,{method:'DELETE'}); toast('Tipo excluído'); tiposLocal(); }catch(e){ toast(e.message); } }); };
+  pinta(); }
+function editaTipo(t){ t=t||{};
+  modal(`<h3>${t.id?'Editar tipo':'Novo tipo de localização'}</h3>
+   <div class="form"><label class="f">Nome *<input id="tn" value="${esc(t.nome||'')}" placeholder="Ex.: Prateleira"></label>
+    <label class="f">Capacidade padrão (peças)<input id="tc" type="number" min="1" value="${esc(t.capacidade||'')}" placeholder="vazio = sem limite"></label>
+    <label class="f full">Descrição<input id="td" value="${esc(t.descricao||'')}" placeholder="Para que serve esse tipo"></label>
+    <label class="f full">Começo dos nomes (para dar o tipo sozinho, separados por |)<input id="tp" value="${esc(t.prefixo||'')}" placeholder="Ex.: PRT|PRAT|ESTANTE"></label>
+    <label class="f">Cor<input id="tcor" type="color" value="${esc(t.cor||'#5c6bc0')}" style="height:40px;padding:2px"></label></div>
+   <div class="wz-sec">Ícone</div><div class="filters">${ICONES_TL.map(ic=>`<button type="button" class="chip ${(t.icone||'place')===ic?'on':''}" data-ic="${ic}"><span class="material-icons" style="font-size:18px;vertical-align:-4px">${ic}</span></button>`).join('')}</div>
+   <div class="top" style="margin-top:14px"><button class="btn p" id="ok">Salvar</button><button class="btn" id="cc">Cancelar</button></div>`);
+  let icone=t.icone||'place';
+  document.querySelectorAll('[data-ic]').forEach(b=>b.onclick=()=>{ icone=b.dataset.ic; document.querySelectorAll('[data-ic]').forEach(x=>x.classList.toggle('on',x===b)); });
+  $('#cc').onclick=fecha;
+  $('#ok').onclick=async()=>{ if(!$('#tn').value.trim())return toast('Informe o nome');
+    try{ await api('/locais/tipos',{method:'POST',body:{id:t.id,nome:$('#tn').value,descricao:$('#td').value,capacidade:$('#tc').value,prefixo:$('#tp').value,cor:$('#tcor').value,icone}}); fecha(); toast('Tipo salvo'); tiposLocal(); }catch(e){ toast(e.message); } }; }
+// ---------- Tabela de peças (colunas escolhidas por você) ----------
+const fmtData=t=>t?new Date(Number(t)).toLocaleDateString('pt-BR'):'';
+const listaJ=v=>{ if(Array.isArray(v))return v; try{ const x=JSON.parse(v||'[]'); return Array.isArray(x)?x:[]; }catch(_){ return []; } };
+const COLS_TB=[
+  ['foto','Foto','Primeira foto da peça',p=>p.fotos&&p.fotos[0]?`<img src="/api/foto/${p.fotos[0]}" loading="lazy" alt="">`:'',p=>(p.fotos||[]).length?1:0],
+  ['codigo','SKU / código','Código da peça no estoque',p=>esc(cod(p.codigo)),p=>Number(p.codigo)],
+  ['nome','Nome','Nome da peça',p=>esc(p.nome),p=>nrm(p.nome)],
+  ['marca','Marca','',p=>esc(p.marca||''),p=>nrm(p.marca)],
+  ['modelo','Modelo','',p=>esc(p.modelo||''),p=>nrm(p.modelo)],
+  ['ano','Ano','',p=>esc(p.ano||''),p=>p.ano||''],
+  ['pn','Part number','Código original / OEM',p=>esc(p.pn||''),p=>p.pn||''],
+  ['ncm','NCM','',p=>esc(p.ncm||''),p=>p.ncm||''],
+  ['cond','Condição','',p=>esc(p.cond||''),p=>p.cond||''],
+  ['qualidade','Conservação','A, B, C ou D',p=>esc(p.qualidade||''),p=>p.qualidade||'Z'],
+  ['preco','Preço balcão','',p=>brl(p.preco),p=>Number(p.preco)||0],
+  ['preco_mkp','Preço marketplace','',p=>p.preco_mkp?brl(p.preco_mkp):'',p=>Number(p.preco_mkp)||0],
+  ['custo','Custo','',p=>p.custo?brl(p.custo):'',p=>Number(p.custo)||0],
+  ['qtd','Estoque','Quantidade em estoque',p=>String(Number(p.qtd)||0),p=>Number(p.qtd)||0],
+  ['local','Localização','Endereço da peça',p=>p.local_id&&S.locais&&S.locais[p.local_id]?esc(codigoTxt(p.local_id)):'<span class="mut">sem local</span>',p=>p.local_id&&S.locais&&S.locais[p.local_id]?locPath(p.local_id):'~'],
+  ['ml','Anúncio ML','Situação do anúncio',p=>p.ml_id?esc(stML(p.ml_status)):'',p=>p.ml_id?(p.ml_status||'a'):'~'],
+  ['ml_cat_nome','Categoria ML','',p=>esc(String(p.ml_cat_nome||'').split('›').pop().trim()),p=>p.ml_cat_nome||''],
+  ['veiculo','Sucata de origem','',p=>esc(p.veiculo||''),p=>nrm(p.veiculo)],
+  ['peso','Peso','Peso da embalagem',p=>p.peso_g?(p.peso_g>=1000?(p.peso_g/1000).toLocaleString('pt-BR')+' kg':p.peso_g+' g'):'',p=>Number(p.peso_g)||0],
+  ['medidas','Medidas','Altura × largura × comprimento',p=>p.alt_cm&&p.larg_cm&&p.comp_cm?`${p.alt_cm}×${p.larg_cm}×${p.comp_cm} cm`:'',p=>(p.alt_cm||0)*(p.larg_cm||0)*(p.comp_cm||0)],
+  ['marcadores','Marcadores','',p=>esc(listaJ(p.marcadores).join(', ')),p=>listaJ(p.marcadores).join(',')],
+  ['compat','Compatibilidade','Veículos compatíveis',p=>{ const n=listaJ(p.compat).length; return n?n+' veículo(s)':''; },p=>listaJ(p.compat).length],
+  ['nfotos','Nº de fotos','',p=>String((p.fotos||[]).length),p=>(p.fotos||[]).length],
+  ['etq','Etiqueta','Etiqueta impressa',p=>p.etq_em?'impressa':'<span class="mut">não</span>',p=>p.etq_em||0],
+  ['criado_em','Cadastrado em','',p=>fmtData(p.criado_em),p=>Number(p.criado_em)||0],
+  ['atualizado_em','Alterado em','',p=>fmtData(p.atualizado_em),p=>Number(p.atualizado_em)||0],
+  ['obs','Observações','Observações internas',p=>esc(p.obs||''),p=>nrm(p.obs)],
+];
+const COLS_PADRAO=['foto','codigo','nome','marca','modelo','preco','qtd','local','ml'];
+function colsTabela(){ try{ const c=JSON.parse(localStorage.getItem('rafa_tabela_cols')||'null'); if(Array.isArray(c)&&c.length)return c.filter(k=>COLS_TB.some(x=>x[0]===k)); }catch(_){ } return [...COLS_PADRAO]; }
+async function tabelaPecas(){
+  const ui=S.ui; ui.tbQ=ui.tbQ||''; ui.tbSt=ui.tbSt||'disp'; ui.tbOrd=ui.tbOrd||['codigo',1]; ui.tbN=200;
+  await carregaLocais(); const {pecas}=await api('/pecas?todas=1'); S.pecas=pecas;
+  if(S.view!=='tabela')return;
+  const ST=[['todos','Todas'],['disp','Disponíveis'],['zerado','Esgotadas'],['semanuncio','Sem anúncio'],['semlocal','Sem local'],['semfoto','Sem foto']];
+  const filtra=()=>{ const q=nrm(ui.tbQ).split(/\s+/).filter(Boolean);
+    return S.pecas.filter(p=>{ const qt=Number(p.qtd)||0;
+      if(ui.tbSt==='disp'&&qt<=0||ui.tbSt==='zerado'&&qt>0||ui.tbSt==='semanuncio'&&(p.ml_id||qt<=0)||ui.tbSt==='semlocal'&&p.local_id&&S.locais[p.local_id]||ui.tbSt==='semfoto'&&(p.fotos||[]).length)return false;
+      if(!q.length)return true; const t=nrm([p.nome,p.marca,p.modelo,p.pn,p.ano,cod(p.codigo),p.veiculo,p.ncm].join(' ')); return q.every(w=>t.includes(w)); }); };
+  const pinta=()=>{ const cols=colsTabela().map(k=>COLS_TB.find(x=>x[0]===k)), [ok,dir]=ui.tbOrd, oc=COLS_TB.find(x=>x[0]===ok)||COLS_TB[1];
+    const l=filtra().sort((a,b)=>{ const x=oc[4](a),y=oc[4](b); return (x>y?1:x<y?-1:0)*dir; });
+    $('#main').innerHTML=`<div class="top"><h2>Tabela de Peças</h2><button class="btn sm esq-desk" id="tbcsv">⬇️ Baixar planilha</button></div>
+     <div class="card" style="margin-bottom:10px"><button class="btn" id="tbcols" style="width:100%"><span class="material-icons" style="font-size:18px;vertical-align:-4px">view_column</span> Personalizar colunas (${cols.length})</button>
+       <div class="withmic" style="margin-top:10px"><input id="tbq" placeholder="Código, nome, part number, marca, modelo…" value="${esc(ui.tbQ)}"></div>
+       <div class="filters" style="margin:10px 0 0">${ST.map(([k,t])=>`<button class="chip ${ui.tbSt===k?'on':''}" data-ts="${k}">${t}</button>`).join('')}</div></div>
+     <p class="small mut" style="margin:0 0 6px">${l.length} peça(s)${l.length>ui.tbN?' · mostrando '+ui.tbN:''} · toque no título da coluna para ordenar</p>
+     ${l.length?`<div class="tb-wrap"><table class="tbp"><thead><tr>${cols.map(c=>`<th data-to="${c[0]}" title="${esc(c[2]||c[1])}">${esc(c[1])}${c[0]===ok?(dir>0?' ▲':' ▼'):''}</th>`).join('')}</tr></thead>
+       <tbody>${l.slice(0,ui.tbN).map(p=>`<tr data-tp="${esc(p.id)}">${cols.map(c=>`<td>${c[3](p)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+       ${l.length>ui.tbN?'<div style="text-align:center;margin:10px 0"><button class="btn" id="tbmais">Mostrar mais</button></div>':''}`
+      :'<div class="vazio-g">Nenhuma peça encontrada com os filtros atuais.</div>'}`;
+    $('#tbq').oninput=e=>{ ui.tbQ=e.target.value; clearTimeout(window._tbq); window._tbq=setTimeout(()=>{ pinta(); const i=$('#tbq'); i.focus(); i.setSelectionRange(i.value.length,i.value.length); },300); };
+    document.querySelectorAll('[data-ts]').forEach(b=>b.onclick=()=>{ ui.tbSt=b.dataset.ts; ui.tbN=200; pinta(); });
+    document.querySelectorAll('[data-to]').forEach(th=>th.onclick=()=>{ const k=th.dataset.to; ui.tbOrd=[k,ui.tbOrd[0]===k?-ui.tbOrd[1]:1]; pinta(); });
+    document.querySelectorAll('[data-tp]').forEach(tr=>tr.onclick=()=>abrePeca(tr.dataset.tp));
+    if($('#tbmais'))$('#tbmais').onclick=()=>{ ui.tbN+=300; pinta(); };
+    $('#tbcols').onclick=()=>personalizarColunas(pinta);
+    $('#tbcsv').onclick=()=>{ const txt=v=>String(v??'').replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
+      const cs=cols.filter(c=>c[0]!=='foto'), linhas=[cs.map(c=>c[1]),...l.map(p=>cs.map(c=>txt(c[3](p))))];
+      const csv='﻿'+linhas.map(r=>r.map(v=>/[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v).join(';')).join('\r\n');
+      const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})); a.download='tabela-pecas.csv'; a.click(); }; };
+  pinta(); }
+function personalizarColunas(depois){
+  let ativas=colsTabela(), q='';
+  const pinta=()=>{ const fora=COLS_TB.filter(c=>!ativas.includes(c[0])&&(!q||nrm(c[1]+' '+c[2]).includes(q)));
+    $('#pcbody').innerHTML=`<div class="wz-sec">Colunas na tabela <span class="small mut">(${ativas.length}) — use as setas para mudar a ordem</span></div>
+      ${ativas.map((k,i)=>{ const c=COLS_TB.find(x=>x[0]===k); return `<div class="col-it"><div class="tx"><b>${esc(c[1])}</b><small>${esc(c[2]||'')}</small></div><span class="tg">NA TABELA</span>
+        <button class="btn sm" data-pu="${i}" ${i?'':'disabled'}>↑</button><button class="btn sm" data-pd="${i}" ${i<ativas.length-1?'':'disabled'}>↓</button><button class="btn sm" data-pr="${i}" ${ativas.length>1?'':'disabled'}>✕</button></div>`; }).join('')}
+      <div class="wz-sec">Todos os campos <span class="small mut">(${COLS_TB.length})</span></div>
+      <input id="pcq" placeholder="Pesquisar campos da tabela" value="${esc(q)}" style="margin-bottom:8px">
+      ${fora.map(c=>`<div class="col-it"><div class="tx"><b>${esc(c[1])}</b><small>${esc(c[2]||'')}</small></div><button class="btn sm p" data-pa="${c[0]}">Adicionar</button></div>`).join('')||'<p class="small mut">Todos os campos já estão na tabela.</p>'}`;
+    const salva=()=>{ try{ localStorage.setItem('rafa_tabela_cols',JSON.stringify(ativas)); }catch(_){ } pinta(); };
+    document.querySelectorAll('[data-pu]').forEach(b=>b.onclick=()=>{ const i=+b.dataset.pu; [ativas[i-1],ativas[i]]=[ativas[i],ativas[i-1]]; salva(); });
+    document.querySelectorAll('[data-pd]').forEach(b=>b.onclick=()=>{ const i=+b.dataset.pd; [ativas[i+1],ativas[i]]=[ativas[i],ativas[i+1]]; salva(); });
+    document.querySelectorAll('[data-pr]').forEach(b=>b.onclick=()=>{ ativas.splice(+b.dataset.pr,1); salva(); });
+    document.querySelectorAll('[data-pa]').forEach(b=>b.onclick=()=>{ ativas.push(b.dataset.pa); salva(); });
+    $('#pcq').oninput=e=>{ q=nrm(e.target.value); pinta(); const i=$('#pcq'); i.focus(); i.setSelectionRange(i.value.length,i.value.length); }; };
+  modal(`<h3>Personalizar colunas</h3><p class="small mut">Escolha o que aparece na tabela e em que ordem. Fica salvo neste aparelho.</p><div id="pcbody"></div>
+    <div class="top" style="margin-top:12px"><button class="btn" id="pcpad">Voltar ao padrão</button><span style="flex:1"></span><button class="btn p" id="pcok">Pronto</button></div>`);
+  $('#pcok').onclick=()=>{ fecha(); depois(); };
+  $('#pcpad').onclick=()=>{ ativas=[...COLS_PADRAO]; try{ localStorage.removeItem('rafa_tabela_cols'); }catch(_){ } pinta(); };
+  pinta(); }
+// ---------- Ações em massa (com histórico e desfazer) ----------
+async function acoesMassa(){
+  const ui=S.ui; ui.msAba=ui.msAba||'nova'; ui.msSel=ui.msSel||new Set(); ui.msQ=ui.msQ||''; ui.msSt=ui.msSt||'disp'; ui.msLoc=ui.msLoc||'';
+  await carregaLocais(); const {pecas}=await api('/pecas?todas=1'); S.pecas=pecas;
+  if(S.view!=='massa')return;
+  const ST=[['todos','Todas'],['disp','Disponíveis'],['semanuncio','Sem anúncio'],['semlocal','Sem local'],['semfoto','Sem foto'],['semmed','Sem medidas']];
+  const ACOES=[['preco','Preço de balcão'],['preco_mkp','Preço marketplace'],['local','Mover para um local'],['qualidade','Conservação (A–D)'],['cond','Condição'],['marcador','Marcador'],['embalagem','Embalagem (peso e medidas)']];
+  const MARC=['Reservada','Separar','Conferir','Não anunciar','Com avaria','Vitrine'];
+  const CONDS=['Usada, em bom estado','Usada, com marcas de uso','Usada, com avaria','Nova','Recondicionada'];
+  const filtra=()=>{ const q=nrm(ui.msQ).split(/\s+/).filter(Boolean), sub=ui.msLoc?new Set([ui.msLoc,...Object.keys(S.locais).filter(x=>locPath(x).startsWith(locPath(ui.msLoc)+' › '))]):null;
+    return S.pecas.filter(p=>{ const qt=Number(p.qtd)||0;
+      if(ui.msSt==='disp'&&qt<=0||ui.msSt==='semanuncio'&&(p.ml_id||qt<=0)||ui.msSt==='semlocal'&&p.local_id&&S.locais[p.local_id]||ui.msSt==='semfoto'&&(p.fotos||[]).length||ui.msSt==='semmed'&&p.peso_g&&p.alt_cm&&p.larg_cm&&p.comp_cm)return false;
+      if(sub&&!sub.has(p.local_id))return false;
+      if(!q.length)return true; const t=nrm([p.nome,p.marca,p.modelo,p.pn,cod(p.codigo)].join(' ')); return q.every(w=>t.includes(w)); }).sort((a,b)=>a.codigo-b.codigo); };
+  const campoValor=a=>a==='preco'||a==='preco_mkp'?`<div class="form"><label class="f">Como<select id="msm"><option value="definir">Definir o valor (R$)</option><option value="percent">Aumentar/diminuir em %</option><option value="somar">Somar/tirar R$</option></select></label><label class="f">Valor<input id="msx" type="number" step="0.01" placeholder="ex.: 150 · 10 · -10"></label></div><p class="small mut">Use número negativo para diminuir (ex.: -10 = 10% mais barato).</p>`
+    :a==='local'?`<label class="f">Mover para<select id="msx"><option value="">— sem localização —</option>${locOptions('')}</select></label>`
+    :a==='qualidade'?`<label class="f">Conservação<select id="msx"><option value="A">A · Excelente</option><option value="B">B · Muito bom</option><option value="C">C · Bom</option><option value="D">D · Razoável</option><option value="">Sem conservação</option></select></label>`
+    :a==='cond'?`<label class="f">Condição<select id="msx">${CONDS.map(c=>`<option>${c}</option>`).join('')}</select></label>`
+    :a==='marcador'?`<div class="form"><label class="f">Fazer<select id="msm"><option value="por">Colocar o marcador</option><option value="tirar">Tirar o marcador</option></select></label><label class="f">Marcador<select id="msx">${MARC.map(m=>`<option>${m}</option>`).join('')}</select></label></div>`
+    :`<div class="small" style="margin:6px 0">Rápido: ${EMB_PRESETS.map((e,i)=>`<button type="button" class="chip" data-mpe="${i}">${e[0]}</button>`).join(' ')}</div><div class="form emb4"><label class="f">Altura (cm)<input id="mea" type="number" step="0.1"></label><label class="f">Largura (cm)<input id="mel" type="number" step="0.1"></label><label class="f">Comprimento (cm)<input id="mec" type="number" step="0.1"></label><label class="f">Peso (g)<input id="mep" type="number" step="1"></label></div>`;
+  const pinta=async()=>{
+    const abas=`<div class="ms-tabs"><button class="ms-tab ${ui.msAba==='nova'?'on':''}" data-ma2="nova"><span class="material-icons">add</span>Nova ação</button><button class="ms-tab ${ui.msAba==='hist'?'on':''}" data-ma2="hist"><span class="material-icons">history</span>Histórico de ações em massa</button></div>`;
+    if(ui.msAba==='hist'){ $('#main').innerHTML=`<div class="top"><h2>Ações em massa</h2></div>${abas}<div id="mshist"><p class="small mut"><span class="spin-s"></span> Carregando histórico…</p></div>`; bindAbas();
+      let h; try{ h=await api('/massa/historico'); }catch(e){ $('#mshist').innerHTML='<div class="vazio-g">'+esc(e.message)+'</div>'; return; }
+      if(!$('#mshist'))return;
+      $('#mshist').innerHTML=h.acoes.length?h.acoes.map(a=>`<div class="ms-hist ${a.desfeita?'desf':''}"><span class="material-icons" style="color:var(--pri)">${{preco:'sell',preco_mkp:'storefront',local:'swap_horiz',qualidade:'grade',cond:'verified',marcador:'bookmark',embalagem:'package_2'}[a.acao]||'checklist'}</span>
+        <div style="flex:1;min-width:0"><b>${esc(a.descricao)}</b><div class="small mut">${a.n} peça(s) · ${new Date(a.criado_em).toLocaleString('pt-BR')} · ${esc(a.usuario_nome||'')}${a.desfeita?` · <b>desfeita</b> em ${new Date(a.desfeita_em).toLocaleString('pt-BR')}`:''}</div></div>
+        ${!a.desfeita&&a.n?`<button class="btn sm" data-msd="${esc(a.id)}">↩ Desfazer</button>`:''}</div>`).join('')
+        :'<div class="vazio-g">Nenhuma ação registrada. As novas execuções aparecem aqui.</div>';
+      document.querySelectorAll('[data-msd]').forEach(b=>b.onclick=async()=>{ if(!confirm('Desfazer essa ação? As peças voltam aos valores de antes dela.'))return; b.disabled=true;
+        try{ const x=await api('/massa/'+b.dataset.msd+'/desfazer',{method:'POST'}); toast('↩ '+x.restauradas+' peça(s) voltaram ao que eram'); pinta(); }catch(e){ toast(e.message); b.disabled=false; } });
+      return; }
+    const l=filtra(), sel=ui.msSel, acao=ui.msAcao||'preco';
+    $('#main').innerHTML=`<div class="top"><h2>Ações em massa</h2></div>${abas}
+     <div class="wz-card"><div class="wz-h" style="margin-bottom:10px"><span class="wz-n">1</span><div><h3 style="font-size:17px">Escolha as peças</h3><p>Busque e marque as peças. ${sel.size?`<b>${sel.size} selecionada(s)</b>`:''}</p></div></div>
+      <div class="withmic"><input id="msq" placeholder="Código, nome, catálogo, part number…" value="${esc(ui.msQ)}"></div>
+      <div class="filters" style="margin:10px 0"><select id="msl" style="width:auto;max-width:230px"><option value="">Todas as localizações</option>${locOptions(ui.msLoc)}</select>${ST.map(([k,t])=>`<button class="chip ${ui.msSt===k?'on':''}" data-mst="${k}">${t}</button>`).join('')}</div>
+      <div class="mlact" style="margin-bottom:8px"><button class="btn sm" id="mstodas">☑ Marcar as ${l.length} do filtro</button><button class="btn sm" id="mslimpa" ${sel.size?'':'disabled'}>Limpar seleção</button></div>
+      <div style="border:1px solid var(--line);border-radius:12px;max-height:340px;overflow:auto">${l.length?l.slice(0,300).map(p=>`<label class="ms-row"><input type="checkbox" data-msp="${esc(p.id)}" ${sel.has(p.id)?'checked':''}><span style="flex:1;min-width:0"><b>${cod(p.codigo)}</b> ${esc(p.nome)}<br><span class="small mut">${brl(p.preco)}${p.preco_mkp?' · mkp '+brl(p.preco_mkp):''} · ${Number(p.qtd)||0} un${p.local_id&&S.locais[p.local_id]?' · 📍 '+esc(codigoTxt(p.local_id)):''}</span></span></label>`).join('')+(l.length>300?`<p class="small mut" style="padding:8px">Mostrando 300 de ${l.length} — "Marcar as ${l.length} do filtro" marca todas.</p>`:'')
+        :'<p class="small mut" style="padding:12px">Nenhuma peça encontrada para o filtro atual.</p>'}</div></div>
+     <div class="wz-card"><div class="wz-h" style="margin-bottom:10px"><span class="wz-n">2</span><div><h3 style="font-size:17px">O que fazer</h3><p>A ação fica no histórico e pode ser desfeita.</p></div></div>
+      <label class="f">Ação<select id="msa">${ACOES.map(([k,t])=>`<option value="${k}" ${acao===k?'selected':''}>${t}</option>`).join('')}</select></label>
+      <div id="msv" style="margin-top:6px">${campoValor(acao)}</div>
+      <div class="top" style="margin-top:14px"><button class="btn p" id="msok" ${sel.size?'':'disabled'}>Aplicar em ${sel.size} peça(s)</button></div></div>`;
+    bindAbas();
+    $('#msq').oninput=e=>{ ui.msQ=e.target.value; clearTimeout(window._msq); window._msq=setTimeout(()=>{ pinta(); const i=$('#msq'); i.focus(); i.setSelectionRange(i.value.length,i.value.length); },300); };
+    $('#msl').onchange=e=>{ ui.msLoc=e.target.value; pinta(); };
+    document.querySelectorAll('[data-mst]').forEach(b=>b.onclick=()=>{ ui.msSt=b.dataset.mst; pinta(); });
+    document.querySelectorAll('[data-msp]').forEach(c=>c.onchange=()=>{ c.checked?sel.add(c.dataset.msp):sel.delete(c.dataset.msp); $('#msok').disabled=!sel.size; $('#msok').textContent='Aplicar em '+sel.size+' peça(s)'; $('#mslimpa').disabled=!sel.size; });
+    $('#mstodas').onclick=()=>{ l.forEach(p=>sel.add(p.id)); pinta(); };
+    $('#mslimpa').onclick=()=>{ sel.clear(); pinta(); };
+    $('#msa').onchange=e=>{ ui.msAcao=e.target.value; $('#msv').innerHTML=campoValor(ui.msAcao); bindEmb(); };
+    const bindEmb=()=>document.querySelectorAll('[data-mpe]').forEach(b=>b.onclick=()=>{ const e=EMB_PRESETS[+b.dataset.mpe]; $('#mep').value=e[1]; $('#mea').value=e[2]; $('#mel').value=e[3]; $('#mec').value=e[4]; }); bindEmb();
+    $('#msok').onclick=async()=>{ const a=$('#msa').value; let valor;
+      if(a==='preco'||a==='preco_mkp'){ if($('#msx').value==='')return toast('Informe o valor'); valor={modo:$('#msm').value,x:$('#msx').value}; }
+      else if(a==='marcador')valor={modo:$('#msm').value==='tirar'?'tirar':'por',x:$('#msx').value};
+      else if(a==='local')valor={local_id:$('#msx').value};
+      else if(a==='embalagem')valor={alt_cm:$('#mea').value,larg_cm:$('#mel').value,comp_cm:$('#mec').value,peso_g:$('#mep').value};
+      else valor={x:$('#msx').value};
+      if(!confirm(`Aplicar "${$('#msa').selectedOptions[0].text}" em ${sel.size} peça(s)? Dá para desfazer pelo histórico.`))return;
+      $('#msok').disabled=true; $('#msok').textContent='Aplicando…';
+      try{ const x=await api('/massa/aplicar',{method:'POST',body:{ids:[...sel],acao:a,valor}}); toast(`✅ ${x.descricao} — ${x.alteradas} peça(s) alterada(s)`+(x.iguais?` · ${x.iguais} já estavam assim`:'')); sel.clear(); ui.msAba='hist'; pinta(); }
+      catch(e){ toast(e.message); $('#msok').disabled=false; $('#msok').textContent='Aplicar em '+sel.size+' peça(s)'; } };
+  };
+  const bindAbas=()=>document.querySelectorAll('[data-ma2]').forEach(b=>b.onclick=()=>{ ui.msAba=b.dataset.ma2; pinta(); });
+  pinta(); }
+// ---------- varredura dos anúncios do ML (usada pelo scanner e pela tela de compatibilidade) ----------
+async function varreAnuncios(prog){
+  const l=[];
+  for(const st of ['active','paused','under_review']){ let off=0;
+    while(off!=null){ let r; try{ r=await api(`/ml/scanner?status=${st}&offset=${off}`); }catch(e){ if(st==='active')throw e; break; }
+      l.push(...r.lista); off=r.proximo; if(prog)prog(l.length); if(off!=null&&off>=1000)break; } }
+  S.ui.varredura={quando:Date.now(),lista:l}; return l; }
+const ehCompat=it=>it.status==='under_review'||[...(it.tags||[]),...(it.sub||[])].some(t=>/compatib/i.test(t));
+const PROB_SC=[
+  ['estoque','Estoque diferente do sistema','inventory',(it,p)=>p&&!it.protegido&&['active','paused'].includes(it.status)&&Number(it.qtd)!==Math.max(0,Number(p.qtd)||0)?`estoque ML ${it.qtd} · sistema ${Number(p.qtd)||0}`:null,true],
+  ['preco','Preço diferente do sistema','sell',(it,p)=>{ if(!p||it.protegido)return null; const alvo=Number(p.preco_mkp)>0?Number(p.preco_mkp):Number(p.preco)||0; return alvo&&Math.abs(Number(it.preco)-alvo)>0.5?`ML ${brl(it.preco)} · sistema ${brl(alvo)}`:null; },true],
+  ['sempeca','Sem peça ligada','link_off',(it,p)=>p?null:'sem peça no sistema'],
+  ['pausado','Pausados','pause_circle',it=>it.status==='paused'?'pausado'+(it.sub&&it.sub.length?': '+subML(it.sub):''):null],
+  ['revisao','Em revisão / compatibilidade','car_crash',it=>ehCompat(it)?(it.status==='under_review'?'em revisão no ML':'compatibilidade incompleta'):null],
+  ['fotos','Poucas fotos (menos de 3)','photo_library',it=>it.nfotos<3?it.nfotos+' foto(s)':null],
+  ['pn','Sem part number','pin',it=>it.pn?null:'sem part number'],
+  ['titulo','Título curto','short_text',it=>(it.titulo||'').length<40?(it.titulo||'').length+' letras no título':null],
+  ['saude','Qualidade do anúncio baixa','health_and_safety',it=>it.saude!=null&&it.saude<0.75?'qualidade '+Math.round(it.saude*100)+'%':null],
+];
+async function scannerML(){
+  const ui=S.ui; ui.scF=ui.scF||'';
+  const pinta=()=>{ const v=ui.varredura;
+    if(!v){ $('#main').innerHTML=`<div class="top"><h2>Scanner de anúncios</h2></div>
+      <div class="vazio-g"><span class="material-icons" style="font-size:40px;color:var(--pri)">radar</span><h3>Varredura dos seus anúncios do Mercado Livre</h3>
+       <p>O sistema lê todos os anúncios (ativos, pausados e em revisão) e aponta o que precisa de atenção: estoque ou preço diferente do sistema, anúncio sem peça ligada, pausados, em revisão, poucas fotos, sem part number, título curto e qualidade baixa.</p>
+       <button class="btn p" id="scgo">Iniciar varredura</button><div id="scprog" class="small" style="margin-top:10px"></div></div>`;
+      $('#scgo').onclick=roda; return; }
+    const res=v.lista.map(it=>({it,pb:PROB_SC.map(([k,,,f])=>[k,f(it,it.peca)]).filter(x=>x[1])}));
+    const conta=Object.fromEntries(PROB_SC.map(([k])=>[k,res.filter(r=>r.pb.some(x=>x[0]===k)).length]));
+    const ver=res.filter(r=>ui.scF?r.pb.some(x=>x[0]===ui.scF):r.pb.length).sort((a,b)=>b.pb.length-a.pb.length);
+    $('#main').innerHTML=`<div class="top"><h2>Scanner de anúncios</h2><button class="btn sm" id="scgo">↻ Varrer de novo</button></div>
+     <p class="small mut" style="margin-top:-8px">${v.lista.length} anúncio(s) lidos em ${new Date(v.quando).toLocaleString('pt-BR')} · ${res.filter(r=>r.pb.length).length} com algo para olhar. Toque num quadro para filtrar.</p>
+     <div class="sc-kpis">${PROB_SC.map(([k,t,ic])=>`<div class="sc-k ${ui.scF===k?'on':''}" data-scf="${k}"><span class="material-icons" style="color:var(--pri)">${ic}</span><b>${conta[k]}</b><small>${t}</small></div>`).join('')}</div>
+     ${ui.scF==='sempeca'&&conta.sempeca?'<div class="card small" style="margin-bottom:10px;box-shadow:none;background:#f4f6ff">Para ligar esses anúncios às peças, use <button class="btn sm p" id="scvinc">🔗 Vincular anúncios</button></div>':''}
+     ${ver.length?ver.slice(0,300).map(({it,pb})=>`<div class="sc-it">${it.foto?`<img src="${esc(it.foto)}" loading="lazy" alt="">`:'<img alt="">'}
+       <div style="flex:1;min-width:0"><b>${esc(it.titulo)}</b><div class="small mut">${esc(it.id)} · ${esc(stML(it.status))} · ${brl(it.preco)} · ${it.qtd} no ML · ${it.vendidos} vendido(s)${it.protegido?' · 🔒 protegido':''}${it.peca?` · ${cod(it.peca.codigo)}${it.peca.local?' · 📍 '+esc(it.peca.local):''}`:''}</div>
+        <div class="sc-pb">${pb.map(([k,t])=>`<span class="${['estoque','preco','revisao'].includes(k)?'r':''}">${esc(t)}</span>`).join('')}</div>
+        <div class="mlact" style="margin-top:8px">${it.link?`<a class="btn sm" href="${esc(it.link)}" target="_blank" rel="noopener">Ver no ML</a>`:''}${it.peca?`<button class="btn sm" data-scp="${esc(it.peca.id)}">Abrir peça</button>`:''}
+          ${it.peca&&!it.protegido&&!it.peca.extra&&pb.some(x=>x[0]==='estoque'||x[0]==='preco')?`<button class="btn sm p" data-scs="${esc(it.peca.id)}">Mandar estoque e preço do sistema</button>`:''}</div></div></div>`).join('')
+       :'<div class="vazio-g">✅ Nada para olhar aqui.</div>'}`;
+    $('#scgo').onclick=roda;
+    document.querySelectorAll('[data-scf]').forEach(b=>b.onclick=()=>{ ui.scF=ui.scF===b.dataset.scf?'':b.dataset.scf; pinta(); });
+    if($('#scvinc'))$('#scvinc').onclick=vincularML;
+    document.querySelectorAll('[data-scp]').forEach(b=>b.onclick=()=>abrePeca(b.dataset.scp));
+    document.querySelectorAll('[data-scs]').forEach(b=>b.onclick=async()=>{ if(!confirm('Mandar para o anúncio do ML o estoque e o preço que estão no sistema?'))return; b.disabled=true;
+      try{ await api('/ml/item/'+b.dataset.scs,{method:'POST',body:{acao:'sincronizar'}}); toast('✅ Anúncio atualizado — rode a varredura de novo para conferir'); b.textContent='Enviado'; }catch(e){ toast(e.message); b.disabled=false; } }); };
+  const roda=async()=>{ const pr=$('#scprog')||($('#scgo').insertAdjacentHTML('afterend','<div id="scprog" class="small" style="margin-top:6px"></div>'),$('#scprog'));
+    $('#scgo').disabled=true;
+    try{ await varreAnuncios(n=>{ if($('#scprog'))$('#scprog').innerHTML=`<span class="spin-s"></span> Lendo anúncios… ${n}`; }); }
+    catch(e){ if($('#scprog'))$('#scprog').innerHTML='⚠️ '+esc(e.message); if($('#scgo'))$('#scgo').disabled=false; return; }
+    if(S.view==='scanner')pinta(); };
+  pinta(); }
+// ---------- Problemas de compatibilidade: anúncios em revisão no ML e com compatibilidade incompleta ----------
+async function compatML(){
+  const ui=S.ui;
+  const pinta=()=>{ const v=ui.varredura, l=v?v.lista.filter(ehCompat):[];
+    const tags=[...new Set(l.flatMap(it=>[...(it.tags||[]),...(it.sub||[])].filter(t=>/compatib|review|revis|moderat/i.test(t))))];
+    $('#main').innerHTML=`<div class="cp-hero"><span class="material-icons" style="color:#b26a00">warning_amber</span><div class="small" style="font-weight:700;color:#b26a00;letter-spacing:.06em">REVISÃO DE ANÚNCIOS</div>
+      <h3>Problemas de compatibilidade</h3><div class="small mut">Anúncios em revisão pelo Mercado Livre e com compatibilidade de veículos incompleta.</div>
+      <div class="cp-n"><b>${v?l.length:'—'}</b><span class="small mut">anúncio(s) encontrado(s)${v?' · verificado em '+new Date(v.quando).toLocaleString('pt-BR'):''}</span></div>
+      <div style="margin-top:10px"><button class="btn p" id="cpgo">${v?'↻ Verificar de novo':'Verificar meus anúncios'}</button><span id="cpprog" class="small" style="margin-left:8px"></span></div></div>
+     ${v?`<div class="wz-card"><div class="small" style="font-weight:700;color:#b26a00;letter-spacing:.06em">RESULTADO DA CONSULTA</div><b style="font-size:16px">Anúncios que precisam de atenção</b>
+       ${tags.length?`<div class="sc-pb" style="margin:8px 0">${tags.map(t=>`<span>${esc(t)}</span>`).join('')}</div>`:''}
+       ${l.length?l.map(it=>`<div class="sc-it" style="box-shadow:none;border:1px solid var(--line)">${it.foto?`<img src="${esc(it.foto)}" loading="lazy" alt="">`:'<img alt="">'}
+         <div style="flex:1;min-width:0"><b>${esc(it.titulo)}</b><div class="small mut">${esc(it.id)} · ${esc(stML(it.status))}${it.sub&&it.sub.length?' · '+esc(subML(it.sub)):''}${it.peca?' · '+cod(it.peca.codigo):' · sem peça ligada'}</div>
+          <div class="mlact" style="margin-top:8px">${it.link?`<a class="btn sm" href="${esc(it.link)}" target="_blank" rel="noopener">Ver no ML</a>`:''}${it.peca?`<button class="btn sm p" data-cpc="${esc(it.peca.id)}">Ver compatibilidade da peça</button>`:''}</div></div></div>`).join('')
+        :'<div style="text-align:center;padding:22px"><span class="material-icons" style="font-size:40px;color:var(--ok)">check_circle</span><p><b>Nenhum problema de compatibilidade encontrado</b><br><span class="small mut">Não há anúncios em revisão nem com compatibilidade incompleta.</span></p></div>'}</div>`:''}`;
+    $('#cpgo').onclick=async()=>{ $('#cpgo').disabled=true;
+      try{ await varreAnuncios(n=>{ if($('#cpprog'))$('#cpprog').innerHTML=`<span class="spin-s"></span> Lendo anúncios… ${n}`; }); }
+      catch(e){ if($('#cpprog'))$('#cpprog').innerHTML='⚠️ '+esc(e.message); if($('#cpgo'))$('#cpgo').disabled=false; return; }
+      if(S.view==='compat')pinta(); };
+    document.querySelectorAll('[data-cpc]').forEach(b=>b.onclick=async()=>{ if(!S.pecas||!S.pecas.some(p=>p.id===b.dataset.cpc)){ try{ S.pecas=(await api('/pecas?todas=1')).pecas; }catch(_){ } }
+      S.ui.etapaInicial=5; S.ui.voltaPara='compat'; editar(b.dataset.cpc); }); };
+  pinta(); }
 // opções de destino (sem o próprio local e o que está dentro dele)
 function optsDestino(excluir){ const bloq=excluir?new Set([excluir,...Object.keys(S.locais).filter(x=>locPath(x).startsWith(locPath(excluir)+' › '))]):new Set();
   return Object.keys(S.locais).filter(x=>!bloq.has(x)).map(x=>[x,locPath(x)]).sort((a,b)=>a[1].localeCompare(b[1],'pt',{numeric:true})).map(([x,c])=>`<option value="${x}">${esc(codigoTxt(x))} — ${esc(c)}</option>`).join(''); }
@@ -2618,11 +2943,16 @@ function novoLocal(pai){ const d=pai?depth(pai)+1:0; const tipo=NIVEIS[Math.min(
   const sug=['GALPÃO-','PRT-','NÍVEL-','CAIXA-'][Math.min(d,3)]+(d===2?String.fromCharCode(65+irm):irm+1);
   modal(`<h3>Novo: ${tipo}</h3>${pai?`<p class="mut small">Dentro de ${esc(locPath(pai))}</p>`:''}
    <div class="form"><label class="f">Nome<input id="ln" value="${esc(sug)}"></label><label class="f">Criar várias<input id="lq" type="number" min="1" max="50" value="1"></label>
-   <label class="f full">Capacidade — quantas peças cabem (opcional)<input id="lcap" type="number" min="1" placeholder="ex.: 10 — deixe vazio para sem limite"></label></div>
+   <label class="f full">Capacidade — quantas peças cabem (opcional)<input id="lcap" type="number" min="1" placeholder="ex.: 10 — deixe vazio para sem limite"></label>
+   ${S.tiposLoc&&Object.keys(S.tiposLoc).length?`<label class="f full">Tipo<select id="ltp"><option value="">— sem tipo —</option>${Object.values(S.tiposLoc).map(t=>`<option value="${esc(t.id)}">${esc(t.nome)}</option>`).join('')}</select></label>`:''}</div>
    <p class="small mut">Para várias, use nome terminado em número/letra (CAIXA-1) que o sistema numera em sequência. A capacidade vale para cada uma.</p>
    <div class="top" style="margin-top:12px"><button class="btn p" id="ok">Criar</button><button class="btn" id="cc">Cancelar</button></div>`);
   $('#cc').onclick=fecha; setTimeout(()=>$('#ln')?.select(),40);
-  $('#ok').onclick=async()=>{ const nome=$('#ln').value.trim(); if(!nome)return; await api('/locais',{method:'POST',body:{nome,pai:pai||null,quantidade:$('#lq').value,capacidade:$('#lcap').value}}); if(pai)S.ui.open.add(pai); fecha(); toast('Criado'); locais(); };
+  const tpDe=nome=>{ const n=nrm(nome).replace(/[^a-z0-9]/g,''); return Object.values(S.tiposLoc||{}).find(t=>String(t.prefixo||t.nome).split('|').map(x=>nrm(x).replace(/[^a-z0-9]/g,'')).filter(Boolean).some(p=>n.startsWith(p))); };
+  const auto=()=>{ if(!$('#ltp')||$('#ltp').dataset.mexeu)return; const t=tpDe($('#ln').value); $('#ltp').value=t?t.id:''; if(t&&t.capacidade&&!$('#lcap').value)$('#lcap').placeholder='padrão do tipo: '+t.capacidade; };
+  if($('#ltp')){ $('#ln').addEventListener('input',auto); $('#ltp').onchange=()=>{ $('#ltp').dataset.mexeu=1; }; auto(); }
+  $('#ok').onclick=async()=>{ const nome=$('#ln').value.trim(); if(!nome)return; const tipo=$('#ltp')?$('#ltp').value:'', t=tipo&&S.tiposLoc[tipo];
+    await api('/locais',{method:'POST',body:{nome,pai:pai||null,quantidade:$('#lq').value,capacidade:$('#lcap').value||(t&&t.capacidade)||'',tipo:tipo||null}}); if(pai)S.ui.open.add(pai); fecha(); toast('Criado'); locais(); };
 }
 function renomear(id){ const l=S.locais[id]; const auto=(()=>{ const sv=l.sigla; l.sigla=''; const x=siglaDe(id); l.sigla=sv; return x; })();
   modal(`<h3>Editar local</h3><p class="small mut">${esc(locPath(id))}</p>

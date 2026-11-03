@@ -126,7 +126,14 @@ async function api(request, env, url) {
   // localizações
   if (p === '/api/locais' && m === 'GET') return listaLocais(env);
   if (p === '/api/locais' && m === 'POST') return criaLocais(request, env);
-  let mt = p.match(/^\/api\/locais\/([\w-]+)$/);
+  // tipos de localização (galpão, prateleira, nível, caixa…)
+  if (p === '/api/locais/tipos' && m === 'GET') return tiposLocal(env);
+  if (p === '/api/locais/tipos' && m === 'POST') return salvaTipoLocal(request, env);
+  if (p === '/api/locais/tipos/catalogo' && m === 'POST') return catalogoTiposLocal(env);
+  if (p === '/api/locais/tipos/auto' && m === 'POST') return tiposAutomaticos(env);
+  let mt = p.match(/^\/api\/locais\/tipos\/([\w-]+)$/);
+  if (mt && m === 'DELETE') return excluiTipoLocal(mt[1], env);
+  mt = p.match(/^\/api\/locais\/([\w-]+)$/);
   if (mt && m === 'PATCH') return atualizaLocal(mt[1], request, env);
   if (mt && m === 'DELETE') return excluiLocal(mt[1], env);
 
@@ -135,6 +142,13 @@ async function api(request, env, url) {
   if (p === '/api/mover' && m === 'POST') return mover(request, env, user);
   if (p === '/api/relatorios/produtividade' && m === 'GET') return produtividade(url, env);
   if (p === '/api/pecas/massa' && m === 'POST') return editaMassa(request, env);
+  // ações em massa com histórico (e desfazer)
+  if (p === '/api/massa/aplicar' && m === 'POST') return massaAplica(request, env, user);
+  if (p === '/api/massa/historico' && m === 'GET') return massaHistorico(env);
+  mt = p.match(/^\/api\/massa\/([\w-]+)\/desfazer$/);
+  if (mt && m === 'POST') return massaDesfaz(mt[1], env, user);
+  // anúncios do ML para o scanner e a tela de compatibilidade
+  if (p === '/api/ml/scanner' && m === 'GET') return mlScanner(url, env, user);
   if (p === '/api/importar/pecas' && m === 'POST') return importaPecas(request, env, user);
   if (p === '/api/pecas/etiquetas' && m === 'POST') return marcaEtiquetas(request, env);
   mt = p.match(/^\/api\/peca-codigo\/(\d+)$/);
@@ -600,7 +614,7 @@ async function mlItemAcao(pecaId, request, env, user) {
   if (user.papel !== 'admin') return bad('somente o administrador', 403);
   await garanteColsPecas(env);
   const { acao } = await request.json().catch(() => ({}));
-  const p = await env.DB.prepare('SELECT id,ml_id,qtd,preco,fotos FROM pecas WHERE id=?').bind(pecaId).first();
+  const p = await env.DB.prepare('SELECT id,ml_id,qtd,preco,preco_mkp,fotos FROM pecas WHERE id=?').bind(pecaId).first();
   if (!p) return bad('peça não encontrada', 404);
   if (acao === 'desvincular') {
     await env.DB.prepare('UPDATE pecas SET ml=0, ml_id=NULL, ml_link=NULL, ml_status=NULL, atualizado_em=? WHERE id=?').bind(now(), p.id).run();
@@ -614,7 +628,7 @@ async function mlItemAcao(pecaId, request, env, user) {
   let corpo;
   if (acao === 'pausar') corpo = { status: 'paused' };
   else if (acao === 'retomar') { if (q <= 0) return bad('a peça está sem estoque: ajuste a quantidade antes de reativar'); corpo = { status: 'active' }; }
-  else if (acao === 'sincronizar') corpo = q > 0 ? { price: Number(p.preco) || 0, available_quantity: q } : null;
+  else if (acao === 'sincronizar') corpo = q > 0 ? { price: Number(p.preco_mkp) > 0 ? Number(p.preco_mkp) : Number(p.preco) || 0, available_quantity: q } : null;
   else if (acao === 'fotos') {
     let ks = []; try { ks = JSON.parse(p.fotos || '[]'); } catch { /* sem fotos */ }
     if (!ks.length) return bad('a peça não tem fotos');
@@ -969,16 +983,17 @@ async function login(request, env, secret) {
 let colsLocaisOk = false;
 async function garanteColsLocais(env) {
   if (colsLocaisOk) return;
-  for (const c of ['sigla TEXT', 'regras TEXT']) {
+  for (const c of ['sigla TEXT', 'regras TEXT', 'tipo TEXT']) {
     try { await env.DB.prepare('ALTER TABLE locais ADD COLUMN ' + c).run(); } catch { /* já existe */ }
   }
+  try { await env.DB.prepare('CREATE TABLE IF NOT EXISTS tipos_local (id TEXT PRIMARY KEY, nome TEXT NOT NULL, descricao TEXT, capacidade INTEGER, icone TEXT, cor TEXT, prefixo TEXT, ordem INTEGER, criado_em INTEGER)').run(); } catch { /* já existe */ }
   colsLocaisOk = true;
 }
 async function listaLocais(env) {
   await garanteColsLocais(env);
   // inclui a capacidade e a ocupação (nº de peças com estoque guardadas direto no local)
   const r = await env.DB.prepare(
-    `SELECT l.id, l.nome, l.pai, l.capacidade, l.sigla, l.regras,
+    `SELECT l.id, l.nome, l.pai, l.capacidade, l.sigla, l.regras, l.tipo,
        (SELECT COUNT(*) FROM pecas p WHERE p.local_id = l.id AND p.qtd > 0) AS ocupacao
      FROM locais l`
   ).all();
@@ -986,7 +1001,8 @@ async function listaLocais(env) {
 }
 const capVal = v => (v === '' || v == null) ? null : (parseInt(v) || null);
 async function criaLocais(request, env) {
-  const { nome, pai, quantidade, capacidade } = await request.json();
+  await garanteColsLocais(env);
+  const { nome, pai, quantidade, capacidade, tipo } = await request.json();
   if (!nome) return bad('nome é obrigatório');
   const q = Math.min(50, Math.max(1, parseInt(quantidade) || 1));
   const cap = capVal(capacidade);
@@ -997,8 +1013,8 @@ async function criaLocais(request, env) {
     if (i > 0 && base) nm = /\d/.test(base[2]) ? base[1] + (parseInt(base[2]) + i) : base[1] + String.fromCharCode(base[2].charCodeAt(0) + i);
     else if (i > 0) nm = `${nome}-${i + 1}`;
     const id = uid();
-    await env.DB.prepare('INSERT INTO locais (id,nome,pai,capacidade,criado_em) VALUES (?,?,?,?,?)').bind(id, nm, pai || null, cap, now()).run();
-    criados.push({ id, nome: nm, pai: pai || null, capacidade: cap });
+    await env.DB.prepare('INSERT INTO locais (id,nome,pai,capacidade,criado_em,tipo) VALUES (?,?,?,?,?,?)').bind(id, nm, pai || null, cap, now(), tipo || null).run();
+    criados.push({ id, nome: nm, pai: pai || null, capacidade: cap, tipo: tipo || null });
   }
   return json({ criados });
 }
@@ -1009,6 +1025,7 @@ async function atualizaLocal(id, request, env) {
   const txt = v => { v = String(v ?? '').trim(); return v ? v.slice(0, 500) : null; };
   if ('sigla' in b) { sets.push('sigla=?'); binds.push(txt(b.sigla) && txt(b.sigla).toUpperCase().slice(0, 12)); }
   if ('regras' in b) { sets.push('regras=?'); binds.push(txt(b.regras)); }
+  if ('tipo' in b) { sets.push('tipo=?'); binds.push(b.tipo || null); }
   if ('pai' in b) {
     // mover o local para dentro de outro (ou para a raiz), sem criar ciclo
     const novo = b.pai || null;
@@ -1036,6 +1053,180 @@ async function excluiLocal(id, env) {
   return json({ ok: true });
 }
 
+// ---------- tipos de localização ----------
+const TIPOS_CATALOGO = [
+  ['Galpão', 'Prédio ou área grande do estoque', null, 'warehouse', '#3f51b5', 'GALPAO|GALPÃO|GALP'],
+  ['Pátio', 'Área aberta para peças grandes e carrocerias', null, 'yard', '#2e7d32', 'PATIO|PÁTIO'],
+  ['Rua / Corredor', 'Corredor entre as prateleiras', null, 'signpost', '#00897b', 'RUA|CORREDOR|COR'],
+  ['Prateleira', 'Estante com vários níveis', null, 'shelves', '#6d4c41', 'PRT|PRAT|PRATELEIRA|ESTANTE'],
+  ['Nível', 'Andar da prateleira', null, 'layers', '#8e24aa', 'NIVEL|NÍVEL|NIV|ANDAR'],
+  ['Caixa', 'Caixa ou bin com peças pequenas', 30, 'inventory_2', '#f9a825', 'CAIXA|CX|BIN'],
+  ['Gaveta', 'Gaveta para peças miúdas', 40, 'inbox', '#5c6bc0', 'GAVETA|GAV'],
+  ['Bancada', 'Bancada de separação ou conferência', null, 'table_restaurant', '#757575', 'BANCADA|BANC'],
+];
+async function tiposLocal(env) {
+  await garanteColsLocais(env);
+  const tipos = (await env.DB.prepare('SELECT t.*, (SELECT COUNT(*) FROM locais l WHERE l.tipo=t.id) AS n FROM tipos_local t ORDER BY ordem, nome').all()).results;
+  const semTipo = (await env.DB.prepare('SELECT COUNT(*) c FROM locais WHERE tipo IS NULL OR tipo=\'\'').first()).c;
+  return json({ tipos, semTipo });
+}
+async function salvaTipoLocal(request, env) {
+  await garanteColsLocais(env);
+  const b = await request.json().catch(() => ({}));
+  const nome = String(b.nome || '').trim().slice(0, 60);
+  if (!nome) return bad('informe o nome do tipo');
+  const v = { descricao: String(b.descricao || '').trim().slice(0, 200) || null, capacidade: capVal(b.capacidade), icone: String(b.icone || 'place').slice(0, 40), cor: /^#[0-9a-f]{6}$/i.test(b.cor || '') ? b.cor : '#5c6bc0', prefixo: String(b.prefixo || '').toUpperCase().replace(/[^A-Z0-9ÇÃÁÉÍÓÚÂÊÔ|]/g, '').slice(0, 80) || null };
+  if (b.id) {
+    await env.DB.prepare('UPDATE tipos_local SET nome=?, descricao=?, capacidade=?, icone=?, cor=?, prefixo=? WHERE id=?').bind(nome, v.descricao, v.capacidade, v.icone, v.cor, v.prefixo, b.id).run();
+    return json({ ok: true, id: b.id });
+  }
+  const id = uid(), ordem = ((await env.DB.prepare('SELECT MAX(ordem) m FROM tipos_local').first()).m || 0) + 1;
+  await env.DB.prepare('INSERT INTO tipos_local (id,nome,descricao,capacidade,icone,cor,prefixo,ordem,criado_em) VALUES (?,?,?,?,?,?,?,?,?)').bind(id, nome, v.descricao, v.capacidade, v.icone, v.cor, v.prefixo, ordem, now()).run();
+  return json({ ok: true, id });
+}
+async function excluiTipoLocal(id, env) {
+  await garanteColsLocais(env);
+  await env.DB.prepare('UPDATE locais SET tipo=NULL WHERE tipo=?').bind(id).run();
+  await env.DB.prepare('DELETE FROM tipos_local WHERE id=?').bind(id).run();
+  return json({ ok: true });
+}
+async function catalogoTiposLocal(env) {
+  await garanteColsLocais(env);
+  const ja = new Set((await env.DB.prepare('SELECT nome FROM tipos_local').all()).results.map(r => norm(r.nome)));
+  let n = 0, ordem = ((await env.DB.prepare('SELECT MAX(ordem) m FROM tipos_local').first()).m || 0);
+  for (const [nome, descricao, capacidade, icone, cor, prefixo] of TIPOS_CATALOGO) {
+    if (ja.has(norm(nome))) continue;
+    await env.DB.prepare('INSERT INTO tipos_local (id,nome,descricao,capacidade,icone,cor,prefixo,ordem,criado_em) VALUES (?,?,?,?,?,?,?,?,?)').bind(uid(), nome, descricao, capacidade, icone, cor, prefixo, ++ordem, now()).run(); n++;
+  }
+  return json({ ok: true, criados: n });
+}
+// dá o tipo pelos nomes dos locais (PRT-1 → Prateleira, NÍVEL-C → Nível, CAIXA-3 → Caixa…), só onde ainda não tem tipo
+async function tiposAutomaticos(env) {
+  await garanteColsLocais(env);
+  const tipos = (await env.DB.prepare('SELECT id,nome,prefixo FROM tipos_local').all()).results;
+  const regras = tipos.map(t => ({ id: t.id, pref: String(t.prefixo || t.nome).split('|').map(x => norm(x).replace(/[^a-z0-9]/g, '')).filter(Boolean) }));
+  const locs = (await env.DB.prepare("SELECT id,nome FROM locais WHERE tipo IS NULL OR tipo=''").all()).results;
+  let n = 0;
+  for (const l of locs) {
+    const inicio = norm(l.nome).replace(/[^a-z0-9]/g, '');
+    const r = regras.find(x => x.pref.some(p => inicio.startsWith(p) && (inicio.length === p.length || /[0-9a-z]/.test(inicio[p.length]))));
+    if (r) { await env.DB.prepare('UPDATE locais SET tipo=? WHERE id=?').bind(r.id, l.id).run(); n++; }
+  }
+  return json({ ok: true, aplicados: n, restantes: locs.length - n });
+}
+// ---------- ações em massa, com histórico e desfazer ----------
+let massaOk = false;
+async function garanteMassa(env) {
+  if (massaOk) return;
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS acoes_massa (id TEXT PRIMARY KEY, criado_em INTEGER, usuario_id TEXT, usuario_nome TEXT, acao TEXT, descricao TEXT, n INTEGER, antes TEXT, desfeita INTEGER DEFAULT 0, desfeita_em INTEGER, desfeita_por TEXT)').run();
+  massaOk = true;
+}
+const MASSA_CAMPOS = { preco: 'preço de balcão', preco_mkp: 'preço marketplace', local_id: 'local', qualidade: 'conservação', cond: 'condição', marcadores: 'marcadores', peso_g: 'peso', alt_cm: 'altura', larg_cm: 'largura', comp_cm: 'comprimento' };
+async function massaAplica(request, env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  await garanteColsPecas(env); await garanteMassa(env);
+  const b = await request.json().catch(() => ({}));
+  const ids = [...new Set((b.ids || []).map(String))].slice(0, 3000), v = b.valor || {};
+  if (!ids.length) return bad('escolha as peças');
+  const pecas = [];
+  for (let i = 0; i < ids.length; i += 90) pecas.push(...(await env.DB.prepare(`SELECT id,codigo,nome,preco,preco_mkp,local_id,qualidade,cond,marcadores,peso_g,alt_cm,larg_cm,comp_cm FROM pecas WHERE id IN (${ids.slice(i, i + 90).map(() => '?').join(',')})`).bind(...ids.slice(i, i + 90)).all()).results);
+  if (!pecas.length) return bad('peças não encontradas');
+  const num = x => { const n = Number(String(x ?? '').replace(',', '.')); return isFinite(n) ? n : null; };
+  const lista = s => { try { const a = JSON.parse(s || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
+  let calc, desc;
+  switch (b.acao) {
+    case 'preco': case 'preco_mkp': {
+      const campo = b.acao, modo = v.modo, x = num(v.x);
+      if (x == null || (modo === 'definir' && x < 0)) return bad('informe o valor');
+      calc = p => { const atual = Number(p[campo]) || (campo === 'preco_mkp' ? Number(p.preco) || 0 : 0);
+        const novo = modo === 'percent' ? atual * (1 + x / 100) : modo === 'somar' ? atual + x : x;
+        return { [campo]: Math.max(0, Math.round(novo * 100) / 100) }; };
+      desc = `${MASSA_CAMPOS[campo]}: ${modo === 'percent' ? (x > 0 ? '+' : '') + x + '%' : modo === 'somar' ? (x > 0 ? '+' : '') + 'R$ ' + x : 'R$ ' + x}`;
+      break; }
+    case 'local': {
+      const l = v.local_id ? await env.DB.prepare('SELECT id,nome FROM locais WHERE id=?').bind(v.local_id).first() : null;
+      if (v.local_id && !l) return bad('local não encontrado');
+      calc = () => ({ local_id: l ? l.id : null }); desc = 'local: ' + (l ? l.nome : 'sem localização'); break; }
+    case 'qualidade': {
+      if (v.x && !['A', 'B', 'C', 'D'].includes(v.x)) return bad('conservação inválida');
+      calc = () => ({ qualidade: v.x || null }); desc = 'conservação: ' + (v.x || 'sem'); break; }
+    case 'cond': {
+      const c = String(v.x || '').trim().slice(0, 60); if (!c) return bad('informe a condição');
+      calc = () => ({ cond: c }); desc = 'condição: ' + c; break; }
+    case 'marcador': {
+      const mk = String(v.x || '').trim().slice(0, 40); if (!mk) return bad('informe o marcador');
+      calc = p => { const l = lista(p.marcadores).filter(y => y !== mk); if (v.modo !== 'tirar') l.push(mk); return { marcadores: JSON.stringify(l) }; };
+      desc = (v.modo === 'tirar' ? 'tirar marcador: ' : 'marcador: ') + mk; break; }
+    case 'embalagem': {
+      const e = { peso_g: num(v.peso_g), alt_cm: num(v.alt_cm), larg_cm: num(v.larg_cm), comp_cm: num(v.comp_cm) };
+      if (!(e.peso_g > 0 && e.alt_cm > 0 && e.larg_cm > 0 && e.comp_cm > 0)) return bad('informe peso e as 3 medidas');
+      calc = () => ({ peso_g: Math.round(e.peso_g), alt_cm: e.alt_cm, larg_cm: e.larg_cm, comp_cm: e.comp_cm });
+      desc = `embalagem: ${e.alt_cm}×${e.larg_cm}×${e.comp_cm} cm, ${Math.round(e.peso_g)} g`; break; }
+    default: return bad('ação inválida');
+  }
+  const antes = {}; let n = 0;
+  for (const p of pecas) {
+    const novo = calc(p), mud = Object.keys(novo).filter(k => String(p[k] ?? '') !== String(novo[k] ?? ''));
+    if (!mud.length) continue;
+    antes[p.id] = Object.fromEntries(mud.map(k => [k, p[k] ?? null]));
+    await env.DB.prepare(`UPDATE pecas SET ${mud.map(k => k + '=?').join(',')}, atualizado_em=? WHERE id=?`).bind(...mud.map(k => novo[k]), now(), p.id).run();
+    if (b.acao === 'local') await env.DB.prepare('INSERT INTO movimentacoes (id,peca_id,codigo,nome,de_local,para_local,usuario_id,usuario_nome,data) VALUES (?,?,?,?,?,?,?,?,?)')
+      .bind(uid(), p.id, p.codigo, p.nome, p.local_id || null, novo.local_id || null, user.id || null, user.nome || null, now()).run();
+    n++;
+  }
+  const id = uid();
+  await env.DB.prepare('INSERT INTO acoes_massa (id,criado_em,usuario_id,usuario_nome,acao,descricao,n,antes) VALUES (?,?,?,?,?,?,?,?)').bind(id, now(), user.id || null, user.nome || user.login || null, b.acao, desc, n, JSON.stringify(antes)).run();
+  return json({ ok: true, id, alteradas: n, iguais: pecas.length - n, descricao: desc });
+}
+async function massaHistorico(env) {
+  await garanteMassa(env);
+  const r = (await env.DB.prepare('SELECT id,criado_em,usuario_nome,acao,descricao,n,desfeita,desfeita_em,desfeita_por FROM acoes_massa ORDER BY criado_em DESC LIMIT 100').all()).results;
+  return json({ acoes: r });
+}
+async function massaDesfaz(id, env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  await garanteMassa(env);
+  const a = await env.DB.prepare('SELECT * FROM acoes_massa WHERE id=?').bind(id).first();
+  if (!a) return bad('ação não encontrada', 404);
+  if (a.desfeita) return bad('essa ação já foi desfeita');
+  let antes = {}; try { antes = JSON.parse(a.antes || '{}'); } catch { antes = {}; }
+  let n = 0;
+  for (const [pid, campos] of Object.entries(antes)) {
+    const ks = Object.keys(campos).filter(k => k in MASSA_CAMPOS); if (!ks.length) continue;
+    const r = await env.DB.prepare(`UPDATE pecas SET ${ks.map(k => k + '=?').join(',')}, atualizado_em=? WHERE id=?`).bind(...ks.map(k => campos[k]), now(), pid).run();
+    if (r.meta && r.meta.changes) n++;
+  }
+  await env.DB.prepare('UPDATE acoes_massa SET desfeita=1, desfeita_em=?, desfeita_por=? WHERE id=?').bind(now(), user.nome || user.login || null, id).run();
+  return json({ ok: true, restauradas: n });
+}
+// ---------- anúncios do ML para o scanner e para a tela de compatibilidade (100 por vez) ----------
+async function mlScanner(url, env, user) {
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  const token = await mlToken(env), seller = await getCfg(env, 'ml_user_id');
+  if (!token || !seller) return bad('conecte o Mercado Livre primeiro');
+  await garanteColsPecas(env);
+  const st = ['active', 'paused', 'under_review', 'inactive'].includes(url.searchParams.get('status')) ? url.searchParams.get('status') : 'active';
+  const off = Math.max(0, parseInt(url.searchParams.get('offset')) || 0);
+  const s = await mlReq(token, 'GET', `/users/${seller}/items/search?limit=100&offset=${off}&status=${st}`);
+  const ids = s.results || [], itens = [];
+  for (let i = 0; i < ids.length; i += 20) {
+    const r = await mlReq(token, 'GET', '/items?ids=' + ids.slice(i, i + 20).join(',') + '&attributes=id,title,price,available_quantity,sold_quantity,status,sub_status,tags,health,permalink,secure_thumbnail,thumbnail,listing_type_id,shipping,pictures,attributes,video_id,catalog_listing');
+    for (const x of r) if (x && x.body && x.body.id) itens.push(x.body);
+  }
+  const caminho = await caminhosLocais(env), mapa = await pecasPorMl(env, ids, 'id,codigo,nome,qtd,preco,preco_mkp,local_id,ml_id');
+  const prot = await mlProtegidos(env);
+  const lista = itens.map(it => {
+    const at = {}; for (const a of it.attributes || []) if (a && a.value_name) at[a.id] = a.value_name;
+    const pc = mapa[it.id];
+    return { id: it.id, titulo: it.title || '', preco: it.price, qtd: it.available_quantity, vendidos: it.sold_quantity || 0, status: it.status, sub: it.sub_status || [], tags: it.tags || [],
+      saude: it.health ?? null, link: it.permalink || null, foto: it.secure_thumbnail || it.thumbnail || null, tipo: it.listing_type_id || null,
+      freteGratis: !!(it.shipping && it.shipping.free_shipping), nfotos: (it.pictures || []).length, video: !!it.video_id, catalogo: !!it.catalog_listing,
+      pn: !!(at.PART_NUMBER || at.OEM || at.MPN || at.ORIGINAL_PART_NUMBER), protegido: prot.has(String(it.id).toUpperCase()),
+      peca: pc ? { id: pc.id, codigo: pc.codigo, nome: pc.nome, qtd: pc.qtd, preco: pc.preco, preco_mkp: pc.preco_mkp, local: pc.local_id ? caminho(pc.local_id) : null, extra: pc.ml_id !== it.id } : null };
+  });
+  const total = (s.paging && s.paging.total) || ids.length;
+  return json({ status: st, offset: off, total, proximo: off + ids.length < total && ids.length ? off + ids.length : null, lista });
+}
 // ---------- peças ----------
 // colunas novas (custo, qualidade, embalagem, vídeo, status do anúncio…), criadas sob demanda no banco existente
 let colsPecasOk = false;
