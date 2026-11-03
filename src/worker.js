@@ -146,6 +146,8 @@ async function api(request, env, url) {
   if (mt && m === 'DELETE') return excluiPeca(mt[1], env);
   mt = p.match(/^\/api\/pecas\/([\w-]+)\/foto$/);
   if (mt && m === 'POST') return subirFoto(mt[1], request, env);
+  mt = p.match(/^\/api\/pecas\/([\w-]+)\/fotos\/conferir$/);
+  if (mt && m === 'POST') return conferirFotos(mt[1], env);
 
   // fotos (R2): servidas publicamente na seção pública acima
 
@@ -1332,16 +1334,20 @@ function mlMedida(a, alvo) {
 async function baixaFotosML(env, it, pecaId) {
   const fotos = []; let falhas = 0;
   for (const pic of (it.pictures || []).slice(0, 12)) {
-    const src = pic.secure_url || pic.url; if (!src) continue;
-    try {
-      const r = await fetch(src);
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const ct = (r.headers.get('content-type') || 'image/jpeg').split(';')[0];
-      const ext = ct.includes('png') ? 'png' : ct.includes('webp') ? 'webp' : 'jpg';
-      const key = `pecas/${pecaId}/${uid()}.${ext}`;
-      await env.FOTOS.put(key, await r.arrayBuffer(), { httpMetadata: { contentType: ct } });
-      fotos.push(key);
-    } catch { falhas++; }
+    const urls = [...new Set([pic.secure_url, pic.url].filter(Boolean))]; if (!urls.length) continue;
+    let ok = false;
+    for (let t = 0; t < 2 && !ok; t++) for (const src of urls) {
+      try {
+        const r = await fetch(src);
+        if (!r.ok) continue;
+        const buf = await r.arrayBuffer(), tipo = tipoImagem(new Uint8Array(buf, 0, Math.min(16, buf.byteLength)));
+        if (!tipo || buf.byteLength < 800) continue;   // o ML às vezes devolve uma página em vez da foto: não guarda
+        const key = `pecas/${pecaId}/${uid()}.${tipo === 'image/png' ? 'png' : tipo === 'image/webp' ? 'webp' : 'jpg'}`;
+        await env.FOTOS.put(key, buf, { httpMetadata: { contentType: tipo } });
+        fotos.push(key); ok = true; break;
+      } catch { /* tenta a outra */ }
+    }
+    if (!ok) falhas++;
   }
   return { fotos, falhas };
 }
@@ -1629,6 +1635,43 @@ async function excluiPeca(id, env) {
 }
 
 // ---------- fotos (R2) ----------
+// tipo da imagem pelos primeiros bytes (null = não é imagem)
+function tipoImagem(b) {
+  if (!b || b.length < 4) return null;
+  if (b[0] === 0xFF && b[1] === 0xD8) return 'image/jpeg';
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return 'image/png';
+  if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return 'image/gif';
+  return null;
+}
+// true = foto boa · false = não existe ou não é imagem · null = não deu pra conferir agora (não mexe)
+async function fotoValida(env, key) {
+  try {
+    const o = await env.FOTOS.get(key, { range: { offset: 0, length: 16 } });
+    if (!o) return false;
+    if (o.size != null && o.size < 800) return false;
+    return !!tipoImagem(new Uint8Array(await o.arrayBuffer()));
+  } catch { return null; }
+}
+// a tela achou foto que não abre: tira as fotos quebradas e, se a peça ficar sem foto, busca de novo no anúncio do ML
+async function conferirFotos(pecaId, env) {
+  await garanteColsPecas(env);
+  const p = await env.DB.prepare('SELECT id,fotos,ml_id FROM pecas WHERE id=?').bind(pecaId).first();
+  if (!p) return bad('peça não encontrada', 404);
+  let fotos = []; try { fotos = JSON.parse(p.fotos || '[]'); } catch { fotos = []; }
+  const boas = [], ruins = [];
+  for (const k of fotos) ((await fotoValida(env, k)) === false ? ruins : boas).push(k);
+  let trazidas = 0;
+  if (!boas.length) {
+    const mlId = p.ml_id || ((await mlExtrasDa(env, p.id))[0] || {}).ml_id, token = mlId ? await mlToken(env) : null;
+    if (token) {
+      try { const it = await mlReq(token, 'GET', '/items/' + encodeURIComponent(mlId)); const r = await baixaFotosML(env, it, p.id); boas.push(...r.fotos); trazidas = r.fotos.length; }
+      catch (e) { console.log('fotos do ML', mlId, e.message); }
+    }
+  }
+  if (ruins.length || trazidas) await env.DB.prepare('UPDATE pecas SET fotos=?, atualizado_em=? WHERE id=?').bind(JSON.stringify(boas), now(), p.id).run();
+  return json({ fotos: boas, removidas: ruins.length, trazidas });
+}
 async function subirFoto(pecaId, request, env) {
   const peca = await env.DB.prepare('SELECT fotos FROM pecas WHERE id=?').bind(pecaId).first();
   if (!peca) return bad('peça não encontrada', 404);

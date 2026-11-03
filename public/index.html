@@ -335,6 +335,23 @@ const VIEWS = [['painel','home','Início','Início'],['etiquetas','label','Etiqu
 
 // ---------- boot / auth ----------
 let codigoDoLink=null; // /p/000123 ou /l/<id> vindo do QR lido pela câmera do celular
+// foto que não abre na tela: o sistema conserta sozinho (tira a quebrada e, sem foto, busca de novo no anúncio do ML)
+const FOTO_VAZIA='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" fill="#eef1f4"/><path d="M7 15l3-4 2.5 3 1.5-2 3 3z" fill="#b8c0c8"/></svg>');
+const fotosConserto={feitas:new Set(),fila:[],rodando:false};
+document.addEventListener('error',e=>{ const im=e.target; if(!im||im.tagName!=='IMG')return;
+  const m=String(im.getAttribute('src')||'').match(/^\/api\/foto\/(pecas\/([\w-]+)\/[^?#]+)/); if(!m)return;
+  im.dataset.fotoQuebrada=m[1]; im.src=FOTO_VAZIA;
+  if(!S.user||fotosConserto.feitas.has(m[2]))return; fotosConserto.feitas.add(m[2]); fotosConserto.fila.push(m[2]); consertaFotos(); },true);
+async function consertaFotos(){ if(fotosConserto.rodando)return; fotosConserto.rodando=true;
+  while(fotosConserto.fila.length){ const id=fotosConserto.fila.shift();
+    try{ const r=await api('/pecas/'+id+'/fotos/conferir',{method:'POST'});
+      (S.pecas||[]).forEach(p=>{ if(p.id===id)p.fotos=r.fotos; });
+      if(S.ui&&S.ui.editId===id&&Array.isArray(S.ui.fotos)){ S.ui.fotos=S.ui.fotos.filter(f=>!f.key||r.fotos.includes(f.key)); if(typeof drawThumbs==='function')drawThumbs(); }
+      document.querySelectorAll('img[data-foto-quebrada^="pecas/'+id+'/"]').forEach(im=>{
+        if(im.closest('.photos,.thumbs,a')||!r.fotos.length){ if(im.closest('.photos,.thumbs,a'))(im.closest('a')||im).style.display='none'; return; }
+        delete im.dataset.fotoQuebrada; im.src='/api/foto/'+r.fotos[0]; });
+    }catch(_){ } }
+  fotosConserto.rodando=false; }
 async function boot(){
   if(location.pathname==='/api/ml/callback'){ return mlFinaliza(); }
   const lk=location.pathname.match(/^\/(p|l)\/([^/]+)\/?$/i);
