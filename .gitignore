@@ -1,1 +1,12 @@
 __pycache__/
+
+# Bancos de dados SQLite (PROTEÇÃO: NÃO ENVIAR PARA GITHUB)
+*.db
+*.sqlite
+*.sqlite3
+pecas_full_completo.db
+
+# Arquivos grandes
+*.db-journal
+*.db-wal
+*.db-shm
