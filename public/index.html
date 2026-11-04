@@ -1843,6 +1843,7 @@ async function nova(){
     <div class="wz-modos"><button type="button" class="wz-modo on"><span class="material-icons">search</span>Por palavras-chave</button><button type="button" class="wz-modo" disabled><span class="tag zero">em breve</span><span class="material-icons">photo_camera</span>Por foto</button></div>
     <div class="wz-sec">Escreva o nome, a marca, o modelo ou o código da peça</div><p class="wz-dica">Quanto mais detalhes, melhor o resultado.</p>
     <div class="mlbusca"><input id="wzq" placeholder="Ex.: alternador hb20, 26100-0E020…" autocomplete="off"><button type="button" class="btn p" id="wzb">Buscar</button></div>
+    <div id="wzexternal"></div>
     <div id="wzres"><div class="wz-vazio">Digite acima e toque em <b>Buscar</b>.<br>Peça diferente de tudo que já tem? <a href="#" id="wzpula">Cadastrar sem o catálogo →</a></div></div>
    </section>
    <section class="wz-card" data-et="2">${cab(2,'Dados da peça','Nome, categoria, códigos, quantidade, local e o estado da peça.')}
@@ -2276,7 +2277,56 @@ function ligaEtapas(p){
       if($('#wzfts')&&$('#wzfts').checked)fts.forEach(k=>{ if(S.ui.fotos.length<12&&!S.ui.fotos.some(y=>y.key===k))S.ui.fotos.push({key:k}); });
       drawThumbs(); ligaCatForm(); contaNome(); toast('Dados de '+cod(x.codigo)+' aproveitados — confira e ajuste'); irEtapa(2); };
   };
-  $('#wzb').onclick=buscaCat; $('#wzq').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); buscaCat(); } };
+  const preencheCatalogo=async x=>{
+    const E=f.elements;
+    [['nome',x.nome],['marca',x.marca],['modelo',x.modelo],['ano',x.ano],['pn',x.codigo]].forEach(([k,v])=>{ if(E[k])E[k].value=v||''; });
+    E.nome.dispatchEvent(new Event('input',{bubbles:true}));
+    W.fotoRequest=(W.fotoRequest||0)+1;
+    const pedido=W.fotoRequest;
+    S.ui.fotos=[];
+    drawThumbs();
+    const urls=[...new Set([...(Array.isArray(x.fotos)?x.fotos:[]).map(f=>typeof f==='string'?f:(f.url||f.thumbnailUrl)),x.foto]
+      .filter(u=>typeof u==='string'&&/^https?:\/\//i.test(u)))].slice(0,12);
+    const prontas=await Promise.all(urls.map(async url=>{
+      try{
+        const r=await fetch(url,{mode:'cors'});
+        if(!r.ok||!r.headers.get('content-type')?.startsWith('image/'))return null;
+        return {blob:await shrink(await r.blob())};
+      }catch(_){ return null; }
+    }));
+    if(W.fotoRequest!==pedido)return;
+    S.ui.fotos=prontas.filter(Boolean);
+    drawThumbs();
+    const qtd=S.ui.fotos.length;
+    if(urls.length&&!qtd)toast('Os dados foram preenchidos, mas as fotos do catálogo não puderam ser importadas.');
+    else if(qtd)toast(`Dados preenchidos · ${qtd} foto(s) preparada(s)`);
+    else toast('Dados preenchidos — este item não tem fotos disponíveis.');
+  };
+  let wzBuscaTimer;
+  const buscaCatalogoLocal=async()=>{
+    const q=$('#wzq').value.trim(), alvo=$('#wzexternal');
+    if(q.length<2){ alvo.innerHTML=''; return; }
+    alvo.innerHTML='<div class="wz-vazio"><span class="spin-s"></span> Buscando no catálogo local…</div>';
+    try{
+      const r=await fetch('http://localhost:3001/api/catalogo/buscar?q='+encodeURIComponent(q)+'&limit=10',{cache:'no-store'});
+      const dados=await r.json();
+      if(!r.ok)throw new Error(dados.erro||'Erro '+r.status);
+      if($('#wzq').value.trim()!==q)return;
+      const pecas=Array.isArray(dados.pecas)?dados.pecas:[];
+      W.catalogoResultados=pecas;
+      if(!pecas.length){ alvo.innerHTML='<div class="wz-vazio">Nenhuma peça encontrada no catálogo local.</div>'; return; }
+      alvo.innerHTML=`<div class="wz-res"><div class="wz-res-h"><b>${pecas.length} resultado(s) do catálogo local</b><span class="small mut">O primeiro resultado foi preenchido automaticamente.</span></div>
+        ${pecas.map((x,i)=>`<button type="button" class="wz-it" data-extcat="${i}" style="width:100%;text-align:left"><div class="wz-mini">${x.foto&&/^https?:\/\//i.test(x.foto)?`<img src="${esc(x.foto)}" loading="lazy" alt="">`:'<span class="material-icons">image</span>'}</div>
+          <div style="flex:1;min-width:0"><b>${esc(x.nome||'Peça sem nome')}</b><div class="wz-tags">${[x.marca,x.modelo,x.ano,x.codigo].filter(Boolean).map(v=>`<span>${esc(v)}</span>`).join('')}</div></div></button>`).join('')}</div>`;
+      alvo.querySelectorAll('[data-extcat]').forEach(b=>b.onclick=()=>preencheCatalogo(W.catalogoResultados[+b.dataset.extcat]));
+      await preencheCatalogo(pecas[0]);
+    }catch(e){
+      if($('#wzq').value.trim()===q)alvo.innerHTML=`<div class="wz-vazio">⚠️ ${esc(e.message)}<br><span class="small">Confira se o servidor local está ativo em http://localhost:3001.</span></div>`;
+    }
+  };
+  $('#wzb').onclick=()=>{ buscaCat(); buscaCatalogoLocal(); };
+  $('#wzq').oninput=()=>{ clearTimeout(wzBuscaTimer); wzBuscaTimer=setTimeout(buscaCatalogoLocal,350); };
+  $('#wzq').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); buscaCat(); buscaCatalogoLocal(); } };
   $('#wzpula').onclick=e=>{ e.preventDefault(); pulaCat(); };
   // 2) dados: contador do nome, marcadores, conservação, modelo de descrição
   const contaNome=()=>{ const n=f.elements.nome.value.length; $('#wzcnt').textContent=n+'/60'; $('#wzcnt').classList.toggle('alto',n>60); };
