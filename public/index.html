@@ -992,7 +992,7 @@ async function estoque(){
 async function listaEstoque(){
   const qs=new URLSearchParams(); if(S.ui.q)qs.set('q',S.ui.q); if(S.ui.loc)qs.set('local',S.ui.loc); if(S.ui.status&&S.ui.status!=='todos')qs.set('status',S.ui.status);
   for(const [k,v] of Object.entries(S.ui.f||{}))if(v)qs.set(k,v); if(S.ui.ord)qs.set('ord',S.ui.ord);
-  let { pecas }=await api('/pecas?'+qs); if(!S.ui.loc && (!S.ui.status || S.ui.status==='todos')) pecas=pecas.filter(p=>Boolean(p.local_id)); else if(S.ui.status==='semlocal') pecas=pecas.filter(p=>!p.local_id); S.pecas=pecas;
+  const { pecas }=await api('/pecas?'+qs); S.pecas=pecas;
   const el=$('#lista'); if(!el) return;
   if(!pecas.length){ el.innerHTML='<div class="empty">Nenhuma peça encontrada.</div>'; return; }
   el.innerHTML=`<p class="small mut">${pecas.length} peça(s)${S.ui.selMode?' · toque para selecionar':''}</p><div class="grid">${pecas.map(cardPeca).join('')}</div>`;
@@ -1931,8 +1931,6 @@ async function nova(){
   if($('#sugloc'))$('#sugloc').onclick=sugereCaixa;
   { const fn=$('#pf').elements.nome; fn.addEventListener('change',autoLocal); fn.addEventListener('blur',autoLocal); }
   bindSugestoes(); bindMics(); ligaCatForm();
-  // ao sair do campo Código OEM / Part Number: consulta o catálogo e autopreenche
-  { const pn=$('#pf').elements.pn; if(pn){ pn.addEventListener('change',()=>{ if(pn.value.trim().length>=2) window.__lookupOEM(pn.value.trim()); }); } }
   $('#pfoto').onchange=async e=>{ for(const f of [...e.target.files]){ if(S.ui.fotos.length>=12)break; try{ S.ui.fotos.push({blob:await shrink(f)}); }catch{} } e.target.value=''; drawThumbs();
     if(iaPref('iaFundo')&&!S.ui.fotos.some(f=>f.ia==='fundo'))iaFundoPrincipal(false); };
   $('#iaf').onchange=e=>iaSet('iaFundo',e.target.checked); $('#iaa').onchange=e=>iaSet('iaArte',e.target.checked);
@@ -1954,26 +1952,7 @@ function bindSugestoes(){
     b.querySelectorAll('[data-si]').forEach(el=>el.onclick=()=>{ preencheDe(r.sugestoes[+el.dataset.si]); b.innerHTML=''; });
   },220); };
   ['nome','pn'].forEach(k=>{ const el=f.elements[k]; if(el) el.addEventListener('input',atualiza); });
-
-  }
-// auto-preenchimento por Código OEM / Part Number: consulta /api/catalogo/oem/ (com fallback)
-  window.__lookupOEM=async function(codigo){ const f=$('#pf'); const set=(k,v)=>{ if(f.elements[k]!=null&&v!=null&&v!=='') f.elements[k].value=v; }; if(!codigo||codigo.length<2){ toast('Digite o Código OEM / Part Number'); return; }
-    let resp; try{ resp=await api('/catalogo/oem/'+encodeURIComponent(codigo)); }catch(e){ try{ const fr=await fetch('http://localhost:3001/api/catalogo/oem/'+encodeURIComponent(codigo)); resp=await fr.json(); }catch(_){ return; } }
-    if(!resp||resp.sucesso===false||!resp.pecas||!resp.pecas.length){ toast('Código OEM não encontrado no catálogo'); return; }
-    const p=resp.pecas[0]; set('nome',p.nome); set('marca',p.marca); set('modelo',p.modelo); set('ano',p.ano||''); set('pn',p.codigo||codigo);
-    // compatibilidade: adiciona veículo usando a função addVeic (se disponível)
-    try{ if(typeof__addVeic==='function'){ const v={marca:p.marca||'',modelo:p.modelo||'',de:p.ano||'',ate:p.ano||'',versao:'' }; __addVeic(v); } }catch(_){}
-    // fotos: adicionar URLs como blobs para thumbnails
-    const urls=(Array.isArray(p.fotos)?p.fotos:[p.foto]).filter(Boolean);
-    let n=0; for(const url of urls){ if(S.ui.fotos.length>=12)break; try{ const ri=await fetch(url); const blob=await ri.blob(); S.ui.fotos.push({blob}); n++; }catch(_){} }
-    if(n){ drawThumbs(); try{ drawThumbs(); }catch(_){} }
-    toast('🔍 Auto-preenchido pelo catálogo — confira os dados');
-  };
-
-  // guarde referência a addVeic para usar no lookupOEM
-  let _addVeicRef=null;
-  // após definição de addVeic dentro de ligaEtapas, a referência será guardada globalmente
-  if(typeof__addVeic==='function'){ _addVeicRef=__addVeic; }
+}
 function preencheDe(s){ const f=$('#pf'); const set=(k,v)=>{ if(f.elements[k]!=null && v!=null && v!=='') f.elements[k].value=v; };
   set('nome',s.nome); set('marca',s.marca); set('modelo',s.modelo); set('ano',s.ano); set('pn',s.pn); if(s.cond)set('cond',s.cond); if(s.preco)set('preco',s.preco);
   toast('Preenchido a partir do seu cadastro — confira e ajuste'); if(f.elements.preco)f.elements.preco.focus();
