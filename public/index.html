@@ -992,7 +992,7 @@ async function estoque(){
 async function listaEstoque(){
   const qs=new URLSearchParams(); if(S.ui.q)qs.set('q',S.ui.q); if(S.ui.loc)qs.set('local',S.ui.loc); if(S.ui.status&&S.ui.status!=='todos')qs.set('status',S.ui.status);
   for(const [k,v] of Object.entries(S.ui.f||{}))if(v)qs.set(k,v); if(S.ui.ord)qs.set('ord',S.ui.ord);
-  const { pecas }=await api('/pecas?'+qs); S.pecas=pecas;
+  let { pecas }=await api('/pecas?'+qs); if(!S.ui.loc && (!S.ui.status || S.ui.status==='todos')) pecas=pecas.filter(p=>p.local_id && String(p.local_id).trim()!==''); else if(S.ui.status==='semlocal') pecas=pecas.filter(p=>!p.local_id || String(p.local_id).trim()===''); S.pecas=pecas;
   const el=$('#lista'); if(!el) return;
   if(!pecas.length){ el.innerHTML='<div class="empty">Nenhuma peça encontrada.</div>'; return; }
   el.innerHTML=`<p class="small mut">${pecas.length} peça(s)${S.ui.selMode?' · toque para selecionar':''}</p><div class="grid">${pecas.map(cardPeca).join('')}</div>`;
