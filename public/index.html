@@ -521,6 +521,34 @@ table.tbp img{width:38px;height:38px;object-fit:cover;border-radius:8px;display:
 .tb-logo.img img{height:48px;width:auto;display:block}
 @media (max-width:760px){.topbar .tb-logo.img img{height:44px}}
 .dw-h .tb-logo.img img{height:46px}
+
+/* mover / tirar peça da localização na árvore */
+.lc-pac .lc-b{width:34px;height:34px}
+.lc-pac .lc-b .material-icons{font-size:20px}
+.lc-pac .lc-b:hover{background:#e8eaf6;color:var(--pri)}
+.lc-pac .lc-bx:hover{background:#fdecea;color:var(--red)}
+.lc-pc[draggable]{cursor:grab}
+.lc-voa{background:#fff;border-radius:10px;border:1px solid #c5cae9;will-change:transform}
+.lc-chegou{animation:lcChegou 1.8s ease}
+.lc-caiu{animation:lcCaiu .7s cubic-bezier(.2,.9,.3,1.3),lcChegou 1.8s ease}
+@keyframes lcChegou{0%,20%{background:#c8e6c9}100%{background:#fcfcfc}}
+@keyframes lcCaiu{0%{transform:translateY(-14px) scale(.96);opacity:.3}100%{transform:none;opacity:1}}
+.lc-recebeu{animation:lcRecebeu 1s ease}
+@keyframes lcRecebeu{0%{background:#fff}25%{background:#dfe6ff}100%{background:#fff}}
+.lc-arrastando [data-loc]{transition:background .15s,outline-color .15s}
+.lc-alvo{background:#e8eaf6!important;outline:2px dashed var(--pri);outline-offset:-3px}
+.md-lista{max-height:52vh;overflow:auto;margin-top:8px;border:1px solid var(--line);border-radius:10px}
+.md-it{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;border:0;border-bottom:1px solid #eee;background:#fff;text-align:left;cursor:pointer;font:inherit;color:inherit}
+.md-it:last-child{border-bottom:0}
+.md-it:hover{background:#f3f6ff}
+.md-it>.material-icons{color:#90a4ae}
+.md-tx{flex:1;min-width:0;display:flex;flex-direction:column}
+.md-tx span{font-size:12px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.md-oc{font-size:12px;color:var(--mut);flex-shrink:0}
+.md-oc.cheia{color:var(--red);font-weight:600}
+.md-it.atual{opacity:.55;cursor:default;background:#fafafa}
+.toast-ac{display:flex;align-items:center;gap:16px}
+.toast-ac button{background:none;border:0;color:#9fa8ff;font:inherit;font-weight:700;cursor:pointer;padding:0;text-transform:uppercase;letter-spacing:.04em}
 </style>
 </head>
 <body>
@@ -2619,9 +2647,9 @@ async function completarFotos(){
 function ocupacaoTotal(id){ let t=Number(S.locais[id]&&S.locais[id].ocupacao)||0; for(const c of locChildren(id)) t+=ocupacaoTotal(c.id); return t; }
 function pecasDentro(id,tudo){ const r=[...(S.ui._porLocal&&S.ui._porLocal[id]||[])]; if(tudo)locChildren(id).forEach(c=>r.push(...pecasDentro(c.id,true))); return r; }
 function linhaPeca(p,d,comLocal){ const foto=p.fotos&&p.fotos[0]?`<img src="/api/foto/${p.fotos[0]}" loading="lazy" alt="">`:'<span class="material-icons">build</span>';
-  return `<div class="lc-row lc-pc" style="--d:${d}" data-pc="${p.id}"><span class="lc-tg"></span><span class="lc-ft">${foto}</span>
+  return `<div class="lc-row lc-pc" style="--d:${d}" data-pc="${p.id}" ${ARRASTA_OK?'draggable="true"':''}><span class="lc-tg"></span><span class="lc-ft">${foto}</span>
     <div class="lc-tx"><div class="lc-pn">${cod(p.codigo)} · ${esc(p.nome)}</div><div class="lc-sb">${brl(p.preco)} · ${Number(p.qtd)||0} un${p.ml?' · <span style="color:var(--ok)">ML</span>':''}${comLocal?` · 📍 ${esc(codigoTxt(p.local_id))}`:''}</div></div>
-    <span class="material-icons lc-ir">chevron_right</span></div>`; }
+    <div class="lc-ac lc-pac"><button class="lc-b" data-pmv="${p.id}" title="Mover para outra caixa"><span class="material-icons">drive_file_move</span></button><button class="lc-b lc-bx" data-prm="${p.id}" title="Tirar desta localização"><span class="material-icons">link_off</span></button></div></div>`; }
 function nodeHTML(id,d,plano){ const l=S.locais[id],ch=locChildren(id),open=S.ui.open.has(id),folha=!ch.length,ps=pecasDentro(id),abre=(ch.length||ps.length)&&!plano;
   let info;
   if(folha&&l.capacidade){ const dir=Number(l.ocupacao)||0, cap=l.capacidade, pct=Math.min(100,Math.round(dir/cap*100));
@@ -2631,7 +2659,7 @@ function nodeHTML(id,d,plano){ const l=S.locais[id],ch=locChildren(id),open=S.ui
   const rg=regrasDe(l);
   const tp=l.tipo&&S.tiposLoc&&S.tiposLoc[l.tipo];
   const ic=tp&&tp.icone?tp.icone:folha&&depth(id)>0?'inventory_2':ICON_NIVEL[Math.min(depth(id),2)];
-  return `<div class="lc-row" style="--d:${plano?0:d}">
+  return `<div class="lc-row" style="--d:${plano?0:d}" data-loc="${id}">
     <span class="lc-tg material-icons" ${abre?`data-tg="${id}"`:''}>${abre?(open?'expand_more':'chevron_right'):''}</span>
     <span class="material-icons lc-ic">${ic}</span>
     <div class="lc-tx"><div class="lc-nm">${esc(plano?locPath(id):l.nome)} <span class="lc-sig">${esc(codigoTxt(id))}</span></div>
@@ -2644,6 +2672,91 @@ function bindTree(){
   document.querySelectorAll('[data-go]').forEach(e=>e.onclick=()=>{ S.ui.loc=e.dataset.go; S.ui.q=''; S.ui.status='todos'; go('estoque'); });
   document.querySelectorAll('[data-pc]').forEach(e=>e.onclick=()=>abrePeca(e.dataset.pc));
   document.querySelectorAll('[data-mnu]').forEach(e=>e.onclick=ev=>{ ev.stopPropagation(); menuLocal(e.dataset.mnu,e); });
+  const peca=id=>(S.pecas||[]).find(x=>x.id===id);
+  document.querySelectorAll('[data-pmv]').forEach(b=>b.onclick=async ev=>{ ev.stopPropagation(); const p=peca(b.dataset.pmv); if(!p)return;
+    const dst=await escolheDestino(p); if(dst)moverAnimado(p,dst); });
+  document.querySelectorAll('[data-prm]').forEach(b=>b.onclick=ev=>{ ev.stopPropagation(); const p=peca(b.dataset.prm); if(p)tiraDoLocal(p); });
+  if(!ARRASTA_OK)return;
+  // computador: arrastar a peça e soltar em cima de qualquer caixa
+  const limpa=()=>{ document.body.classList.remove('lc-arrastando'); document.querySelectorAll('.lc-alvo').forEach(x=>x.classList.remove('lc-alvo')); };
+  document.querySelectorAll('#llista [data-pc][draggable]').forEach(r=>{
+    r.ondragstart=e=>{ S.ui._arr=r.dataset.pc; e.dataTransfer.effectAllowed='move'; try{ e.dataTransfer.setData('text/plain',cod((peca(r.dataset.pc)||{}).codigo)); }catch(_){ } document.body.classList.add('lc-arrastando'); };
+    r.ondragend=()=>{ S.ui._arr=null; limpa(); }; });
+  document.querySelectorAll('#llista [data-loc]').forEach(r=>{
+    r.ondragover=e=>{ if(!S.ui._arr)return; e.preventDefault(); e.dataTransfer.dropEffect='move'; if(!r.classList.contains('lc-alvo')){ document.querySelectorAll('.lc-alvo').forEach(x=>x.classList.remove('lc-alvo')); r.classList.add('lc-alvo'); } };
+    r.ondragleave=e=>{ if(!r.contains(e.relatedTarget))r.classList.remove('lc-alvo'); };
+    r.ondrop=e=>{ e.preventDefault(); const p=peca(S.ui._arr); S.ui._arr=null; limpa(); if(p)moverAnimado(p,r.dataset.loc,true); }; });
+}
+// ---------- mover / tirar a peça da localização direto na árvore (com animação) ----------
+const ARRASTA_OK=(()=>{ try{ return matchMedia('(hover:hover) and (pointer:fine)').matches; }catch(_){ return false; } })();
+const espera=ms=>new Promise(r=>setTimeout(r,ms));
+function toastAcao(m,rot,fn){ document.querySelectorAll('.toast-ac').forEach(x=>x.remove());
+  const t=document.createElement('div'); t.className='toast toast-ac'; t.innerHTML=`<span>${esc(m)}</span><button type="button">${esc(rot)}</button>`; document.body.appendChild(t);
+  const tm=setTimeout(()=>t.remove(),6000); t.querySelector('button').onclick=()=>{ clearTimeout(tm); t.remove(); fn(); }; }
+function locAncestrais(id){ const r=[]; let x=S.locais[id],g=0; while(x&&x.pai&&g++<20){ r.unshift(x.pai); x=S.locais[x.pai]; } return r; }
+// atualiza a tela na hora (contagens e lista de cada caixa), sem esperar recarregar tudo
+function trocaLocalNaTela(p,novo){ const velho=p.local_id, conta=(Number(p.qtd)||0)>0, pl=S.ui._porLocal||(S.ui._porLocal={});
+  if(velho&&S.locais[velho]&&conta)S.locais[velho].ocupacao=Math.max(0,(Number(S.locais[velho].ocupacao)||0)-1);
+  if(novo&&S.locais[novo]&&conta)S.locais[novo].ocupacao=(Number(S.locais[novo].ocupacao)||0)+1;
+  p.local_id=novo||null;
+  if(velho&&pl[velho])pl[velho]=pl[velho].filter(x=>x.id!==p.id);
+  if(novo&&conta){ pl[novo]=(pl[novo]||[]).filter(x=>x.id!==p.id); pl[novo].push(p); pl[novo].sort((a,b)=>a.codigo-b.codigo); } }
+const redesenhaLoc=()=>S.ui._redesenhaLoc?S.ui._redesenhaLoc():locais();
+// escolher a caixa de destino (com busca: "cx7", "caixa 7", "nivel b")
+function escolheDestino(p){ return new Promise(res=>{
+  const atual=p.local_id;
+  const todos=Object.keys(S.locais).map(id=>({id,cam:locPath(id),sig:codigoTxt(id),folha:!locChildren(id).length})).sort((a,b)=>a.cam.localeCompare(b.cam,'pt',{numeric:true}));
+  modal(`<h3>Mover ${esc(cod(p.codigo))}</h3><p class="small mut" style="margin:4px 0 10px">${esc(p.nome)}${atual&&S.locais[atual]?`<br>Está em: <b>${esc(codigoTxt(atual))}</b> — ${esc(locPath(atual))}`:'<br>Está sem localização'}</p>
+    <input id="mdq" placeholder="Procurar caixa (ex.: cx7, caixa 7, nível b)" autocomplete="off">
+    <div id="mdl" class="md-lista"></div>
+    <div class="top" style="margin-top:10px"><button class="btn" id="mdcc">Cancelar</button></div>`);
+  let fim=false; const sai=v=>{ if(fim)return; fim=true; fecha(); res(v); };
+  const pinta=()=>{ const q=nrm($('#mdq').value).split(/\s+/).filter(Boolean);
+    const l=todos.filter(x=>!q.length||q.every(w=>nrm(x.cam+' '+x.sig).includes(w))).slice(0,250);
+    $('#mdl').innerHTML=l.map(x=>{ const L=S.locais[x.id], cap=Number(L.capacidade)||0, oc=Number(L.ocupacao)||0, cheia=cap&&oc>=cap, aqui=x.id===atual;
+      return `<button type="button" class="md-it ${aqui?'atual':''}" data-md="${x.id}" ${aqui?'disabled':''}><span class="material-icons">${x.folha?'inventory_2':'folder_open'}</span><span class="md-tx"><b>${esc(x.sig)}</b><span>${esc(x.cam)}</span></span><span class="md-oc ${cheia?'cheia':''}">${aqui?'está aqui':cap?oc+'/'+cap+(cheia?' cheia':''):(x.folha?oc:ocupacaoTotal(x.id))+' pç'}</span></button>`; }).join('')||'<div class="empty">Nada encontrado.</div>';
+    document.querySelectorAll('[data-md]').forEach(b=>b.onclick=()=>{ const L=S.locais[b.dataset.md], cap=Number(L.capacidade)||0;
+      if(cap&&(Number(L.ocupacao)||0)>=cap&&!confirm(codigoTxt(b.dataset.md)+' está cheia. Mover mesmo assim?'))return; sai(b.dataset.md); }); };
+  $('#mdq').oninput=pinta; $('#mdcc').onclick=()=>sai(null); pinta();
+  if(ARRASTA_OK)setTimeout(()=>$('#mdq')&&$('#mdq').focus(),60);
+}); }
+// a peça "voa" da linha dela até a caixa nova; a árvore abre até lá e a caixa pisca
+async function moverAnimado(p,dst,soltou){ if(!dst||dst===p.local_id||!S.locais[dst])return;
+  const velho=p.local_id, pedido=api('/mover',{method:'POST',body:{ids:[p.id],local_id:dst}});
+  const lista=$('#llista'), src=lista&&lista.querySelector(`[data-pc="${CSS.escape(p.id)}"]`), r0=src&&!soltou?src.getBoundingClientRect():null;
+  let voa=null;
+  if(r0&&r0.height){ voa=src.cloneNode(true); voa.classList.add('lc-voa'); voa.removeAttribute('data-pc');
+    Object.assign(voa.style,{position:'fixed',left:r0.left+'px',top:r0.top+'px',width:r0.width+'px',height:r0.height+'px',margin:0,zIndex:80,pointerEvents:'none'});
+    document.body.appendChild(voa); }
+  trocaLocalNaTela(p,dst);
+  [...locAncestrais(dst),dst].forEach(x=>S.ui.open.add(x));
+  if(S.view==='locais')redesenhaLoc();
+  const l2=$('#llista'), alvo=l2&&l2.querySelector(`[data-pc="${CSS.escape(p.id)}"]`), caixa=l2&&l2.querySelector(`[data-loc="${CSS.escape(dst)}"]`), destEl=alvo||caixa;
+  if(alvo&&voa)alvo.style.visibility='hidden';
+  if(destEl){ const rr=destEl.getBoundingClientRect(); if(rr.top<80||rr.bottom>innerHeight-90){ destEl.scrollIntoView({behavior:'smooth',block:'center'}); await espera(450); } }
+  if(voa&&destEl&&voa.animate){ const r1=destEl.getBoundingClientRect(), dx=r1.left-r0.left, dy=r1.top-r0.top;
+    try{ await voa.animate([
+      {transform:'translate(0,0) scale(1)',opacity:1,boxShadow:'0 2px 6px rgba(0,0,0,.12)'},
+      {offset:.22,transform:`translate(${dx*.08}px,${dy*.08-22}px) scale(1.05)`,opacity:1,boxShadow:'0 16px 34px rgba(40,53,147,.32)'},
+      {transform:`translate(${dx}px,${dy}px) scale(${alvo?1:.55})`,opacity:alvo?1:0,boxShadow:'0 2px 6px rgba(0,0,0,.12)'}],
+      {duration:Math.round(Math.min(950,480+Math.abs(dy)*.35)),easing:'cubic-bezier(.45,.05,.25,1)'}).finished; }catch(_){ } }
+  if(voa)voa.remove();
+  if(alvo){ alvo.style.visibility=''; alvo.classList.add(soltou?'lc-caiu':'lc-chegou'); }
+  if(caixa)caixa.classList.add('lc-recebeu');
+  try{ await pedido; toastAcao(`${cod(p.codigo)} → ${codigoTxt(dst)}`,'Desfazer',()=>velho?moverAnimado(p,velho):tiraDoLocal(p)); }
+  catch(e){ trocaLocalNaTela(p,velho); if(S.view==='locais')redesenhaLoc(); toast('Não consegui mover: '+e.message); }
+}
+// tirar da localização: a linha desliza e some; a peça fica "sem localização" (dá para desfazer)
+async function tiraDoLocal(p){ const velho=p.local_id; if(!velho)return;
+  const pedido=api('/mover',{method:'POST',body:{ids:[p.id],local_id:''}});
+  const el=$('#llista')&&$('#llista').querySelector(`[data-pc="${CSS.escape(p.id)}"]`);
+  if(el&&el.animate){ const h=el.offsetHeight; el.style.overflow='hidden';
+    try{ await el.animate([{transform:'translateX(0)',opacity:1,height:h+'px'},{offset:.55,transform:'translateX(70px)',opacity:0,height:h+'px'},
+      {transform:'translateX(70px)',opacity:0,height:'0px',paddingTop:'0px',paddingBottom:'0px'}],{duration:540,easing:'ease-in'}).finished; }catch(_){ }
+    el.style.display='none'; }
+  trocaLocalNaTela(p,null);
+  try{ await pedido; if(S.view==='locais')redesenhaLoc(); toastAcao(`${cod(p.codigo)} saiu de ${codigoTxt(velho)} (ficou sem localização)`,'Desfazer',()=>moverAnimado(p,velho)); }
+  catch(e){ trocaLocalNaTela(p,velho); if(S.view==='locais')redesenhaLoc(); toast('Não consegui tirar: '+e.message); }
 }
 // menu ⋮ de cada local (como o do iBR)
 function fechaMenu(){ const m=document.getElementById('lcmnu'); if(m)m.remove(); document.removeEventListener('click',fechaMenu); }
