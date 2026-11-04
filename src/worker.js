@@ -114,6 +114,26 @@ async function api(request, env, url) {
   { const mv = p.match(/^\/api\/video\/(videos\/[\w\-\/.]+)$/); if (mv && (m === 'GET' || m === 'HEAD')) return serveVideo(mv[1], request, env); }
   if (p.startsWith('/api/agente/') && !['/api/agente/instalador', '/api/agente/status', '/api/agente/chave'].includes(p)) return agenteApi(p, m, request, env, url);
 
+  // Catálogo de Autopeças (público / integração)
+  if (p.startsWith('/api/catalogo/')) {
+    const subPath = p.substring('/api/catalogo/'.length);
+    try {
+      if (subPath.startsWith('oem/')) {
+        const codigo = decodeURIComponent(subPath.split('/').pop());
+        // Tenta buscar no D1 do Cloudflare caso tenhamos sincronizado os dados lá
+        const result = await env.DB.prepare('SELECT * FROM pecas WHERE code = ? LIMIT 1').bind(codigo).first();
+        if (result) {
+          return json({ sucesso: true, encontrado: true, pecas: [result] });
+        }
+      } else if (subPath.startsWith('buscar')) {
+        const q = url.searchParams.get('q') || '';
+        const result = await env.DB.prepare('SELECT * FROM pecas WHERE name LIKE ? OR code LIKE ? LIMIT 10').bind('%'+q+'%', '%'+q+'%').all();
+        return json({ sucesso: true, total: result.results.length, pecas: result.results });
+      }
+    } catch (e) {}
+    return json({ sucesso: false, fallback: true, mensagem: 'Usando fallback para o servidor local na porta 3001' });
+  }
+
   // autenticação
   const userId = await leSessao(cookies(request).sess, secret);
   if (!userId) return bad('não autenticado', 401);
@@ -1317,6 +1337,11 @@ async function listaPecas(url, env) {
   else if (status === 'semanuncio') cond.push('qtd>0 AND ml=0 AND olx=0');
   else if (status === 'semlocal') cond.push('(local_id IS NULL OR local_id NOT IN (SELECT id FROM locais))');
   else if (status === 'parado') { cond.push('qtd>0 AND criado_em < ?'); binds.push(now() - 90 * 864e5); }
+  else if (!status || status === 'todos') {
+    if (!local) {
+      cond.push('local_id IS NOT NULL AND local_id IN (SELECT id FROM locais)');
+    }
+  }
   // filtros extras
   const sp = url.searchParams;
   if (sp.get('fotos') === 'com') cond.push("fotos IS NOT NULL AND fotos NOT IN ('','[]')");

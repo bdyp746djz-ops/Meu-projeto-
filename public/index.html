@@ -943,7 +943,7 @@ async function etiquetaEnvio(id,pedido){
 // ---------- Estoque ----------
 async function estoque(){
   await carregaLocais();
-  const chips=[['todos','Todas'],['disp','Disponíveis'],['zerado','Esgotadas'],['semanuncio','Sem anúncio'],['semlocal','Sem local'],['parado','+90 dias']];
+  const chips=[['todos','Todas'],['disp','Disponíveis'],['zerado','Esgotadas'],['semanuncio','Sem anúncio'],['semlocal','<span class="material-icons" style="font-size:16px;vertical-align:-3px">location_off</span> Sem localização'],['parado','+90 dias']];
   if(S.view!=='estoque')return; // usuário já foi para outra tela
   $('#main').innerHTML=`<div class="top"><h2>Consulta de Peças</h2>
     <button class="btn sm esq-desk" id="dlbtn" title="Baixar planilha do estoque">⬇️ Download</button>
