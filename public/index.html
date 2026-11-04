@@ -515,6 +515,12 @@ table.tbp img{width:38px;height:38px;object-fit:cover;border-radius:8px;display:
 /* modo aplicativo: impressão feita pela própria tela */
 #impr{display:none}
 @media print{body.imprimindo>*:not(#impr){display:none!important}body.imprimindo #impr{display:block!important}}
+
+/* logo do Rafa (nos azuis do site) no lugar do "R" */
+.tb-logo.img{background:none;border-radius:0;width:auto;height:auto;display:block}
+.tb-logo.img img{height:48px;width:auto;display:block}
+@media (max-width:760px){.topbar .tb-logo.img img{height:44px}}
+.dw-h .tb-logo.img img{height:46px}
 </style>
 </head>
 <body>
@@ -600,7 +606,7 @@ function login(primeiro){
 function shell(){
   const ini=String((S.user&&(S.user.nome||S.user.login))||'R').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
   $('#root').innerHTML = `<header class="topbar">
-      <div class="tb-brand" id="tbhome" title="Menu"><span class="material-icons tb-ham">menu</span><span class="tb-logo">R</span><span><b>RAFA</b><small>busca peças</small></span></div>
+      <div class="tb-brand" id="tbhome" title="Menu"><span class="material-icons tb-ham">menu</span><span class="tb-logo img"><img src="/icones/logo-topo.png" alt="Rafa Busca Peças"></span><span><b>RAFA</b><small>busca peças</small></span></div>
       <div class="tb-search"><input id="gbusca" type="search" placeholder="Código, nome, part number ou veículo…" autocomplete="off"></div>
       <div class="tb-acts">
         <button class="tb-btn" id="scanbtn" title="Ler etiqueta (QR)"><span class="material-icons">qr_code_scanner</span></button>
@@ -617,7 +623,7 @@ function shell(){
     </div>
     <nav class="bottom" id="navb"></nav>
     <div class="dw-ov" id="dwov"></div>
-    <aside class="dw" id="dw"><div class="dw-h"><span class="tb-logo">R</span><span><b>RAFA</b><small>busca peças</small></span><button class="dw-x" id="dwx" title="Fechar"><span class="material-icons">close</span></button></div>
+    <aside class="dw" id="dw"><div class="dw-h"><span class="tb-logo img"><img src="/icones/logo-topo.png" alt="Rafa Busca Peças"></span><span><b>RAFA</b><small>busca peças</small></span><button class="dw-x" id="dwx" title="Fechar"><span class="material-icons">close</span></button></div>
       <nav class="side"><div class="sd-busca"><label><span class="material-icons">search</span><input id="ddq" placeholder="Buscar área ou atalho" autocomplete="off"></label></div><div id="dnav"></div></nav></aside>`;
   $('#sair').onclick=async e=>{ e.stopPropagation(); await api('/logout',{method:'POST'}); location.reload(); };
   $('#tbuser').onclick=e=>{ e.stopPropagation(); $('#tbmenu').classList.toggle('on'); };
