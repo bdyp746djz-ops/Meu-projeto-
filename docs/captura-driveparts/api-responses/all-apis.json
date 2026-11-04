@@ -1,0 +1,68 @@
+[
+  {
+    "url": "http://driveparts.com.br:2222/api/session/state",
+    "method": "GET",
+    "status": 401,
+    "data": {
+      "type": "UNAUTHORIZED"
+    }
+  },
+  {
+    "url": "http://driveparts.com.br:2222/api/info",
+    "method": "GET",
+    "status": 200,
+    "data": {
+      "hostname": "saken7.virtuaserver.com.br",
+      "time": "2026-11-04T14:07:46-03:00",
+      "allowPasswordReset": false,
+      "OTPTrustDays": 30,
+      "languages": [],
+      "license": {
+        "active": true,
+        "legacy": true
+      }
+    }
+  },
+  {
+    "url": "http://driveparts.com.br:2222/api/skin-translation/evolution/en",
+    "method": "GET",
+    "status": 200,
+    "data": {}
+  },
+  {
+    "url": "http://driveparts.com.br:2222/api/session/state",
+    "method": "GET",
+    "status": 401,
+    "data": {
+      "type": "UNAUTHORIZED"
+    }
+  },
+  {
+    "url": "http://driveparts.com.br:2222/api/info",
+    "method": "GET",
+    "status": 200,
+    "data": {
+      "hostname": "saken7.virtuaserver.com.br",
+      "time": "2026-11-04T14:07:47-03:00",
+      "allowPasswordReset": false,
+      "OTPTrustDays": 30,
+      "languages": [],
+      "license": {
+        "active": true,
+        "legacy": true
+      }
+    }
+  },
+  {
+    "url": "http://driveparts.com.br:2222/api/skin-translation/evolution/en",
+    "method": "GET",
+    "status": 200,
+    "data": {}
+  },
+  {
+    "url": "http://driveparts.com.br:2222/api/skin-global-options/evolution",
+    "method": "GET",
+    "status": 200,
+    "data": {}
+  }
+]

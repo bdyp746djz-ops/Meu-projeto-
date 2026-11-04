@@ -11,6 +11,7 @@
     "db:up": "wrangler d1 execute rafa-desmanche --remote --file=migrations/0002_agilidade.sql"
   },
   "devDependencies": {
+    "playwright": "^1.64.1",
     "wrangler": "^3.90.0"
   },
   "dependencies": {

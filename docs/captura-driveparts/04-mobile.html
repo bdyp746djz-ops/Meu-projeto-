@@ -1,0 +1,175 @@
+<!DOCTYPE html><html class="vue-app root:login mode:light" style="--ui-primary-50: 195 238 255; --ui-primary-100: 159 220 255; --ui-primary-200: 125 200 249; --ui-primary-300: 89 181 238; --ui-primary-400: 68 161 217; --ui-primary-500: 44 142 196; --ui-primary-600: 12 123 176; --ui-primary-700: 0 104 156; --ui-primary-800: 0 85 137; --ui-primary-900: 0 67 111; --ui-safe-50: 199 245 211; --ui-safe-100: 165 229 183; --ui-safe-200: 133 212 157; --ui-safe-300: 99 195 131; --ui-safe-400: 78 174 113; --ui-safe-500: 56 155 94; --ui-safe-600: 31 135 76; --ui-safe-700: 0 116 58; --ui-safe-800: 0 99 39; --ui-safe-900: 0 79 27; --ui-danger-50: 255 219 199; --ui-danger-100: 255 190 157; --ui-danger-200: 255 158 112; --ui-danger-300: 255 122 51; --ui-danger-400: 244 101 20; --ui-danger-500: 221 80 0; --ui-danger-600: 198 60 0; --ui-danger-700: 169 48 0; --ui-danger-800: 142 37 0; --ui-danger-900: 115 25 0; --ui-warning-50: 255 228 168; --ui-warning-100: 246 205 119; --ui-warning-200: 233 183 68; --ui-warning-300: 219 160 0; --ui-warning-400: 196 141 0; --ui-warning-500: 173 123 0; --ui-warning-600: 150 106 0; --ui-warning-700: 127 89 0; --ui-warning-800: 106 72 0; --ui-warning-900: 85 56 0; --login-img-url-logo-light: url(&quot;/evo/assets/logo.fe968txS.svg&quot;); --login-img-url-logo-dark: url(&quot;/evo/assets/logo2.AfEZecTW.svg&quot;); --login-img-url-background: url(&quot;/evo/assets/background.Cx34YJbp.svg&quot;); --login-img-url-background-dark: url(&quot;/evo/assets/background-dark.BawLIQ0N.svg&quot;);" lang="en" data-root="login" data-mode="light" dir="ltr"><head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8;">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link id="favicon" rel="shortcut icon" href="/evo/assets/favicon.CDLA4ANV.png">
+        <style>@layer reset,legacy,elements,util,important;body.--preloader{margin:0;padding:0;background-color:#fff;height:100dvh;display:grid;place-content:center}#root[v-cloak]{color:#0a6daa}#root[v-cloak],#root[v-cloak] div{box-sizing:border-box}#root[v-cloak]{display:inline-block;position:relative;width:80px;height:80px}#root[v-cloak] div{box-sizing:border-box;display:block;position:absolute;width:96px;height:96px;margin:8px;border:8px solid currentColor;border-radius:50%;animation:lds-ring 1.2s cubic-bezier(.5,0,.5,1) infinite;border-color:currentColor transparent transparent transparent}#root[v-cloak] div:nth-child(1){animation-delay:-.45s}#root[v-cloak] div:nth-child(2){animation-delay:-.3s}#root[v-cloak] div:nth-child(3){animation-delay:-.15s}@keyframes lds-ring{0%{transform:rotate(0)}to{transform:rotate(360deg)}}:root[data-mode=dark] body.--preloader{background-color:#18181b}</style>
+      <script type="module" crossorigin="" src="/evo/index.L6UHt6Jc.js"></script>
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/_plugin-vue_export-helper.BlcmHVQu.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/logger.BRp4fiY_.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/errors.Q2BSycZF.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/constants.CKs-zpzF.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/keys.DWWtlC89.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/values.qY8Wt7ir.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/_xfBase.CzR9NVBZ.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/_filter.CC3yvEKc.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/_isObject.B72e1_Yd.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/filter.BtFP9laI.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/reject.CpzzNQj0.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/_checkForMethod.b6c_cg0w.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/forEach.CG5X9JLl.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/forEachObjIndexed.BYnGPxcW.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/mapObjIndexed.DAgH3xdL.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/pick.iEVXCbTh.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/pickBy.zZ9ne6TM.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/sort.Cl2ChKLx.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/gettext.fhRS5il9.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/notifier.CR-57PqF.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/__vite-browser-external.x-utdVXY.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/openapi.CATmP6Yd.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/session.IcVHBurc.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/pinia.KgavIdlJ.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/di-container.CONoRMil.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/vue-router.yD_2XP5i.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/omit.7sV4fgIK.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/dist.CxmREqPo.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/dist.CPA7nH4E.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/breakpoint.Sp5kHOEH.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/useId.HTmjRXKs.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/useModal.BAzNkt6I.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/dist.Bziz243f.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/tv.CjKodUYZ.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/tw-alert.DRU7dkvl.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/tw-spinner.CrEbJ7Um.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/useDisabled.CQV2ZcGY.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/tw-button.DEr2L-hK.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/ArrowPathIcon.B889fpfD.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/login.DEr8K9RJ.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/session.jOcVEkQ2.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/names.B-2thc86.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/server-commands.BzP9zOYj.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/is-apple-device.CYVjMDdm.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/open-in-new-tab.CYU6LQ7G.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/_curry3.QlTcSaAF.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/reduce.CiTkT8jB.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/type.BlL9ogDS.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/_clone.B8gMWRtT.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/clone.CTOtM9Nu.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/equals.BMQFDclJ.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/_includes.CjADJDMQ.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/_curryN.Bx5IBeGe.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/curryN.CvZq62Cc.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/flip.PR8S4CnI.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/without.BnJFitqi.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/dark-mode.BVaR4c27.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/date-formats.MttnqGnG.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/options.nbqMGgHq.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/punycode.COVhWuBM.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/punycode.BBXsRocH.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/user.DCtMRX3f.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/lib.Ct9BGWMj.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/utils.C6D_S_hK.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/_reduced.CWSqQzx8.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/_map.C8LmXLFn.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/map.YDz4VZOq.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/prop.VVSlvVQy.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/slice.CbrA84hm.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/pipe.DbTOhZGM.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/identity.Bx_LHpYR.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/_objectAssign.B2JoM38m.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/mergeWithKey.QPe-I0F5.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/mergeDeepRight.Cy_zUyK-.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/sortBy.jFAnz_Bc.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/toPairs.Cs9a7FMX.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/fp.DRRoa1GD.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/includes.DfLnkoFL.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/_Set.CWT8ev0g.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/uniqBy.CyZJ_qW7.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/uniq.BPu2Buts.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/persistent-storage.uRHfG1mQ.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/lang.B1GqTS85.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/pluck.DD529aA7.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/anyPass.Do21UTvf.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/take.DsUYFAi6.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/startsWith.DPYTYyXs.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/help-links.1OU8bhgC.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/loader.Dh8ZnyEP.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/pinia.DSNkgLK4.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/CheckIcon.tQ8ZFojN.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/ChevronRightIcon.D00BCUOu.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/ChevronUpDownIcon.DL_kh1I1.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/dist.Y1ATF-GO.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/usePrimitiveElement.B9UfJ1Rl.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/Primitive.DVZYetUH.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/Collection.eoL1d44I.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/useTypeahead.Dmv-d2oG.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/nullish.DHihWhf5.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/useForwardExpose.iXOJE0WY.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/floating-ui.vue.6vKqBvnL.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/PopperContent.C-ITabYr.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/Presence.C9gnf-x7.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/Teleport.C1E5rxNr.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/utils.lfZ9451X.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/RovingFocusGroup.BDDIHUA8.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/tw-actions-item.Cat2KEXk.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/ExclamationTriangleIcon.CLz9Cznn.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/MinusIcon.DIoVmnbp.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/FunnelIcon.BlGDDzeZ.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/GlobeAltIcon.BLpoS2gL.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/XMarkIcon.C-d54TNr.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/useComposing.Kk2mz3fY.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/classPrivateFieldGet2.q1c9E0y0.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/ohash.D__AXeF1.BEpgGyeH.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/arrays.DxNfN1V2.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/VisuallyHidden.j-zlIRNr.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/useKbd.D5ogEQRo.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/VisuallyHiddenInput.BYuN06NS.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/ListboxRoot.7k1cOJeu.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/ComboboxRoot.D5Fia7lV.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/ComboboxInput.L6buGIg3.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/ComboboxTrigger.DeE4SLrp.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/domain-select.UIuKNm2N.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/client.CJLpuNqr.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/login.YiFvwp-3.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/defineProperty.BbfpZ9Tg.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/event-stream.1QTnMJA_.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/validation.DLXd-zEL.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/purify.es.6mEkkLbb.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/clamp.CgcnoKpi.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/isValueEqualOrExist.DxDcjgvk.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/useForwardScopeId.BxTcGE97.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/ListboxContent.CzL5Izty.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/ListboxItem.D1KaAQyk.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/useNonce.Cy1mTwmj.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/RovingFocusItem.Dkb90QDM.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/PopoverTrigger.DIdsHti9.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/SelectItemText.BoHeJxeU.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/SelectTrigger.C0Ca-qy0.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/SelectValue.BZCdfhtc.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/ToolbarRoot.AS0mO4IF.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/app-suspense.B3B5Rd_X.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/page.DITICGeK.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/ToolbarSeparator.BR-poFk9.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/tw-table-actions-item.DPZoywpo.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/useOption.DaQeebrG.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/lang-locale-map.DXddXHhP.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/math.SJR100yr.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/input-wrap.D0OdMe2i.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/useInputWrap.ByDVVwgS.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/tw-date.4v2-OOdY.js">
+      <link rel="modulepreload" crossorigin="" href="/evo/chunks/filters-editor.dEfE_47f.js">
+      <link rel="stylesheet" crossorigin="" href="/evo/assets/tw-date.BrrqewQm.css">
+      <link rel="stylesheet" crossorigin="" href="/evo/assets/index.DSB7may_.css">
+    <style></style><title>driveparts.com.br | Login</title></head>
+    <body class="" data-root="login" data-mode="light" dir="ltr">
+        <div id="root" data-v-app=""><div id="EvoLoginApp"><section class="Overlay"><div class="Wrapper"><div class="Login Box --logged-out"><div class="Box__Header"></div><div id="LoginForm" class="Box__Form"><label class="InputLabel" for="username">Username</label><div class="Input" id="username" name="username" placeholder="Please enter username" autocomplete="username"><input id="username" name="username" placeholder="Please enter username" autocomplete="username" class="Input__Text" type="text" style=""><!----></div><label class="InputLabel" for="password">Password</label><div class="Input InputPassword" id="password" name="password" placeholder="Please enter your password" autocomplete="current-password"><input id="password" name="password" placeholder="Please enter your password" autocomplete="current-password" type="password" class="InputPassword__Input" style=""><a class="Input__Icon hoverable"><span data-v-e31f7d9c="" class="icon" style="--v582d55c3: 1; --v93273614: 20px;"><svg data-v-e31f7d9c="" viewBox="0 0 48 48" class="svg-icon svg-fill text-on-surface"><path fill="currentColor" _stroke="none" pid="0" d="M24 8C11.056 8 0 24 0 24s11.048 16 24 16c12.944 0 24-16 24-16S36.952 8 24 8zm0 28c-7.469 0-15.137-7.324-19-12 3.853-4.678 11.502-12 19-12 7.469 0 15.137 7.324 19 12-3.853 4.678-11.502 12-19 12zm0-20a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm0 12c-2.451 0-4-1.549-4-4s1.549-4 4-4 4 1.549 4 4-1.549 4-4 4z"></path></svg></span></a></div><!----><button class="Button" type="submit" disabled="" autofocus=""><span>Sign in</span></button><!----><div class="mt-12 flex flex-col gap-2 hidden"><span class="my-0 text-xs font-medium text-on-surface-muted word-break-word">On successful login, page will redirect to:</span><div class="relative grid min-h-14 gap-4 rounded border border-outline-dim bg-slate-100 px-6 py-4 dark:bg-slate-800"><span class="truncate font-mono text-2xs"></span><button class="absolute right-0 top-0 flex size-12 -translate-y-6 translate-x-6 items-center justify-center rounded-full border bg-slate-50 shadow-md dark:bg-slate-800" type="button"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true" class="size-8 text-on-surface hover:text-danger"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg></button></div></div></div></div><div class="DateTimeBlock">04/11/2026, 14:07</div></div></section><div class="Toolbar"><div data-v-beb7bda4="" class="ModeToggle" style="--v7f285b60: move-center-center; --v4a908a0b: 48px; --v07d71898: 96px;"><div data-v-beb7bda4="" class="track"></div><div data-v-beb7bda4="" class="slider"></div><span data-v-beb7bda4="" class="label" aria-label="Light Mode"><span data-v-e31f7d9c="" data-v-beb7bda4="" class="icon text-white" style="--v582d55c3: 1; --v93273614: 24px;"><svg data-v-e31f7d9c="" viewBox="0 0 219.786 219.786" class="svg-icon svg-fill"><path fill="currentColor" _stroke="none" pid="0" d="M109.881 183.46a7.5 7.5 0 0 0-7.5 7.5v21.324a7.5 7.5 0 0 0 15 0V190.96a7.5 7.5 0 0 0-7.5-7.5zM109.881 36.329a7.5 7.5 0 0 0 7.5-7.5V7.503a7.5 7.5 0 0 0-15 0v21.326a7.5 7.5 0 0 0 7.5 7.5zM47.269 161.909l-15.084 15.076a7.5 7.5 0 0 0 5.302 12.804 7.48 7.48 0 0 0 5.302-2.195l15.084-15.076a7.5 7.5 0 0 0 .003-10.606 7.501 7.501 0 0 0-10.607-.003zM167.208 60.067a7.479 7.479 0 0 0 5.303-2.196l15.082-15.076a7.501 7.501 0 0 0 .002-10.607 7.499 7.499 0 0 0-10.607-.001l-15.082 15.076a7.5 7.5 0 0 0 5.302 12.804zM36.324 109.895a7.5 7.5 0 0 0-7.5-7.5H7.5a7.5 7.5 0 0 0 0 15h21.324a7.5 7.5 0 0 0 7.5-7.5zM212.286 102.395h-21.334a7.5 7.5 0 0 0-7.5 7.5 7.5 7.5 0 0 0 7.5 7.5h21.334a7.5 7.5 0 0 0 0-15zM47.267 57.871a7.477 7.477 0 0 0 5.303 2.196 7.5 7.5 0 0 0 5.303-12.803L42.797 32.188a7.5 7.5 0 0 0-10.606 0 7.5 7.5 0 0 0 0 10.606l15.076 15.077zM172.52 161.911a7.5 7.5 0 0 0-10.608 10.605l15.074 15.076a7.476 7.476 0 0 0 5.304 2.197 7.498 7.498 0 0 0 5.304-12.802l-15.074-15.076zM109.889 51.518c-32.187 0-58.373 26.188-58.373 58.377 0 32.188 26.186 58.375 58.373 58.375 32.19 0 58.378-26.187 58.378-58.375 0-32.189-26.189-58.377-58.378-58.377zm0 101.752c-23.916 0-43.373-19.458-43.373-43.375 0-23.918 19.457-43.377 43.373-43.377 23.919 0 43.378 19.459 43.378 43.377 0 23.917-19.459 43.375-43.378 43.375z"></path></svg></span><span data-v-beb7bda4="" class="tooltip">Light Mode</span></span><span data-v-beb7bda4="" class="label --active" aria-label="Follow system mode"><span data-v-e31f7d9c="" data-v-beb7bda4="" class="icon text-white" style="--v582d55c3: 1; --v93273614: 24px;"><svg data-v-e31f7d9c="" viewBox="0 0 512 512" class="svg-icon svg-fill"><path fill="currentColor" _stroke="none" pid="0" d="M454.23 173.84v-57.258c0-32.469-26.41-58.879-58.882-58.879H338.07l-40.535-40.535c-22.91-22.89-60.16-22.89-83.094 0l-40.53 40.535h-57.259c-32.449 0-58.882 26.41-58.882 58.879v57.258l-40.532 40.535C6.121 225.488 0 240.25 0 255.93s6.121 30.445 17.238 41.535L57.77 338v57.258c0 32.469 26.41 58.879 58.882 58.879h57.278l40.535 40.535c11.457 11.457 26.496 17.172 41.535 17.172s30.078-5.739 41.535-17.172l40.535-40.535h57.278c32.449 0 58.882-26.41 58.882-58.88V338l40.532-40.535C505.879 286.375 512 271.609 512 255.93c0-15.68-6.121-30.442-17.238-41.535zm17.918 101.012-45.226 45.226a16.018 16.018 0 0 0-4.692 11.309v63.894c0 14.824-12.054 26.88-26.882 26.88h-63.891c-4.246 0-8.32 1.683-11.309 4.69l-45.226 45.227c-10.41 10.414-27.414 10.414-37.824 0l-45.227-45.226a15.962 15.962 0 0 0-11.305-4.692h-63.914c-14.808 0-26.882-12.055-26.882-26.879v-63.894c0-4.246-1.684-8.32-4.692-11.309l-45.226-45.226C34.793 269.777 32 263.055 32 255.93s2.793-13.844 7.852-18.922l45.226-45.227a16.002 16.002 0 0 0 4.692-11.304v-63.895c0-14.828 12.054-26.879 26.882-26.879h63.891a15.94 15.94 0 0 0 11.309-4.695l45.226-45.227c10.41-10.41 27.414-10.41 37.824 0l45.227 45.227a15.965 15.965 0 0 0 11.305 4.695h63.894c14.805 0 26.879 12.05 26.879 26.879v63.895c0 4.242 1.688 8.316 4.695 11.304l45.227 45.227c5.078 5.078 7.871 11.797 7.871 18.922s-2.793 13.847-7.852 18.922zm0 0"></path><path fill="currentColor" _stroke="none" pid="1" d="M256 170.598c-29.418 0-53.332 23.937-53.332 53.332v101.336c0 8.832 7.168 16 16 16s16-7.168 16-16v-42.668h42.664v42.668c0 8.832 7.168 16 16 16s16-7.168 16-16V223.93c0-29.395-23.914-53.332-53.332-53.332zm-21.332 80V223.93c0-11.754 9.555-21.332 21.332-21.332s21.332 9.578 21.332 21.332v26.668zm0 0"></path></svg></span><span data-v-beb7bda4="" class="tooltip">Follow system mode</span></span><span data-v-beb7bda4="" class="label" aria-label="Dark Mode"><span data-v-e31f7d9c="" data-v-beb7bda4="" class="icon text-white" style="--v582d55c3: 1; --v93273614: 24px;"><svg data-v-e31f7d9c="" viewBox="0 0 512.002 512.002" class="svg-icon svg-fill"><path fill="currentColor" _stroke="none" pid="0" d="M508.269 368.626a15.001 15.001 0 0 0-17.234-3.862c-26.311 11.405-54.298 17.189-83.185 17.189-115.449 0-209.374-93.925-209.374-209.374 0-55.387 21.429-107.606 60.34-147.041a15 15 0 0 0 2.636-17.448A14.99 14.99 0 0 0 245.664.209C186.247 10.153 131.858 40.983 92.515 87.02 52.724 133.578 30.81 192.994 30.81 254.322c0 40.92 9.742 81.262 28.264 117.426-11.185 11.797-18.552 26.371-21.416 42.152C16.048 419.335.001 438.929.001 462.203c0 27.459 22.34 49.799 49.799 49.799h139.197c11.007 0 21.187-3.596 29.439-9.666 22.728 6.411 46.251 9.666 70.053 9.666 45.416 0 90.072-11.984 129.141-34.658 37.889-21.988 69.789-53.501 92.251-91.129a15 15 0 0 0-1.612-17.589zM188.997 482.002H49.8c-10.918 0-19.799-8.882-19.799-19.799 0-10.918 8.882-19.8 19.799-19.8.299 0 .597.013.893.025 4.028.161 7.959-1.288 10.9-4.049s4.647-6.59 4.731-10.622c.603-28.656 24.411-51.97 53.074-51.97s52.472 23.313 53.074 51.97a15 15 0 0 0 15.631 14.671c.296-.013.594-.025.894-.025 10.918 0 19.799 8.882 19.799 19.8 0 10.917-8.882 19.799-19.799 19.799zm99.492 0c-17.49 0-34.804-1.985-51.68-5.905a49.608 49.608 0 0 0 1.987-13.893c0-23.273-16.047-42.868-37.658-48.303-3.044-16.773-11.172-32.185-23.569-44.347-15.624-15.325-36.282-23.766-58.171-23.766-12.557 0-24.704 2.791-35.733 8.053-14.988-30.843-22.855-64.942-22.855-99.519 0-96.517 59.601-180.139 146.766-212.958-25.442 38.668-39.1 83.93-39.1 131.214 0 63.939 24.899 124.052 70.111 169.264 45.212 45.211 105.323 70.11 169.263 70.11 16.845 0 33.424-1.722 49.622-5.142-42.78 47.17-104.312 75.192-168.983 75.192z"></path><path fill="currentColor" _stroke="none" pid="1" d="M299.346 259.966h139.196c27.46 0 49.8-22.34 49.8-49.799 0-23.273-16.047-42.868-37.657-48.303-3.044-16.773-11.173-32.186-23.569-44.347-15.623-15.325-36.282-23.766-58.171-23.766-21.89 0-42.548 8.44-58.172 23.766-12.396 12.161-20.525 27.573-23.568 44.347-21.611 5.435-37.658 25.029-37.658 48.303-.001 27.459 22.339 49.799 49.799 49.799zm0-69.599c.3 0 .597.013.894.025a15.02 15.02 0 0 0 10.9-4.049 15.004 15.004 0 0 0 4.731-10.623c.602-28.655 24.41-51.969 53.073-51.969s52.472 23.313 53.073 51.97a15.008 15.008 0 0 0 4.731 10.622 15.06 15.06 0 0 0 10.9 4.049c.297-.013.594-.025.893-.025 10.918 0 19.8 8.882 19.8 19.8 0 10.917-8.882 19.799-19.8 19.799H299.346c-10.918 0-19.8-8.882-19.8-19.799 0-10.918 8.882-19.8 19.8-19.8z"></path></svg></span><span data-v-beb7bda4="" class="tooltip">Dark Mode</span></span></div><div class="LanguageDropdown"><div class="LD__Button"><svg viewBox="0 0 24 24" class="svg-icon" style="width: 24px; height: 24px;"><circle stroke="white" fill="none" pid="0" cx="12" cy="12" r="10" _stroke="#fff" stroke-width="1.5" stroke-linejoin="round"></circle><path stroke="white" fill="none" pid="1" opacity=".7" d="M22 12H2M19.76 18.204C17.172 17.401 14.586 17 12 17c-2.611 0-5.223.41-7.834 1.227M19.76 5.796C17.172 6.599 14.586 7 12 7 9.39 7 6.777 6.59 4.166 5.772" _stroke="#fff" stroke-width="1.5" stroke-linejoin="round"></path><path stroke="white" fill="none" pid="2" opacity=".7" d="M11.305 2s-4 4.464-4 10 4 10 4 10M12.258 2s4 4.464 4 10-4 10-4 10" _stroke="#fff" stroke-width="1.5" stroke-linejoin="round"></path></svg><span class="LD_Text">English</span></div><!----></div></div><a href="https://docs.directadmin.com/directadmin/general-usage/licensing.html#what-is-legacy-licenses-and-legacy-codebase" class="LegacyLicense" target="_blank"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true" class="info-icon"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"></path></svg> This server is running DirectAdmin legacy codebase, which receives limited development.</a></div></div>
+        
+        <div id="foot">
+            <div id="portal-targets">
+                <div id="dialog-host" class="dialog-host"></div>
+                <div id="overlay-host" class="overlay-host"></div>
+                <div id="tether-host" class="tether-host"></div>
+            </div>
+        <link id="login-external-styles" href="" rel="stylesheet"><style id="login-styles"></style></div>
+    
+
+<div class="notyf"></div><div class="notyf-announcer" aria-atomic="true" aria-live="polite" style="border: 0px; clip: rect(0px, 0px, 0px, 0px); height: 1px; margin: -1px; overflow: hidden; padding: 0px; position: absolute; width: 1px; outline: 0px;"></div><div id="axios-loader-bar" class=""></div></body></html>

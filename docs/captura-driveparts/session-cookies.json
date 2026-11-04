@@ -1,0 +1,12 @@
+[
+  {
+    "name": "PHPSESSID",
+    "value": "tb72jei3rj1jvrmqm0grgkm0mm",
+    "domain": "driveparts.com.br",
+    "path": "/",
+    "expires": 1793855215.583937,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "Lax"
+  }
+]
