@@ -1932,7 +1932,9 @@ async function nova(){
   { const fn=$('#pf').elements.nome; fn.addEventListener('change',autoLocal); fn.addEventListener('blur',autoLocal); }
   bindSugestoes(); bindMics(); ligaCatForm();
   // ao sair do campo Código OEM / Part Number: consulta o catálogo e autopreenche
-  { const pn=$('#pf').elements.pn; if(pn){ pn.addEventListener('change',()=>{ if(pn.value.trim().length>=2) window.__lookupOEM(pn.value.trim()); }); } }
+  { const pn=$('#pf').elements.pn; if(pn){ pn.addEventListener('change',()=>{ if(pn.value.trim().length>=2) }
+
+window.__lookupOEM(pn.value.trim()); }); } }
   $('#pfoto').onchange=async e=>{ for(const f of [...e.target.files]){ if(S.ui.fotos.length>=12)break; try{ S.ui.fotos.push({blob:await shrink(f)}); }catch{} } e.target.value=''; drawThumbs();
     if(iaPref('iaFundo')&&!S.ui.fotos.some(f=>f.ia==='fundo'))iaFundoPrincipal(false); };
   $('#iaf').onchange=e=>iaSet('iaFundo',e.target.checked); $('#iaa').onchange=e=>iaSet('iaArte',e.target.checked);
