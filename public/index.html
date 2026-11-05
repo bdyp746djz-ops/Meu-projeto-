@@ -3236,15 +3236,17 @@ async function excluirLocal(id){ try{ await api('/locais/'+id,{method:'DELETE'})
 const LOJA='Rafa Busca Peças', SITE='rafabuscapecas';
 const nrm=x=>String(x??'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
 const dataBR=ms=>ms?new Date(Number(ms)).toLocaleDateString('pt-BR'):'—';
+// na etiqueta não entram a palavra "Original" nem o prefixo "PN:" (só o código limpo)
+const limpaEtq=x=>String(x??'').replace(/\boriginal\b/gi,' ').replace(/\bPN\s*[:.\-]\s*/gi,' ').replace(/\s{2,}/g,' ').replace(/^[\s\-–—:,;]+|[\s\-–—:,;]+$/g,'');
 function itemPeca(p){
   const veic=([(p.marca||'').toUpperCase(),p.modelo].filter(Boolean).join(' ')+(p.ano?' - '+p.ano:'')).trim();
   const c=String(p.codigo).padStart(6,'0'), linhas=[];
-  if(p.pn)linhas.push('PN: '+p.pn); else if(p.veiculo)linhas.push('Sucata: '+p.veiculo);
+  if(limpaEtq(p.pn))linhas.push(limpaEtq(p.pn)); else if(p.veiculo)linhas.push('Sucata: '+p.veiculo);
   // local de estoque no formato cadastrado: RAFA › PRT-1 › NÍVEL-C › CAIXA-1
   const local=p.local_id&&S.locais[p.local_id]?locPath(p.local_id):'';
   // aplicação (veículo) só entra se o nome da peça ainda não trouxer o modelo
   const aplic=veic&&!(p.modelo&&nrm(p.nome).includes(nrm(p.modelo)))?veic:'';
-  return { tipo:'peca', id:p.id, rotulo:cod(p.codigo)+' · '+p.nome, qr:linkQR('p',c), loja:LOJA.toUpperCase(), num:String(p.codigo), titulo:p.nome, aplic, linhas, local };
+  return { tipo:'peca', id:p.id, rotulo:cod(p.codigo)+' · '+p.nome, qr:linkQR('p',c), loja:LOJA.toUpperCase(), num:String(p.codigo), titulo:limpaEtq(p.nome), aplic, linhas, local };
 }
 function itemLocal(id){ const [cima,baixo]=codigoLocal(id); return { tipo:'local', rotulo:codigoTxt(id)+' — '+locPath(id), qr:linkQR('l',id), acima:cima, grande:baixo }; }
 // o QR leva um link: lido pela câmera do celular, abre a peça (ou a caixa) direto no sistema
@@ -3368,12 +3370,12 @@ function desenhaPeca(doc,it,W,H){
   const box=Math.min(H-2*pad,W*0.46), quiet=box*0.05, q=box-2*quiet; // quiet = margem branca em volta do QR (o leitor precisa)
   qrPDF(doc,it.qr,pad+quiet,(H-q)/2,q);
   const x=pad+box+pad*0.6, w=W-x-pad;
-  // cabeçalho em destaque, ajustado à largura, com filete embaixo
+  // cabeçalho em destaque, ajustado à largura, sem linha embaixo
   const cab=pdfTxt(it.loja); doc.setFont('helvetica','bold'); doc.setFontSize(10); const w10=doc.getTextWidth(cab);
   const fs=Math.min(13*k,10*w/w10); doc.setFontSize(fs);
   const yb=pad+fs*PT*0.78; doc.text(cab,x+w/2,yb,{align:'center'});
-  const yl=yb+fs*PT*0.3; doc.setDrawColor(0,0,0); doc.setLineWidth(0.3); doc.line(x,yl,x+w,yl);
-  blocoTexto(doc,[{t:it.num,size:38*k,bold:true,max:1,centro:true},{t:it.titulo,size:11*k,bold:true,max:3},{t:it.aplic,size:9*k,max:2},...it.linhas.map(l=>({t:l,size:8.5*k,max:1})),{t:it.local?'Local: '+it.local:'',size:9.5*k,bold:true,max:2}],x,w,H,pad,yl+pad*0.5);
+  const yl=yb+fs*PT*0.3;
+  blocoTexto(doc,[{t:it.num,size:38*k,bold:true,max:1,centro:true},{t:it.titulo,size:9.5*k,bold:true,max:3},{t:it.aplic,size:9*k,max:2},...it.linhas.map(l=>({t:l,size:8.5*k,max:1})),{t:it.local?'Local: '+it.local:'',size:8*k,bold:true,max:2}],x,w,H,pad,yl+pad*0.5);
 }
 // etiqueta de caixa/prateleira: QR à esquerda, caminho e nome grande
 function desenhaLocal(doc,it,W,H){
