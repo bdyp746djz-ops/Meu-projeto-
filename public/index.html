@@ -3340,27 +3340,35 @@ async function gerarPDF(itens,copias){
 }
 function qrPDF(doc,txt,x,y,t){ const q=qrcode(0,'M'); q.addData(txt); q.make(); const n=q.getModuleCount(), m=t/n; doc.setFillColor(0,0,0);
   for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(q.isDark(r,c))doc.rect(x+c*m,y+r*m,m+0.02,m+0.02,'F'); }
+// quebra o texto em linhas; se for centralizado, estreita a largura até o limite para as linhas ficarem equilibradas
+function quebra(doc,t,w,centro){
+  let ls=doc.splitTextToSize(t,w); if(!centro||ls.length<2)return ls;
+  for(let ww=w*0.97;ww>w*0.45;ww*=0.97){ const m=doc.splitTextToSize(t,ww); if(m.length>ls.length)break; ls=m; }
+  return ls;
+}
 // escreve um bloco de linhas centralizado na altura, reduzindo a fonte até caber
+// opções por linha: centro (texto centralizado), min (até quanto a fonte pode encolher p/ caber em max linhas; padrão 0.6),
+// antes (espaço em mm antes da linha)
 function blocoTexto(doc,partes,x,w,H,pad,top){
   if(top==null)top=pad; // top = onde começa a área do texto (padrão: margem)
   // 1º: cada linha longa encolhe sozinha (até 60%) pra caber no nº de linhas dela
   for(const pt of partes){ pt.k=1; const t=pdfTxt(pt.t); if(!t)continue; doc.setFont('helvetica',pt.bold?'bold':'normal');
-    while(pt.k>0.6){ doc.setFontSize(pt.size*pt.k); if(doc.splitTextToSize(t,w).length<=(pt.max||2))break; pt.k-=0.04; } }
+    while(pt.k>(pt.min||0.6)){ doc.setFontSize(pt.size*pt.k); if(doc.splitTextToSize(t,w).length<=(pt.max||2))break; pt.k-=0.02; } }
   // 2º: se o bloco não couber na altura, reduz tudo junto
   for(let k=1;;k-=0.05){
     const lin=[]; let alt=0, estourou=false, ultimo=k<=0.42;
     for(const pt of partes){ const t=pdfTxt(pt.t); if(!t)continue; const fs=pt.size*pt.k*k;
       doc.setFont('helvetica',pt.bold?'bold':'normal'); doc.setFontSize(fs);
-      let ls=doc.splitTextToSize(t,w); const mx=pt.max||2;
+      let ls=quebra(doc,t,w,pt.centro); const mx=pt.max||2;
       if(ls.length>mx){ estourou=true; if(ultimo){ ls=ls.slice(0,mx); ls[mx-1]=ls[mx-1].replace(/\s*\S{0,3}$/,'')+'...'; } }
-      for(const l of ls){ lin.push({l,fs,b:pt.bold,c:pt.centro}); alt+=fs*PT*1.2; } }
+      let gap=pt.antes||0; for(const l of ls){ lin.push({l,fs,b:pt.bold,c:pt.centro,gap}); alt+=fs*PT*1.2+gap; gap=0; } }
     if((alt<=H-top-pad&&!estourou)||ultimo){ let y=top+Math.max(0,(H-top-pad-alt)/2);
-      for(const L of lin){ doc.setFont('helvetica',L.b?'bold':'normal'); doc.setFontSize(L.fs); if(L.c)doc.text(L.l,x+w/2,y+L.fs*PT*0.92,{align:'center'}); else doc.text(L.l,x,y+L.fs*PT*0.92); y+=L.fs*PT*1.2; }
+      for(const L of lin){ y+=L.gap; doc.setFont('helvetica',L.b?'bold':'normal'); doc.setFontSize(L.fs); if(L.c)doc.text(L.l,x+w/2,y+L.fs*PT*0.92,{align:'center'}); else doc.text(L.l,x,y+L.fs*PT*0.92); y+=L.fs*PT*1.2; }
       return; }
   }
 }
 // etiqueta de peça: QR grande à esquerda · à direita: cabeçalho da loja, nº da peça bem grande,
-// nome da peça e, logo abaixo, o local de estoque (caminho completo) — nenhuma linha de código no meio
+// nome da peça (centralizado) e, afastado dele, o local de estoque (caminho completo, numa linha só)
 function desenhaPeca(doc,it,W,H){
   const pad=Math.min(W,H)*0.06, k=H/50;
   const box=Math.min(H-2*pad,W*0.46), quiet=box*0.05, q=box-2*quiet; // quiet = margem branca em volta do QR (o leitor precisa)
@@ -3371,7 +3379,7 @@ function desenhaPeca(doc,it,W,H){
   const fs=Math.min(13*k,10*w/w10); doc.setFontSize(fs);
   const yb=pad+fs*PT*0.78; doc.text(cab,x+w/2,yb,{align:'center'});
   const yl=yb+fs*PT*0.3;
-  blocoTexto(doc,[{t:it.num,size:38*k,bold:true,max:1,centro:true},{t:it.titulo,size:9.5*k,bold:true,max:3},{t:it.local?'Local: '+it.local:'',size:8*k,bold:true,max:2}],x,w,H,pad,yl+pad*0.5);
+  blocoTexto(doc,[{t:it.num,size:38*k,bold:true,max:1,centro:true},{t:it.titulo,size:9.5*k,bold:true,max:3,centro:true},{t:it.local?'Local: '+it.local:'',size:7*k,bold:true,max:1,min:0.3,antes:3.5*k,centro:true}],x,w,H,pad,yl+pad*0.5);
 }
 // etiqueta de caixa/prateleira: QR à esquerda, caminho e nome grande
 function desenhaLocal(doc,it,W,H){
