@@ -2316,7 +2316,7 @@ function ligaEtapas(p){
       W.catalogoResultados=pecas;
       if(!pecas.length){ alvo.innerHTML='<div class="wz-vazio">Nenhuma peça encontrada no catálogo local.</div>'; return; }
       alvo.innerHTML=`<div class="wz-res"><div class="wz-res-h"><b>${pecas.length} resultado(s) do catálogo local</b><span class="small mut">O primeiro resultado foi preenchido automaticamente.</span></div>
-        ${pecas.map((x,i)=>`<button type="button" class="wz-it" data-extcat="${i}" style="width:100%;text-align:left"><div class="wz-mini">${x.foto&&/^https?:\/\//i.test(x.foto)?`<img src="${esc(x.foto)}" loading="lazy" alt="">`:'<span class="material-icons">image</span>'}</div>
+        ${pecas.map((x,i)=>`<button type="button" class="wz-it" data-extcat="${i}" style="width:100%;text-align:left"><div class="wz-mini">${x.foto?`<img src="${esc(x.foto)}" loading="lazy" alt="">`:'<span class="material-icons">image</span>'}</div>
           <div style="flex:1;min-width:0"><b>${esc(x.nome||'Peça sem nome')}</b><div class="wz-tags">${[x.marca,x.modelo,x.ano,x.codigo].filter(Boolean).map(v=>`<span>${esc(v)}</span>`).join('')}</div></div></button>`).join('')}</div>`;
       alvo.querySelectorAll('[data-extcat]').forEach(b=>b.onclick=()=>preencheCatalogo(W.catalogoResultados[+b.dataset.extcat]));
       await preencheCatalogo(pecas[0]);
