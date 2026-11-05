@@ -9,6 +9,9 @@ const app = express();
 const PORT = 3001;
 const DB_PATH = join(process.cwd(), 'pecas_full_completo.db');
 const MEDIA_BASE = 'https://files.ibrsoftweb.com.br/media/';
+const MEDIA_HOST = 'files.ibrsoftweb.com.br';
+const MEDIA_REDIRECT_HOST = 'ibr-api-prod.s3.amazonaws.com';
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 let dbCatalogo;
 
 app.use(cors());
@@ -41,6 +44,69 @@ function fotosDoCatalogo(valor) {
   }
   return valor.split(',').map(normalizaFoto).filter(Boolean);
 }
+
+app.get('/api/catalogo/img', async (req, res) => {
+  let url;
+  try {
+    url = new URL(String(req.query.url || ''));
+  } catch {
+    return res.status(400).json({ erro: 'URL de imagem inválida' });
+  }
+  if (url.protocol !== 'https:' || url.hostname !== MEDIA_HOST || !url.pathname.startsWith('/media/')) {
+    return res.status(400).json({ erro: 'Origem de imagem não permitida' });
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const options = {
+      headers: {
+        accept: 'image/avif,image/webp,image/png,image/jpeg,image/gif,*/*;q=0.8',
+        'user-agent': 'RafaBuscaPecas/1.0 (catalog image preview)'
+      },
+      redirect: 'manual',
+      signal: controller.signal
+    };
+    let response = await fetch(url, options);
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location');
+      if (!location) return res.status(502).json({ erro: 'Redirecionamento de imagem inválido' });
+      const redirected = new URL(location, url);
+      if (redirected.protocol !== 'https:' || redirected.hostname !== MEDIA_REDIRECT_HOST || !redirected.pathname.startsWith('/media/')) {
+        return res.status(502).json({ erro: 'Redirecionamento de imagem não permitido' });
+      }
+      response = await fetch(redirected, options);
+    }
+    if (!response.ok) return res.status(response.status).end();
+
+    const contentType = (response.headers.get('content-type') || '').split(';')[0].toLowerCase();
+    if (!['image/avif', 'image/gif', 'image/jpeg', 'image/png', 'image/webp'].includes(contentType)) {
+      return res.status(415).json({ erro: 'O servidor não retornou uma imagem compatível' });
+    }
+    const contentLength = Number(response.headers.get('content-length'));
+    if (contentLength > MAX_IMAGE_BYTES) return res.status(413).json({ erro: 'Imagem muito grande' });
+
+    const chunks = [];
+    let total = 0;
+    for await (const chunk of response.body) {
+      total += chunk.length;
+      if (total > MAX_IMAGE_BYTES) {
+        controller.abort();
+        return res.status(413).json({ erro: 'Imagem muito grande' });
+      }
+      chunks.push(chunk);
+    }
+    res.set('Content-Type', contentType);
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.send(Buffer.concat(chunks, total));
+  } catch (error) {
+    if (error.name === 'AbortError') return res.status(504).json({ erro: 'Tempo esgotado ao carregar a imagem' });
+    console.error('Erro ao carregar imagem do catálogo:', error);
+    res.status(502).json({ erro: 'Não foi possível carregar a imagem do catálogo' });
+  } finally {
+    clearTimeout(timeout);
+  }
+});
 
 // GET /api/catalogo/buscar?q=termo&limit=20
 app.get('/api/catalogo/buscar', async (req, res) => {

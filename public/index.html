@@ -407,7 +407,7 @@ main{background:linear-gradient(180deg,#e8ebfa 0,var(--bg) 280px)}
 .wz-res{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:12px}
 .wz-res-h{padding:12px 14px;border-bottom:1px solid var(--line)}.wz-res-h b{display:block}
 .wz-it{display:flex;gap:12px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);cursor:pointer}.wz-it:last-child{border-bottom:0}.wz-it:hover{background:#f7f8fd}
-.wz-mini{width:52px;height:52px;border-radius:10px;background:#f2f4fb;display:grid;place-items:center;overflow:hidden;flex:none;color:#9aa0b4}.wz-mini img{width:100%;height:100%;object-fit:cover}
+.wz-mini{width:52px;height:52px;border-radius:10px;background:#f2f4fb;display:grid;place-items:center;overflow:hidden;flex:none;color:#9aa0b4}.wz-mini img{width:100%;height:100%;object-fit:cover}.wz-mini .wz-img-fallback{width:34px;height:34px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .wz-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}.wz-tags span{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:1px 7px;color:#4a4f60;background:#fafbff}
 .wz-vazio{padding:22px;text-align:center;color:var(--mut);border:1px dashed var(--line);border-radius:12px;margin-top:12px}
 .wz-det{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px;margin-top:12px}
@@ -2240,6 +2240,8 @@ function irEtapa(n){ const W=S.ui.wz; if(!W)return; W.etapa=Math.max(1,Math.min(
   window.scrollTo({top:0}); }
 function ligaEtapas(p){
   const f=$('#pf'), W=S.ui.wz, jsv=k=>{ try{ return JSON.parse(f.elements[k].value||'[]'); }catch(_){ return []; } };
+  const fotoFallback='<svg class="wz-img-fallback" viewBox="0 0 48 48" aria-hidden="true"><path d="m5 29 3-9h10l6-8h10l6 8 4 2 2 7v5h-5a4 4 0 0 0-8 0H17a4 4 0 0 0-8 0H5zM18 20h18l-4-5h-8zM13 34a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm24 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>';
+  const trocaFotoQuebrada=img=>img.addEventListener('error',()=>{ img.outerHTML=fotoFallback; },{once:true});
   document.querySelectorAll('[data-wz]').forEach(b=>b.onclick=()=>irEtapa(+b.dataset.wz));
   $('#wzvolta').onclick=()=>irEtapa(W.etapa-1); $('#wzseg').onclick=()=>irEtapa(W.etapa+1);
   // 1) catálogo: peças já cadastradas, agrupadas pelo nome
@@ -2287,20 +2289,27 @@ function ligaEtapas(p){
     drawThumbs();
     const urls=[...new Set([...(Array.isArray(x.fotos)?x.fotos:[]).map(f=>typeof f==='string'?f:(f.url||f.thumbnailUrl)),x.foto]
       .filter(u=>typeof u==='string'&&/^https?:\/\//i.test(u)))].slice(0,12);
-    const prontas=await Promise.all(urls.map(async url=>{
-      try{
-        const r=await fetch(url,{mode:'cors'});
-        if(!r.ok||!r.headers.get('content-type')?.startsWith('image/'))return null;
-        return {blob:await shrink(await r.blob())};
-      }catch(_){ return null; }
-    }));
-    if(W.fotoRequest!==pedido)return;
-    S.ui.fotos=prontas.filter(Boolean);
-    drawThumbs();
-    const qtd=S.ui.fotos.length;
-    if(urls.length&&!qtd)toast('Os dados foram preenchidos, mas as fotos do catálogo não puderam ser importadas.');
-    else if(qtd)toast(`Dados preenchidos · ${qtd} foto(s) preparada(s)`);
-    else toast('Dados preenchidos — este item não tem fotos disponíveis.');
+    try{
+      const prontas=await Promise.all(urls.map(async url=>{
+        const controller=new AbortController(), timeout=setTimeout(()=>controller.abort(),5000);
+        try{
+          const proxy='http://localhost:3001/api/catalogo/img?url='+encodeURIComponent(url);
+          const r=await fetch(proxy,{signal:controller.signal});
+          if(!r.ok||!r.headers.get('content-type')?.startsWith('image/'))return null;
+          return {blob:await shrink(await r.blob())};
+        }catch(_){ return null; }
+        finally{ clearTimeout(timeout); }
+      }));
+      if(W.fotoRequest!==pedido)return;
+      S.ui.fotos=prontas.filter(Boolean);
+      drawThumbs();
+      const qtd=S.ui.fotos.length;
+      if(urls.length&&!qtd)toast('Fotos indisponíveis no catálogo; você pode continuar sem elas.');
+      else if(qtd)toast(`Dados preenchidos · ${qtd} foto(s) preparada(s)`);
+      else toast('Dados preenchidos — este item não tem fotos disponíveis.');
+    }finally{
+      if(W.fotoRequest===pedido)irEtapa(2);
+    }
   };
   let wzBuscaTimer;
   const buscaCatalogoLocal=async()=>{
@@ -2315,11 +2324,11 @@ function ligaEtapas(p){
       const pecas=Array.isArray(dados.pecas)?dados.pecas:[];
       W.catalogoResultados=pecas;
       if(!pecas.length){ alvo.innerHTML='<div class="wz-vazio">Nenhuma peça encontrada no catálogo local.</div>'; return; }
-      alvo.innerHTML=`<div class="wz-res"><div class="wz-res-h"><b>${pecas.length} resultado(s) do catálogo local</b><span class="small mut">O primeiro resultado foi preenchido automaticamente.</span></div>
-        ${pecas.map((x,i)=>`<button type="button" class="wz-it" data-extcat="${i}" style="width:100%;text-align:left"><div class="wz-mini">${x.foto?`<img src="${esc(x.foto)}" loading="lazy" alt="">`:'<span class="material-icons">image</span>'}</div>
+      alvo.innerHTML=`<div class="wz-res"><div class="wz-res-h"><b>${pecas.length} resultado(s) do catálogo local</b><span class="small mut">Clique em uma peça para preencher os dados.</span></div>
+        ${pecas.map((x,i)=>`<button type="button" class="wz-it" data-extcat="${i}" style="width:100%;text-align:left"><div class="wz-mini">${x.foto?`<img src="http://localhost:3001/api/catalogo/img?url=${encodeURIComponent(x.foto)}" loading="lazy" alt="" data-extcat-foto>`:fotoFallback}</div>
           <div style="flex:1;min-width:0"><b>${esc(x.nome||'Peça sem nome')}</b><div class="wz-tags">${[x.marca,x.modelo,x.ano,x.codigo].filter(Boolean).map(v=>`<span>${esc(v)}</span>`).join('')}</div></div></button>`).join('')}</div>`;
+      alvo.querySelectorAll('[data-extcat-foto]').forEach(trocaFotoQuebrada);
       alvo.querySelectorAll('[data-extcat]').forEach(b=>b.onclick=()=>preencheCatalogo(W.catalogoResultados[+b.dataset.extcat]));
-      await preencheCatalogo(pecas[0]);
     }catch(e){
       if($('#wzq').value.trim()===q)alvo.innerHTML=`<div class="wz-vazio">⚠️ ${esc(e.message)}<br><span class="small">Confira se o servidor local está ativo em http://localhost:3001.</span></div>`;
     }
