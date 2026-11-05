@@ -407,7 +407,8 @@ main{background:linear-gradient(180deg,#e8ebfa 0,var(--bg) 280px)}
 .wz-res{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:12px}
 .wz-res-h{padding:12px 14px;border-bottom:1px solid var(--line)}.wz-res-h b{display:block}
 .wz-it{display:flex;gap:12px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);cursor:pointer}.wz-it:last-child{border-bottom:0}.wz-it:hover{background:#f7f8fd}
-.wz-mini{width:52px;height:52px;border-radius:10px;background:#f2f4fb;display:grid;place-items:center;overflow:hidden;flex:none;color:#9aa0b4}.wz-mini img{width:100%;height:100%;object-fit:cover}.wz-mini .wz-img-fallback{width:34px;height:34px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.wz-mini{position:relative;width:52px;height:52px;border-radius:10px;background:#f2f4fb;display:grid;place-items:center;overflow:hidden;flex:none;color:#9aa0b4}.wz-mini[data-gal]{cursor:zoom-in}
+.wz-mais{position:absolute;right:2px;bottom:2px;background:rgba(0,0,0,.65);color:#fff;font-size:10px;font-weight:700;line-height:14px;border-radius:7px;padding:0 5px}.wz-ref{position:absolute;left:2px;top:2px;background:rgba(255,230,0,.95);color:#333;font-size:9px;font-weight:800;line-height:12px;border-radius:5px;padding:0 3px}.wz-mini img{width:100%;height:100%;object-fit:cover}.wz-mini .wz-img-fallback{width:34px;height:34px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .wz-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}.wz-tags span{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:1px 7px;color:#4a4f60;background:#fafbff}
 .wz-vazio{padding:22px;text-align:center;color:var(--mut);border:1px dashed var(--line);border-radius:12px;margin-top:12px}
 .wz-det{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px;margin-top:12px}
@@ -2242,6 +2243,21 @@ function ligaEtapas(p){
   const f=$('#pf'), W=S.ui.wz, jsv=k=>{ try{ return JSON.parse(f.elements[k].value||'[]'); }catch(_){ return []; } };
   const fotoFallback='<svg class="wz-img-fallback" viewBox="0 0 48 48" aria-hidden="true"><path d="m5 29 3-9h10l6-8h10l6 8 4 2 2 7v5h-5a4 4 0 0 0-8 0H17a4 4 0 0 0-8 0H5zM18 20h18l-4-5h-8zM13 34a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm24 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>';
   const trocaFotoQuebrada=img=>img.addEventListener('error',()=>{ img.outerHTML=fotoFallback; },{once:true});
+  // miniaturas da Etapa 1: 1ª imagem válida na própria lista; se falhar tenta a próxima; placeholder só sem nenhuma foto real
+  const imagensDe=x=>(Array.isArray(x.imagens)?x.imagens:[]).filter(i=>i&&typeof i.url==='string'&&/^https?:\/\//i.test(i.url));
+  const miniaturaHtml=(x,i)=>{ const l=imagensDe(x); if(!l.length)return fotoFallback;
+    return `<img src="${esc(l[0].url)}" ${i<6?'loading="eager"':'loading="lazy"'} decoding="async" alt="${esc(x.nome||'Peça')}" referrerpolicy="no-referrer">`
+      +(l[0].referencia?'<span class="wz-ref" title="Foto de referência do catálogo do Mercado Livre">ref.</span>':'')
+      +(l.length>1?`<span class="wz-mais">${l.length}</span>`:''); };
+  const ligaMiniatura=(box,x)=>{ const l=imagensDe(x), img=box.querySelector('img'); if(!img)return; let k=0;
+    box.dataset.gal='1'; box.title='Ver fotos';
+    img.addEventListener('error',()=>{ k++; if(k<l.length){ img.src=l[k].url; return; } box.innerHTML=fotoFallback; delete box.dataset.gal; box.removeAttribute('title'); });
+    box.onclick=e=>{ e.stopPropagation(); e.preventDefault(); galeriaCatalogo(x); }; };
+  const galeriaCatalogo=x=>{ const l=imagensDe(x); if(!l.length)return;
+    const ref=l.some(i=>i.referencia), ml=(l.find(i=>i.ml)||{}).ml;
+    modal(`<h3 style="margin:0 28px 10px 0">${esc(x.nome||'Peça')}</h3>
+      <div class="photos">${l.map(i=>`<img src="${esc(i.url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove()">`).join('')}</div>
+      <p class="small mut" style="margin-top:10px">${ref?`📷 Fotos de referência do catálogo oficial do Mercado Livre${ml?` (produto ${esc(ml.id)})`:''}, achadas pelo código ${esc(x.codigo||'')}. Servem para conferir o modelo — <b>não são fotos da sua peça</b>.`:'📷 Fotos reais cadastradas para esta peça.'}</p>`); };
   document.querySelectorAll('[data-wz]').forEach(b=>b.onclick=()=>irEtapa(+b.dataset.wz));
   $('#wzvolta').onclick=()=>irEtapa(W.etapa-1); $('#wzseg').onclick=()=>irEtapa(W.etapa+1);
   // 1) catálogo: peças já cadastradas, agrupadas pelo nome
@@ -2325,9 +2341,9 @@ function ligaEtapas(p){
       W.catalogoResultados=pecas;
       if(!pecas.length){ alvo.innerHTML='<div class="wz-vazio">Nenhuma peça encontrada no catálogo local.</div>'; return; }
       alvo.innerHTML=`<div class="wz-res"><div class="wz-res-h"><b>${pecas.length} resultado(s) do catálogo local</b><span class="small mut">Clique em uma peça para preencher os dados.</span></div>
-        ${pecas.map((x,i)=>`<button type="button" class="wz-it" data-extcat="${i}" style="width:100%;text-align:left"><div class="wz-mini">${x.foto?`<img src="http://localhost:3001/api/catalogo/img?url=${encodeURIComponent(x.foto)}" loading="lazy" alt="" data-extcat-foto>`:fotoFallback}</div>
+        ${pecas.map((x,i)=>`<button type="button" class="wz-it" data-extcat="${i}" style="width:100%;text-align:left"><div class="wz-mini" data-mini="${i}">${miniaturaHtml(x,i)}</div>
           <div style="flex:1;min-width:0"><b>${esc(x.nome||'Peça sem nome')}</b><div class="wz-tags">${[x.marca,x.modelo,x.ano,x.codigo].filter(Boolean).map(v=>`<span>${esc(v)}</span>`).join('')}</div></div></button>`).join('')}</div>`;
-      alvo.querySelectorAll('[data-extcat-foto]').forEach(trocaFotoQuebrada);
+      alvo.querySelectorAll('[data-mini]').forEach(box=>ligaMiniatura(box,pecas[+box.dataset.mini]));
       alvo.querySelectorAll('[data-extcat]').forEach(b=>b.onclick=()=>preencheCatalogo(W.catalogoResultados[+b.dataset.extcat]));
     }catch(e){
       if($('#wzq').value.trim()===q)alvo.innerHTML=`<div class="wz-vazio">⚠️ ${esc(e.message)}<br><span class="small">Confira se o servidor local está ativo em http://localhost:3001.</span></div>`;

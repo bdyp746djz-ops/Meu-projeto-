@@ -4,15 +4,23 @@ import cors from 'cors';
 import Database from 'better-sqlite3';
 import { join } from 'path';
 import { buscarPorOEM, buscarPorID, autocompletar } from './src/catalogo.js';
+import { criarServicoImagens } from './src/catalogo-imagens.js';
 
 const app = express();
 const PORT = 3001;
 const DB_PATH = join(process.cwd(), 'pecas_full_completo.db');
 const MEDIA_BASE = 'https://files.ibrsoftweb.com.br/media/';
-const MEDIA_HOST = 'files.ibrsoftweb.com.br';
-const MEDIA_REDIRECT_HOST = 'ibr-api-prod.s3.amazonaws.com';
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const imagens = criarServicoImagens({ baseDir: process.cwd() });
 let dbCatalogo;
+
+async function comLimite(itens, limite, fn) {
+  const saida = new Array(itens.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(limite, itens.length) }, async () => {
+    while (i < itens.length) { const k = i++; saida[k] = await fn(itens[k], k); }
+  }));
+  return saida;
+}
 
 app.use(cors());
 app.use(express.json());
@@ -45,68 +53,10 @@ function fotosDoCatalogo(valor) {
   return valor.split(',').map(normalizaFoto).filter(Boolean);
 }
 
-app.get('/api/catalogo/img', async (req, res) => {
-  let url;
-  try {
-    url = new URL(String(req.query.url || ''));
-  } catch {
-    return res.status(400).json({ erro: 'URL de imagem inválida' });
-  }
-  if (url.protocol !== 'https:' || url.hostname !== MEDIA_HOST || !url.pathname.startsWith('/media/')) {
-    return res.status(400).json({ erro: 'Origem de imagem não permitida' });
-  }
+app.get('/api/catalogo/img', imagens.servirImagem);
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
-  try {
-    const options = {
-      headers: {
-        accept: 'image/avif,image/webp,image/png,image/jpeg,image/gif,*/*;q=0.8',
-        'user-agent': 'RafaBuscaPecas/1.0 (catalog image preview)'
-      },
-      redirect: 'manual',
-      signal: controller.signal
-    };
-    let response = await fetch(url, options);
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get('location');
-      if (!location) return res.status(502).json({ erro: 'Redirecionamento de imagem inválido' });
-      const redirected = new URL(location, url);
-      if (redirected.protocol !== 'https:' || redirected.hostname !== MEDIA_REDIRECT_HOST || !redirected.pathname.startsWith('/media/')) {
-        return res.status(502).json({ erro: 'Redirecionamento de imagem não permitido' });
-      }
-      response = await fetch(redirected, options);
-    }
-    if (!response.ok) return res.status(response.status).end();
-
-    const contentType = (response.headers.get('content-type') || '').split(';')[0].toLowerCase();
-    if (!['image/avif', 'image/gif', 'image/jpeg', 'image/png', 'image/webp'].includes(contentType)) {
-      return res.status(415).json({ erro: 'O servidor não retornou uma imagem compatível' });
-    }
-    const contentLength = Number(response.headers.get('content-length'));
-    if (contentLength > MAX_IMAGE_BYTES) return res.status(413).json({ erro: 'Imagem muito grande' });
-
-    const chunks = [];
-    let total = 0;
-    for await (const chunk of response.body) {
-      total += chunk.length;
-      if (total > MAX_IMAGE_BYTES) {
-        controller.abort();
-        return res.status(413).json({ erro: 'Imagem muito grande' });
-      }
-      chunks.push(chunk);
-    }
-    res.set('Content-Type', contentType);
-    res.set('Cache-Control', 'public, max-age=3600');
-    res.send(Buffer.concat(chunks, total));
-  } catch (error) {
-    if (error.name === 'AbortError') return res.status(504).json({ erro: 'Tempo esgotado ao carregar a imagem' });
-    console.error('Erro ao carregar imagem do catálogo:', error);
-    res.status(502).json({ erro: 'Não foi possível carregar a imagem do catálogo' });
-  } finally {
-    clearTimeout(timeout);
-  }
-});
+// GET /api/catalogo/diagnostico-imagens — origem de cada foto, hosts bloqueados e estatisticas do cache
+app.get('/api/catalogo/diagnostico-imagens', (req, res) => res.json({ sucesso: true, ...imagens.diagnostico() }));
 
 // GET /api/catalogo/buscar?q=termo&limit=20
 app.get('/api/catalogo/buscar', async (req, res) => {
@@ -135,14 +85,23 @@ app.get('/api/catalogo/buscar', async (req, res) => {
       LIMIT ?
     `).all(...valores, limite);
 
-    const pecas = resultados.map(p => {
-      const fotos = fotosDoCatalogo(p.photos);
-      const foto = fotosDoCatalogo(p.photo)[0] || fotos[0] || null;
+    const base = `${req.protocol}://${req.get('host')}`;
+    const pecas = await comLimite(resultados, 4, async p => {
+      const originais = [...new Set([...fotosDoCatalogo(p.photo), ...fotosDoCatalogo(p.photos)])];
       const ano = `${p.vehicle_model || ''} ${p.name || ''}`.match(/\b(?:19|20)\d{2}(?:\s*(?:\/|-|a)\s*(?:(?:19|20)?\d{2}))?\b/i);
+      // fotos reais e confirmadas: arquivo local, estoque (R2), foto original acessível ou catálogo oficial do ML
+      const r = await imagens.resolverImagens({ id: p.id, codigo: p.code, nome: p.name }, {
+        base, originais, originaisBrutos: originais.length,
+        originaisRelativos: originais.map(u => { try { return new URL(u).pathname; } catch { return ''; } })
+      });
       return {
         id: p.id, nome: p.name, nome_marketplace: p.marketplace_name, codigo: p.code,
         marca: p.brand, modelo: p.vehicle_model, ano: ano ? ano[0] : '',
-        categoria: p.category, foto, fotos
+        categoria: p.category,
+        foto: r.foto, fotos: r.fotos,                 // só fotos próprias (alimentam o cadastro)
+        imagens: r.imagens,                           // tudo que pode ser exibido na miniatura/galeria, com a origem
+        imagem_status: r.status, imagem_motivos: r.motivos,
+        foto_original: originais[0] || null
       };
     });
 
@@ -199,6 +158,9 @@ try {
 }
 
 if (dbCatalogo) app.listen(PORT, () => {
+  // aquece em segundo plano o que demora na primeira busca (estoque do R2 e token do ML)
+  imagens.garanteR2().catch(() => {});
+  imagens.obterTokenML().catch(() => {});
   console.log(`\n🚀 Servidor de catálogo rodando em http://localhost:${PORT}`);
   console.log('\n📋 Rotas disponíveis:');
   console.log(`  GET http://localhost:${PORT}/api/catalogo/buscar?q=fechadura`);
