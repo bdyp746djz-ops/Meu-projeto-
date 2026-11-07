@@ -15,3 +15,6 @@ pecas_full_completo.db
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Dependências (recriadas por npm install; não devem ir para o GitHub)
+node_modules/
