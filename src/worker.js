@@ -92,6 +92,7 @@ export default {
       veoAtualiza(env).catch(e => console.log('veo', e && e.message)),
       mlPausaPosVenda(env).catch(e => console.log('pausa pós-venda', e && e.message)),
       fotosAuto(env).catch(e => console.log('fotos', e && e.message)),
+      trocasSync(env).catch(e => console.log('trocas', e && e.message)),
     ]));
   },
 };
@@ -108,6 +109,7 @@ async function api(request, env, url) {
   if (p === '/api/login' && m === 'POST') return login(request, env, secret);
   // retorno do Mercado Livre (vem de fora, protegido pelo state) — público
   if (p === '/api/ml/callback' && m === 'GET') return mlCallback(env, url);
+  if (p === '/api/google/callback' && m === 'GET') return googleCallback(env, url);
   // foto pública: o Mercado Livre precisa baixar a imagem para montar o anúncio
   { const mf = p.match(/^\/api\/foto\/(.+)$/); if (mf && m === 'GET') return serveFoto(decodeURIComponent(mf[1]), env); }
   // vídeo público (com Range, o iPhone exige) e o gerador de vídeo do PC (entra com a chave dele, sem cookie)
@@ -245,6 +247,10 @@ async function api(request, env, url) {
   mt = p.match(/^\/api\/ml\/item\/([\w-]+)$/);
   if (mt && m === 'GET') return mlItem(mt[1], env);
   if (mt && m === 'POST') return mlItemAcao(mt[1], request, env, user);
+
+  // bombas de alta: trocas do ML e compras de bombas
+  { const rb = await bombasApi(p, m, request, env, url, user); if (rb) return rb; }
+  { const rg = await googleApi(p, m, request, env, url, user); if (rg) return rg; }
 
   return bad('rota não encontrada', 404);
 }
@@ -2828,4 +2834,391 @@ async function painel(env) {
     semAnuncio: semAnuncio.c, semLocal: semLocal.c, parado: parado.c,
     porCanal: canais.results, ultimas: ultimas.results,
   });
+}
+
+// =====================================================================
+// ---------- BOMBAS DE ALTA: Trocas do ML e Compras de bombas ----------
+// Trocas: venda no ML na base de troca -> o cliente devolve a bomba antiga.
+// Compras: quem quer vender a bomba estragada (anúncio do Facebook / orgânico).
+// =====================================================================
+const BOMBA_MODELOS = [
+  { n: 1, nome: 'Porsche Cayenne 4.8 Turbo (biturbo)', carros: 'Cayenne 957 Turbo/Turbo S 4.8 (2008–2010) · Cayenne 958 Turbo/Turbo S 4.8 · Panamera 970 Turbo/Turbo S 4.8 — conferir pelo código 948.110…' },
+  { n: 2, nome: 'Porsche Panamera 3.6 / V8 aspirado', carros: 'Panamera 970 3.6 V6, 4, S/4S/GTS 4.8 (2010–2016) · Cayenne 957 S/GTS 4.8 (2007–2010) · Cayenne 958 S/GTS 4.8 (2010–2017). NÃO: Cayenne 3.6 V6' },
+  { n: 3, nome: '1.6 THP / Mini N14 (suporte largo)', carros: 'Peugeot 207, 208 GTi, 308, 408, 3008, 508, RCZ · Citroën C4, C4 Lounge, C4 Picasso · DS3, DS4, DS5 · Mini Cooper S/JCW N14' },
+  { n: 4, nome: 'Mini Cooper S N18 (suporte compacto)', carros: 'Mini Cooper S N18 (2010–2016): R55, R56, R57, R58, R59, R60, R61' },
+  { n: 5, nome: 'BMW N54 / N55', carros: '135i, 1M, 335i/xi, 535i/iX, 640i, 740i/Li, X3 35iX, X5 35iX, X6 35iX, Z4 35i/is (2006–2018)' },
+  { n: 6, nome: 'Mercedes 1.8 CGI M271', carros: 'C180/C200/C250 CGI (W204/S204/C204) · E200/E250 CGI (W212/S212/C207/A207) · SLK 200/250 (R172) — 2009–2016' },
+];
+const TROCA_ST = ['aguardando_entrega', 'falta_enviar', 'a_caminho', 'concluida', 'cancelada'];
+const COMPRA_ST = ['novo', 'modelo_ok', 'dados_ok', 'nos_correios', 'etiqueta', 'a_caminho', 'recebida', 'recusada'];
+const soDig = s => String(s ?? '').replace(/\D/g, '');
+const txt = (v, n = 300) => v == null ? null : String(v).slice(0, n).trim();
+
+async function garanteBombas(env) {
+  await garanteObjeto(env, 'trocas', `CREATE TABLE IF NOT EXISTS trocas (
+    id TEXT PRIMARY KEY, ml_pedido TEXT UNIQUE, data_venda INTEGER, comprador TEXT, titulo TEXT, valor REAL,
+    envio_id TEXT, envio_status TEXT, entregue_em INTEGER,
+    cliente TEXT, whatsapp TEXT, modelo INTEGER,
+    status TEXT NOT NULL DEFAULT 'aguardando_entrega',
+    reversa_codigo TEXT, reversa_rastreio TEXT, postada_em INTEGER, recebida_em INTEGER,
+    lembretes INTEGER NOT NULL DEFAULT 0, ultimo_lembrete INTEGER, aviso_troca INTEGER NOT NULL DEFAULT 0,
+    obs TEXT, criado_em INTEGER NOT NULL, atualizado_em INTEGER)`);
+  await garanteObjeto(env, 'compras', `CREATE TABLE IF NOT EXISTS compras (
+    id TEXT PRIMARY KEY, nome TEXT, whatsapp TEXT, canal TEXT, origem TEXT, modelo INTEGER,
+    status TEXT NOT NULL DEFAULT 'novo', valor REAL NOT NULL DEFAULT 250,
+    cpf TEXT, cep TEXT, endereco TEXT, pix TEXT, pago_em INTEGER,
+    etiqueta_codigo TEXT, rastreio TEXT, recebida_em INTEGER,
+    obs TEXT, criado_em INTEGER NOT NULL, atualizado_em INTEGER, criado_por TEXT)`);
+}
+
+// ----- rotas -----
+async function bombasApi(p, m, request, env, url, user) {
+  if (p === '/api/bombas/modelos' && m === 'GET') return json({ modelos: BOMBA_MODELOS });
+  if (!p.startsWith('/api/trocas') && !p.startsWith('/api/compras')) return null;
+  await garanteBombas(env);
+  if (p === '/api/trocas' && m === 'GET') return listaTrocas(env);
+  if (p === '/api/trocas' && m === 'POST') return criaTroca(request, env);
+  if (p === '/api/trocas/sincronizar' && m === 'POST') return json(await trocasSync(env, true));
+  let mt = p.match(/^\/api\/trocas\/([\w-]+)\/atualizar$/);
+  if (mt && m === 'POST') return trocaAtualiza(mt[1], env);
+  mt = p.match(/^\/api\/trocas\/([\w-]+)$/);
+  if (mt && m === 'PATCH') return atualizaTroca(mt[1], request, env);
+  if (mt && m === 'DELETE') { if (user.papel !== 'admin') return bad('somente o administrador', 403); await env.DB.prepare('DELETE FROM trocas WHERE id=?').bind(mt[1]).run(); return json({ ok: true }); }
+  if (p === '/api/compras' && m === 'GET') return listaCompras(env);
+  if (p === '/api/compras' && m === 'POST') return criaCompra(request, env, user);
+  mt = p.match(/^\/api\/compras\/([\w-]+)$/);
+  if (mt && m === 'PATCH') return atualizaCompra(mt[1], request, env);
+  if (mt && m === 'DELETE') { if (user.papel !== 'admin') return bad('somente o administrador', 403); await env.DB.prepare('DELETE FROM compras WHERE id=?').bind(mt[1]).run(); return json({ ok: true }); }
+  return bad('rota não encontrada', 404);
+}
+
+// ----- trocas -----
+async function listaTrocas(env) {
+  await garanteColsTrocas(env);
+  const r = await env.DB.prepare('SELECT * FROM trocas ORDER BY COALESCE(data_venda, criado_em) DESC LIMIT 500').all();
+  return json({ trocas: r.results || [], sincronizado_em: Number(await getCfg(env, 'trocas_sync_em') || 0) || null, ml: !!(await getCfg(env, 'ml_access_token')) });
+}
+async function criaTroca(request, env) {
+  const b = await request.json().catch(() => ({}));
+  if (!b.cliente && !b.ml_pedido) return bad('informe o cliente ou o nº do pedido');
+  const id = uid(), t = now();
+  await env.DB.prepare('INSERT INTO trocas (id,ml_pedido,data_venda,cliente,whatsapp,titulo,modelo,status,obs,criado_em,atualizado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+    .bind(id, txt(b.ml_pedido, 40) || null, t, txt(b.cliente, 120), soDig(b.whatsapp) || null, txt(b.titulo, 200), Number(b.modelo) || null,
+      TROCA_ST.includes(b.status) ? b.status : 'aguardando_entrega', txt(b.obs, 1000), t, t).run();
+  const g = soDig(b.whatsapp) ? await googleSalvaContato(env, 'trocas', id).catch(e => ({ erro: e.message })) : null;
+  return json({ ok: true, id, google: g });
+}
+async function atualizaTroca(id, request, env) {
+  const b = await request.json().catch(() => ({}));
+  const atual = await env.DB.prepare('SELECT * FROM trocas WHERE id=?').bind(id).first();
+  if (!atual) return bad('troca não encontrada', 404);
+  const set = {}, t = now();
+  for (const k of ['cliente', 'obs', 'reversa_codigo', 'reversa_rastreio']) if (k in b) set[k] = txt(b[k], k === 'obs' ? 1000 : 120);
+  if ('whatsapp' in b) set.whatsapp = soDig(b.whatsapp) || null;
+  if ('modelo' in b) set.modelo = Number(b.modelo) || null;
+  if ('status' in b) {
+    if (!TROCA_ST.includes(b.status)) return bad('status inválido');
+    set.status = b.status;
+    if (b.status === 'a_caminho' && !atual.postada_em) set.postada_em = t;
+    if (b.status === 'concluida' && !atual.recebida_em) set.recebida_em = t;
+  }
+  if (b.lembrete) { set.lembretes = (atual.lembretes || 0) + 1; set.ultimo_lembrete = t; }
+  if (b.aviso_troca) set.aviso_troca = 1;
+  const ks = Object.keys(set); if (!ks.length) return json({ ok: true });
+  await env.DB.prepare(`UPDATE trocas SET ${ks.map(k => k + '=?').join(',')}, atualizado_em=? WHERE id=?`).bind(...ks.map(k => set[k]), t, id).run();
+  const g = ('whatsapp' in set || 'cliente' in set) ? await googleSalvaContato(env, 'trocas', id).catch(e => ({ erro: e.message })) : null;
+  return json({ ok: true, google: g });
+}
+// é uma venda de bomba de alta? (título do anúncio)
+function ehBomba(titulo) {
+  const s = norm(titulo);
+  return /bomba/.test(s) && /(alta|hpfp|pressao)/.test(s);
+}
+// colunas extras com os dados do ML (cliente, CPF, endereço, rastreio, previsão)
+let trocasColsOk = false;
+async function garanteColsTrocas(env) {
+  if (trocasColsOk) return;
+  const tem = new Set(((await env.DB.prepare('PRAGMA table_info(trocas)').all()).results || []).map(c => c.name));
+  for (const c of ['comprador_nome TEXT', 'comprador_doc TEXT', 'cep TEXT', 'endereco TEXT', 'cidade TEXT', 'uf TEXT', 'fone_ml TEXT',
+    'rastreio_ida TEXT', 'envio_sub TEXT', 'envio_tipo TEXT', 'previsao INTEGER', 'envio_lido INTEGER', 'ml_detalhe INTEGER'])
+    if (!tem.has(c.split(' ')[0])) { try { await env.DB.prepare('ALTER TABLE trocas ADD COLUMN ' + c).run(); } catch { /* já existe */ } }
+  trocasColsOk = true;
+}
+const dataML = v => { const t = Date.parse(v || ''); return Number.isFinite(t) ? t : null; };
+// CPF/nome do comprador (dados de faturamento do pedido) — o ML tem dois formatos, tenta os dois
+async function mlFaturamento(token, orderId, billingId) {
+  const acha = (o, tipos) => { let r = null; const v = x => { if (r || !x || typeof x !== 'object') return; if (Array.isArray(x)) return x.forEach(v);
+    if (x.type && tipos.includes(String(x.type).toUpperCase()) && x.value) { r = String(x.value); return; } Object.values(x).forEach(v); }; v(o); return r; };
+  const tenta = async (cam, hdr) => { try { const r = await fetch(ML_API + cam, { headers: { Authorization: 'Bearer ' + token, ...(hdr || {}) } }); return r.ok ? await r.json() : null; } catch { return null; } };
+  let d = billingId ? await tenta('/orders/billing-info/MLB/' + encodeURIComponent(billingId), { 'x-version': '2' }) : null;
+  if (!d) d = await tenta('/orders/' + encodeURIComponent(orderId) + '/billing_info');
+  if (!d) return {};
+  const b = d.billing_info || d.buyer || d;
+  const doc = (b.doc_number || (b.identification && b.identification.number) || acha(d, ['DOC_NUMBER', 'CPF', 'CNPJ']) || '').toString().replace(/\D/g, '');
+  const nome = [acha(d, ['FIRST_NAME']) || b.name || '', acha(d, ['LAST_NAME']) || b.last_name || ''].join(' ').trim();
+  return { doc: doc || null, nome: nome || null };
+}
+// lê do ML os dados do pedido e do envio de UMA troca e grava
+async function trocaLeML(env, token, tr) {
+  const set = {};
+  if (tr.ml_pedido && !tr.ml_detalhe) {
+    try {
+      const o = await mlReq(token, 'GET', '/orders/' + encodeURIComponent(tr.ml_pedido));
+      const bu = o.buyer || {};
+      const nomeML = [bu.first_name, bu.last_name].filter(Boolean).join(' ').trim();
+      const fat = await mlFaturamento(token, tr.ml_pedido, o.buyer && o.buyer.billing_info && o.buyer.billing_info.id);
+      set.comprador_nome = fat.nome || nomeML || null;
+      if (fat.doc) set.comprador_doc = fat.doc;
+      if (!tr.envio_id && o.shipping && o.shipping.id) { set.envio_id = String(o.shipping.id); tr.envio_id = set.envio_id; }
+      if (!tr.cliente && set.comprador_nome) set.cliente = set.comprador_nome;
+      set.ml_detalhe = 1;
+    } catch { /* tenta de novo na próxima */ }
+  }
+  if (tr.envio_id) {
+    try {
+      const s = await mlReq(token, 'GET', '/shipments/' + encodeURIComponent(tr.envio_id));
+      const a = s.receiver_address || {};
+      const nomeDe = x => x && typeof x === 'object' ? (x.name || x.id || '') : (x || '');
+      if (a.zip_code) set.cep = String(a.zip_code).replace(/\D/g, '');
+      const rua = [a.street_name, a.street_number].filter(Boolean).join(', ');
+      const end = [rua || a.address_line, a.comment, nomeDe(a.neighborhood)].filter(Boolean).join(' · ');
+      if (end) set.endereco = end.slice(0, 300);
+      if (a.city) set.cidade = String(nomeDe(a.city)).slice(0, 80);
+      if (a.state) set.uf = String((a.state.id || '').replace(/^BR-/, '') || nomeDe(a.state)).slice(0, 30);
+      const fone = String(a.receiver_phone || '').replace(/\D/g, '');
+      if (fone.length >= 10 && !/x/i.test(String(a.receiver_phone))) set.fone_ml = fone;
+      if (s.tracking_number) set.rastreio_ida = String(s.tracking_number);
+      set.envio_status = s.status || null;
+      set.envio_sub = s.substatus || null;
+      set.envio_tipo = (s.logistic && s.logistic.type) || s.logistic_type || null;
+      const so = s.shipping_option || {}, ld = s.lead_time || {};
+      const prev = dataML((so.estimated_delivery_time && so.estimated_delivery_time.date) || (ld.estimated_delivery_time && ld.estimated_delivery_time.date) || (so.estimated_delivery_final && so.estimated_delivery_final.date));
+      if (prev) set.previsao = prev;
+      set.envio_lido = now();
+      if (s.status === 'delivered') {
+        set.entregue_em = dataML(s.status_history && s.status_history.date_delivered) || tr.entregue_em || now();
+        if (tr.status === 'aguardando_entrega') set.status = 'falta_enviar';
+      }
+    } catch { /* tenta de novo na próxima */ }
+  }
+  const ks = Object.keys(set);
+  if (ks.length) await env.DB.prepare(`UPDATE trocas SET ${ks.map(k => k + '=?').join(',')}, atualizado_em=? WHERE id=?`).bind(...ks.map(k => set[k]), now(), tr.id).run();
+  return set;
+}
+// lê os pedidos do ML, cria as trocas novas e acompanha a entrega (roda no cron a cada 30 min e no botão "Atualizar")
+async function trocasSync(env, forcar = false) {
+  await garanteBombas(env); await garanteColsTrocas(env);
+  const ult = Number(await getCfg(env, 'trocas_sync_em') || 0);
+  if (!forcar && now() - ult < 30 * 60e3) return { pulou: true };
+  const token = await mlToken(env);
+  const seller = await getCfg(env, 'ml_user_id');
+  if (!token || !seller) return { ok: false, aviso: 'Mercado Livre não conectado' };
+  await setCfg(env, 'trocas_sync_em', now());
+  let novas = 0, entregues = 0;
+  // 1) pedidos com bomba de alta (na 1ª vez lê até 200 pedidos para trás; depois só os 50 mais recentes)
+  const primeira = !(await getCfg(env, 'trocas_carga_ok'));
+  for (let off = 0; off < (primeira ? 200 : 50); off += 50) {
+    const d = await mlReq(token, 'GET', '/orders/search?seller=' + encodeURIComponent(seller) + '&sort=date_desc&limit=50&offset=' + off);
+    const res = d.results || [];
+    for (const o of res) {
+      const it = (o.order_items || []).find(i => i.item && ehBomba(i.item.title));
+      if (!it) continue;
+      const ped = String(o.id);
+      const ja = await env.DB.prepare('SELECT id,status FROM trocas WHERE ml_pedido=?').bind(ped).first();
+      if (o.status === 'cancelled') { if (ja && ja.status !== 'cancelada') await env.DB.prepare("UPDATE trocas SET status='cancelada', atualizado_em=? WHERE id=?").bind(now(), ja.id).run(); continue; }
+      if (o.status !== 'paid' || ja) continue;
+      const t = now(), dv = Date.parse(o.date_created) || t, bu = o.buyer || {};
+      await env.DB.prepare('INSERT INTO trocas (id,ml_pedido,data_venda,comprador,comprador_nome,titulo,valor,envio_id,status,criado_em,atualizado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(uid(), ped, dv, bu.nickname || '', [bu.first_name, bu.last_name].filter(Boolean).join(' ') || null, it.item.title || '', o.total_amount || 0,
+          o.shipping && o.shipping.id ? String(o.shipping.id) : null, 'aguardando_entrega', t, t).run();
+      novas++;
+    }
+    if (res.length < 50) break;
+  }
+  if (primeira) await setCfg(env, 'trocas_carga_ok', '1');
+  // 2) detalhes do cliente (1 vez) e situação da entrega (até entregar)
+  const pend = (await env.DB.prepare("SELECT * FROM trocas WHERE ml_pedido IS NOT NULL AND status NOT IN ('cancelada') AND (ml_detalhe IS NULL OR ml_detalhe=0 OR (status='aguardando_entrega' AND envio_id IS NOT NULL)) ORDER BY data_venda DESC LIMIT 40").all()).results || [];
+  for (const tr of pend) {
+    const r = await trocaLeML(env, token, tr);
+    if (r.status === 'falta_enviar') entregues++;
+  }
+  return { ok: true, novas, entregues, lidas: pend.length };
+}
+// atualizar uma troca agora (botão na tela)
+async function trocaAtualiza(id, env) {
+  await garanteColsTrocas(env);
+  const tr = await env.DB.prepare('SELECT * FROM trocas WHERE id=?').bind(id).first();
+  if (!tr) return bad('troca não encontrada', 404);
+  if (!tr.ml_pedido) return bad('esta troca não tem pedido do ML');
+  const token = await mlToken(env);
+  if (!token) return bad('conecte o Mercado Livre primeiro');
+  tr.ml_detalhe = 0;
+  return json({ ok: true, lido: await trocaLeML(env, token, tr) });
+}
+
+// ----- compras -----
+async function listaCompras(env) {
+  const r = await env.DB.prepare('SELECT * FROM compras ORDER BY criado_em DESC LIMIT 500').all();
+  return json({ compras: r.results || [] });
+}
+function camposCompra(b) {
+  const set = {};
+  for (const k of ['nome', 'endereco', 'pix', 'etiqueta_codigo', 'rastreio', 'obs']) if (k in b) set[k] = txt(b[k], k === 'obs' || k === 'endereco' ? 600 : 140);
+  for (const k of ['whatsapp', 'cpf', 'cep']) if (k in b) set[k] = soDig(b[k]) || null;
+  if ('canal' in b) set.canal = ['whatsapp', 'messenger', 'instagram', 'outro'].includes(b.canal) ? b.canal : 'whatsapp';
+  if ('origem' in b) set.origem = ['anuncio', 'organico', 'indicacao'].includes(b.origem) ? b.origem : 'anuncio';
+  if ('modelo' in b) set.modelo = Number(b.modelo) >= 1 && Number(b.modelo) <= BOMBA_MODELOS.length ? Number(b.modelo) : null;
+  if ('valor' in b) set.valor = Math.max(0, Number(b.valor) || 0);
+  return set;
+}
+async function criaCompra(request, env, user) {
+  const b = await request.json().catch(() => ({}));
+  const set = camposCompra(b);
+  if (!set.nome && !set.whatsapp) return bad('informe o nome ou o WhatsApp');
+  const id = uid(), t = now();
+  set.status = COMPRA_ST.includes(b.status) ? b.status : (set.modelo ? 'modelo_ok' : 'novo');
+  if (!('valor' in set)) set.valor = 250;
+  const ks = Object.keys(set);
+  await env.DB.prepare(`INSERT INTO compras (id,${ks.join(',')},criado_em,atualizado_em,criado_por) VALUES (?,${ks.map(() => '?').join(',')},?,?,?)`)
+    .bind(id, ...ks.map(k => set[k]), t, t, user.id).run();
+  const g = set.whatsapp ? await googleSalvaContato(env, 'compras', id).catch(e => ({ erro: e.message })) : null;
+  return json({ ok: true, id, google: g });
+}
+async function atualizaCompra(id, request, env) {
+  const b = await request.json().catch(() => ({}));
+  const atual = await env.DB.prepare('SELECT * FROM compras WHERE id=?').bind(id).first();
+  if (!atual) return bad('compra não encontrada', 404);
+  const set = camposCompra(b), t = now();
+  if ('status' in b) {
+    if (!COMPRA_ST.includes(b.status)) return bad('status inválido');
+    set.status = b.status;
+    if (b.status === 'etiqueta' && !atual.pago_em) set.pago_em = t;      // pago na chamada de vídeo + etiqueta
+    if (b.status === 'recebida' && !atual.recebida_em) set.recebida_em = t;
+  }
+  const ks = Object.keys(set); if (!ks.length) return json({ ok: true });
+  await env.DB.prepare(`UPDATE compras SET ${ks.map(k => k + '=?').join(',')}, atualizado_em=? WHERE id=?`).bind(...ks.map(k => set[k]), t, id).run();
+  const g = ('whatsapp' in set || 'nome' in set || 'modelo' in set) ? await googleSalvaContato(env, 'compras', id).catch(e => ({ erro: e.message })) : null;
+  return json({ ok: true, google: g });
+}
+
+// =====================================================================
+// ---------- Contatos do Google (Gmail): salva o cliente na agenda do celular ----------
+// O iPhone sincroniza os contatos da conta Google, então o contato aparece sozinho no celular.
+// =====================================================================
+const G_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
+const G_TOKEN = 'https://oauth2.googleapis.com/token';
+const G_PEOPLE = 'https://people.googleapis.com/v1';
+const gRedirect = origin => origin + '/api/google/callback';
+
+async function googleApi(p, m, request, env, url, user) {
+  if (!p.startsWith('/api/google/')) return null;
+  if (p === '/api/google/status' && m === 'GET') {
+    return json({ configurado: !!(await getCfg(env, 'g_client_id')), conectado: !!(await getCfg(env, 'g_refresh')),
+      conta: (await getCfg(env, 'g_email')) || null, redirect: gRedirect(url.origin), erro: (await getCfg(env, 'g_ultimo_erro')) || null });
+  }
+  if (user.papel !== 'admin') return bad('somente o administrador', 403);
+  if (p === '/api/google/credenciais' && m === 'POST') {
+    const b = await request.json().catch(() => ({}));
+    const id = String(b.client_id || '').trim(), sec = String(b.client_secret || '').trim();
+    if (!/\.apps\.googleusercontent\.com$/.test(id) || sec.length < 10) return bad('confira o ID do cliente e a chave secreta');
+    await setCfg(env, 'g_client_id', id); await setCfg(env, 'g_client_secret', sec);
+    return json({ ok: true });
+  }
+  if (p === '/api/google/connect' && m === 'GET') {
+    const id = await getCfg(env, 'g_client_id'); if (!id) return bad('salve as credenciais do Google primeiro');
+    const state = uid(); await setCfg(env, 'g_state', state);
+    const q = new URLSearchParams({ client_id: id, redirect_uri: gRedirect(url.origin), response_type: 'code', access_type: 'offline', prompt: 'consent',
+      scope: 'https://www.googleapis.com/auth/contacts https://www.googleapis.com/auth/userinfo.email', state });
+    return json({ url: G_AUTH + '?' + q });
+  }
+  if (p === '/api/google/exchange' && m === 'POST') {
+    const b = await request.json().catch(() => ({}));
+    const r = await googleTrocaCodigo(env, url.origin, b.code, b.state);
+    return r.ok ? json(r) : bad(r.erro);
+  }
+  if (p === '/api/google/desconectar' && m === 'POST') { for (const k of ['g_refresh', 'g_access', 'g_exp', 'g_email']) await setCfg(env, k, ''); return json({ ok: true }); }
+  if (p === '/api/google/sincronizar' && m === 'POST') return json(await googleSalvaTodos(env));
+  return bad('rota não encontrada', 404);
+}
+async function googleTrocaCodigo(env, origin, code, state) {
+  const salvo = await getCfg(env, 'g_state');
+  if (!code || !state || state !== salvo) { await setCfg(env, 'g_ultimo_erro', 'autorização expirada, tente de novo'); return { ok: false, erro: 'autorização expirada, tente de novo' }; }
+  const body = new URLSearchParams({ code, client_id: await getCfg(env, 'g_client_id'), client_secret: await getCfg(env, 'g_client_secret'), redirect_uri: gRedirect(origin), grant_type: 'authorization_code' });
+  const r = await fetch(G_TOKEN, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.access_token) { const e = 'Google recusou: ' + (d.error_description || d.error || 'HTTP ' + r.status); await setCfg(env, 'g_ultimo_erro', e); return { ok: false, erro: e }; }
+  if (d.refresh_token) await setCfg(env, 'g_refresh', d.refresh_token);
+  await setCfg(env, 'g_access', d.access_token); await setCfg(env, 'g_exp', now() + (d.expires_in || 3600) * 1000);
+  try { const u = await (await fetch('https://www.googleapis.com/oauth2/v2/userinfo', { headers: { Authorization: 'Bearer ' + d.access_token } })).json(); if (u.email) await setCfg(env, 'g_email', u.email); } catch { }
+  await setCfg(env, 'g_state', ''); await setCfg(env, 'g_ultimo_erro', '');
+  return { ok: true, conta: await getCfg(env, 'g_email') };
+}
+async function googleCallback(env, url) {
+  const err = url.searchParams.get('error');
+  if (err) await setCfg(env, 'g_ultimo_erro', 'Google recusou: ' + err);
+  else await googleTrocaCodigo(env, url.origin, url.searchParams.get('code'), url.searchParams.get('state'));
+  return new Response(null, { status: 302, headers: { Location: url.origin + '/#trocas' } });
+}
+async function googleToken(env) {
+  const acc = await getCfg(env, 'g_access'), exp = Number(await getCfg(env, 'g_exp') || 0);
+  if (acc && now() < exp - 120000) return acc;
+  const refresh = await getCfg(env, 'g_refresh'); if (!refresh) return null;
+  const body = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refresh, client_id: await getCfg(env, 'g_client_id'), client_secret: await getCfg(env, 'g_client_secret') });
+  const r = await fetch(G_TOKEN, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.access_token) { await setCfg(env, 'g_ultimo_erro', 'Google: ' + (d.error_description || d.error || 'falha ao renovar')); return null; }
+  await setCfg(env, 'g_access', d.access_token); await setCfg(env, 'g_exp', now() + (d.expires_in || 3600) * 1000);
+  return d.access_token;
+}
+let gColsOk = false;
+async function garanteColsGoogle(env) {
+  if (gColsOk) return;
+  for (const t of ['trocas', 'compras']) {
+    const tem = new Set(((await env.DB.prepare(`PRAGMA table_info(${t})`).all()).results || []).map(c => c.name));
+    for (const c of ['g_contato TEXT', 'g_nome TEXT']) if (!tem.has(c.split(' ')[0])) { try { await env.DB.prepare(`ALTER TABLE ${t} ADD COLUMN ${c}`).run(); } catch { } }
+  }
+  gColsOk = true;
+}
+const MOD_CURTO = ['', 'Porsche Turbo', 'Porsche 3.6/V8', 'THP/N14', 'Mini N18', 'BMW N54/N55', 'Mercedes CGI'];
+function contatoDe(tabela, r) {
+  if (tabela === 'trocas') return { nome: 'Troca ML · ' + (r.cliente || r.comprador_nome || r.comprador || 'Cliente'),
+    nota: ['Troca de bomba (Mercado Livre)', r.ml_pedido ? 'Pedido ' + r.ml_pedido : '', r.titulo || ''].filter(Boolean).join(' · ') };
+  return { nome: 'Compra Bomba · ' + (r.nome || 'Cliente') + (r.modelo ? ' · ' + MOD_CURTO[r.modelo] : ''),
+    nota: ['Compra de bomba de alta', r.origem === 'anuncio' ? 'veio do anúncio' : r.origem || ''].filter(Boolean).join(' · ') };
+}
+// cria ou atualiza o contato no Google de UMA linha (troca ou compra). Silencioso se o Google não estiver conectado.
+async function googleSalvaContato(env, tabela, id) {
+  const token = await googleToken(env); if (!token) return { pulou: true };
+  await garanteColsGoogle(env);
+  const r = await env.DB.prepare(`SELECT * FROM ${tabela} WHERE id=?`).bind(id).first();
+  if (!r || !r.whatsapp) return { pulou: true };
+  const { nome, nota } = contatoDe(tabela, r);
+  const fone = '+' + (String(r.whatsapp).length <= 11 ? '55' + r.whatsapp : r.whatsapp);
+  const pessoa = { names: [{ unstructuredName: nome }], phoneNumbers: [{ value: fone, type: 'mobile' }], biographies: [{ value: nota, contentType: 'TEXT_PLAIN' }],
+    organizations: [{ name: 'RAFA Buscapeças' }] };
+  const H = { Authorization: 'Bearer ' + token, 'content-type': 'application/json' };
+  let res;
+  if (r.g_contato) {
+    const atual = await fetch(G_PEOPLE + '/' + r.g_contato + '?personFields=names', { headers: H });
+    if (atual.ok) {
+      const a = await atual.json();
+      res = await fetch(G_PEOPLE + '/' + r.g_contato + ':updateContact?updatePersonFields=names,phoneNumbers,biographies,organizations', { method: 'PATCH', headers: H, body: JSON.stringify({ ...pessoa, etag: a.etag }) });
+    }
+  }
+  if (!res || !res.ok) res = await fetch(G_PEOPLE + '/people:createContact', { method: 'POST', headers: H, body: JSON.stringify(pessoa) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = 'Google: ' + ((d.error && d.error.message) || 'HTTP ' + res.status); await setCfg(env, 'g_ultimo_erro', e); return { ok: false, erro: e }; }
+  await env.DB.prepare(`UPDATE ${tabela} SET g_contato=?, g_nome=? WHERE id=?`).bind(d.resourceName || r.g_contato, nome, id).run();
+  return { ok: true, nome };
+}
+// salva todos que têm WhatsApp e ainda não estão no Google (botão "Salvar todos")
+async function googleSalvaTodos(env) {
+  await garanteBombas(env); await garanteColsGoogle(env);
+  let ok = 0, erro = null;
+  for (const t of ['trocas', 'compras']) {
+    const rs = (await env.DB.prepare(`SELECT id FROM ${t} WHERE whatsapp IS NOT NULL AND whatsapp<>'' AND (g_contato IS NULL OR g_contato='') LIMIT 60`).all()).results || [];
+    for (const x of rs) { const r = await googleSalvaContato(env, t, x.id); if (r.ok) ok++; else if (r.erro) { erro = r.erro; break; } else if (r.pulou) return { ok: false, aviso: 'Google não conectado' }; }
+    if (erro) break;
+  }
+  return { ok: !erro, salvos: ok, erro };
 }

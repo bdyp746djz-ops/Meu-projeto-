@@ -595,10 +595,17 @@ async function consertaFotos(){ if(fotosConserto.rodando)return; fotosConserto.r
   fotosConserto.rodando=false; }
 async function boot(){
   if(location.pathname==='/api/ml/callback'){ return mlFinaliza(); }
+  if(location.pathname==='/api/google/callback'){ return googleFinaliza(); }
   const lk=location.pathname.match(/^\/(p|l)\/([^/]+)\/?$/i);
   if(lk){ codigoDoLink=lk[1].toUpperCase()+':'+decodeURIComponent(lk[2]); history.replaceState(null,'','/'); }
   try{ const { user } = await api('/me'); S.user=user; shell(); }
   catch{ login(false); }
+}
+async function googleFinaliza(){
+  $('#root').innerHTML='<div class="center"><div class="authcard"><div class="brand"><span class="logo">🔧</span> Rafa Busca Peças</div><p class="mut">Conectando os contatos do Google…</p></div></div>';
+  const p=new URLSearchParams(location.search);
+  try{ if(!p.get('error'))await api('/google/exchange',{method:'POST',body:{code:p.get('code'),state:p.get('state')}}); }catch(e){ }
+  location.replace('/#trocas');
 }
 async function mlFinaliza(){
   $('#root').innerHTML='<div class="center"><div class="authcard"><div class="brand"><span class="logo">🔧</span> Rafa Busca Peças</div><p class="mut">Finalizando conexão com o Mercado Livre…</p></div></div>';
@@ -666,7 +673,7 @@ function shell(){
   $('#tbhome').onclick=()=>matchMedia('(max-width:760px)').matches?abreGaveta():go('painel');   // no celular o logo abre o menu
   $('#scanbtn').onclick=escanear;
   $('#gbusca').onkeydown=e=>{ if(e.key==='Enter'){ S.ui.q=e.target.value.trim(); S.ui.status='todos'; S.ui.loc=''; e.target.blur(); go('estoque'); } };
-  renderNav(); go(location.hash.indexOf('integracoes')>=0 ? 'integracoes' : S.view);
+  renderNav(); go(location.hash.indexOf('integracoes')>=0 ? 'integracoes' : location.hash.indexOf('trocas')>=0 ? 'trocas' : S.view);
   contaPerguntas(); clearInterval(window._pergT); window._pergT=setInterval(contaPerguntas,120000);
   if(codigoDoLink){ const c=codigoDoLink; codigoDoLink=null; tratarCodigo(c); }
 }
@@ -688,6 +695,9 @@ const MENU=[
     {v:'mover',i:'swap_horiz',t:'Movimentar'},
     {v:'etiquetas',i:'label',t:'Etiquetas'}]},
   {v:'vendas',i:'shopping_cart',t:'Vendas'},
+  {g:'bombas',i:'build_circle',t:'Bombas de alta',itens:[
+    {v:'trocas',i:'sync_alt',t:'Trocas do ML'},
+    {v:'compras',i:'shopping_basket',t:'Compras de bombas'}]},
   {g:'ml',i:'storefront',t:'Mercado Livre',itens:[
     {v:'integracoes',i:'store',t:'Anúncios ML'},
     {v:'perguntas',i:'question_answer',t:'Perguntas ML'},
@@ -730,7 +740,7 @@ function renderNav(){
   const b=$('#tbpergn'); if(b){ b.style.display=S.nPerg?'':'none'; b.textContent=S.nPerg>99?'99+':(S.nPerg||''); }
 }
 async function go(v){ S.view=v; fechaGaveta(); if(v!=='nova'){ S.ui.editId=null; S.ui.fotos=[]; } renderNav(); window.scrollTo(0,0);
-  const f={painel,estoque,nova,locais,mover,etiquetas,vendas,integracoes,perguntas,ficha:fichaPeca,incompletos,medidas,tabela:tabelaPecas,massa:acoesMassa,tiposloc:tiposLocal,scanner:scannerML,compat:compatML}[v]; $('#main').innerHTML='<p class="mut">carregando…</p>'; try{ await f(); }catch(e){ $('#main').innerHTML='<div class="empty">Erro: '+esc(e.message)+'</div>'; } }
+  const f={painel,estoque,nova,locais,mover,etiquetas,vendas,integracoes,perguntas,ficha:fichaPeca,incompletos,medidas,tabela:tabelaPecas,massa:acoesMassa,tiposloc:tiposLocal,scanner:scannerML,compat:compatML,trocas,compras}[v]; $('#main').innerHTML='<p class="mut">carregando…</p>'; try{ await f(); }catch(e){ $('#main').innerHTML='<div class="empty">Erro: '+esc(e.message)+'</div>'; } }
 // ---------- pendências: cadastros incompletos e peças sem peso/medidas ----------
 async function incompletos(){ return pendencias('incompletos'); }
 async function medidas(){ return pendencias('medidas'); }
@@ -3430,6 +3440,203 @@ async function vendas(){
   if(lista.length)$('#vexp').onclick=()=>baixarCSV('vendas-'+S.ui.periodo+'-'+new Date().toISOString().slice(0,10),
     [['Data',v=>new Date(v.data).toLocaleString('pt-BR')],['Código',v=>cod(v.codigo)],['Peça',v=>v.nome],['Qtd',v=>v.qtd],['Valor unitário',v=>num(v.unit)],['Total',v=>num(v.total)],['Canal',v=>v.canal],['Pagamento',v=>v.pagamento],['Cliente',v=>v.cliente],['Retirado de',v=>v.local_path],['Pedido ML',v=>v.ml_pedido],['Situação',v=>v.cancelada?'Cancelada':'OK']],lista);
   document.querySelectorAll('[data-cv]').forEach(b=>b.onclick=async()=>{ if(confirm('Cancelar esta venda? A peça volta ao estoque.')){ await api('/vendas/'+b.dataset.cv+'/cancelar',{method:'POST'}); toast('Venda cancelada'); vendas(); } });
+}
+
+// ---------- BOMBAS DE ALTA: Trocas do ML e Compras de bombas ----------
+let BMOD=null;
+async function bombaModelos(){ if(!BMOD){ try{ BMOD=(await api('/bombas/modelos')).modelos; }catch(_){ BMOD=[]; } } return BMOD; }
+const modNome=n=>{ const m=(BMOD||[]).find(x=>x.n===Number(n)); return m?m.n+' · '+m.nome:'—'; };
+const dt=t=>t?new Date(t).toLocaleDateString('pt-BR'):'—';
+const dias=t=>t?Math.floor((Date.now()-t)/864e5):0;
+const foneBR=n=>{ n=String(n||'').replace(/\D/g,''); return n&&n.length<=11?'55'+n:n; };
+const foneTx=n=>{ n=String(n||'').replace(/\D/g,'').replace(/^55(?=\d{10,11}$)/,''); return n.length===11?`(${n.slice(0,2)}) ${n.slice(2,7)}-${n.slice(7)}`:n.length===10?`(${n.slice(0,2)}) ${n.slice(2,6)}-${n.slice(6)}`:n; };
+const zap=(n,msg)=>'https://wa.me/'+foneBR(n)+(msg?'?text='+encodeURIComponent(msg):'');
+const primNome=s=>String(s||'').trim().split(/\s+/)[0]||'';
+const MSG={
+  aviso:t=>`Olá${t.cliente?' '+primNome(t.cliente):''}! Aqui é da RAFA Buscapeças 👋\nObrigado pela compra da bomba de alta${t.ml_pedido?' (pedido '+t.ml_pedido+')':''}.\n\nLembrando que a venda é na *base de troca*: depois que você receber a bomba nova, precisa nos enviar a sua bomba antiga. 📦 A etiqueta de envio é por nossa conta — é só me avisar aqui quando receber!`,
+  lembrete:t=>`Olá${t.cliente?' '+primNome(t.cliente):''}! Aqui é da RAFA Buscapeças.\nSua bomba nova já foi entregue 🙌 Já conseguiu separar a bomba antiga para nos enviar (base de troca)?\nMe avisa que eu mando a etiqueta de envio paga por nós.`,
+  compra:()=>`Olá! Aqui é da RAFA Buscapeças 👋\nCompramos bombas de alta estragadas destes 6 modelos e pagamos *R$ 250 via Pix* em qualquer um deles.\n\n📸 Me manda uma foto da sua bomba que eu confirmo se é um desses. O frete é por nossa conta!`,
+};
+const T_ST={aguardando_entrega:['Aguardando entrega','#5c6bc0'],falta_enviar:['Falta enviar a antiga','#ef6c00'],a_caminho:['Antiga a caminho','#0288d1'],concluida:['Concluída','#2e7d32'],cancelada:['Cancelada','#9e9e9e']};
+const C_ST={novo:['Novo contato','#5c6bc0'],modelo_ok:['Modelo confirmado','#7b1fa2'],dados_ok:['Dados ok','#00838f'],nos_correios:['Nos Correios','#ef6c00'],etiqueta:['Pago + etiqueta','#0288d1'],a_caminho:['A caminho','#0277bd'],recebida:['Recebida','#2e7d32'],recusada:['Recusada','#9e9e9e']};
+const ENV_ST={pending:'Pendente',handling:'Preparando envio',ready_to_ship:'Pronto para envio',shipped:'Em trânsito',delivered:'Entregue',not_delivered:'Não entregue',cancelled:'Envio cancelado',to_be_agreed:'A combinar'};
+const ENV_SUB={out_for_delivery:'saiu para entrega',in_hub:'no centro de distribuição',receiver_absent:'destinatário ausente',waiting_for_withdrawal:'aguardando retirada na agência',returning_to_sender:'voltando ao remetente',delayed:'atrasado',soon_deliver:'chega em breve',printed:'etiqueta impressa',ready_to_print:'etiqueta pronta para imprimir',picked_up:'coletado',authorized_by_carrier:'liberado pela transportadora',in_warehouse:'no armazém',ready_for_pickup:'pronto para coleta',claimed_me:'com reclamação',forwarded_to_third:'com transportadora parceira',bad_address:'endereço com problema',lost:'extraviado',stolen:'roubado',damaged:'avariado',refused_delivery:'entrega recusada'};
+const envTx=t=>t.envio_status?(ENV_ST[t.envio_status]||t.envio_status)+(t.envio_sub?' — '+(ENV_SUB[t.envio_sub]||t.envio_sub.replace(/_/g,' ')):''):'';
+const cpfTx=d=>{ d=String(d||''); return d.length===11?`${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`:d.length===14?`${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`:d; };
+const cepTx=c=>{ c=String(c||''); return c.length===8?c.slice(0,5)+'-'+c.slice(5):c; };
+const stTag=(m,s)=>{ const x=m[s]||[s,'#777']; return `<span class="tag" style="background:${x[1]}1a;color:${x[1]};font-weight:600">${esc(x[0])}</span>`; };
+function abreZap(n,msg){ if(!n){ toast('Cadastre o WhatsApp primeiro'); return false; } window.open(zap(n,msg),'_blank'); return true; }
+// salva o contato no celular: baixa um cartão de contato (.vcf) — no iPhone/Android abre a tela "Adicionar contato"
+function salvaContato(nome,fone,nota){ const n=foneBR(fone); if(!n){ toast('Cadastre o WhatsApp primeiro'); return; }
+  const v=['BEGIN:VCARD','VERSION:3.0','FN:'+nome,'N:'+nome+';;;;','TEL;TYPE=CELL:+'+n,'ORG:RAFA Buscapeças','NOTE:'+String(nota||'').replace(/\n/g,' '),'END:VCARD'].join('\r\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([v],{type:'text/vcard'})); a.download=nome.replace(/[^\w\sÀ-ú-]/g,'').trim()+'.vcf'; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500); }
+const nomeContatoT=t=>'Troca ML · '+(t.cliente||t.comprador_nome||t.comprador||'Cliente');
+const nomeContatoC=c=>'Compra Bomba · '+(c.nome||'Cliente');
+async function copia(tx,ok){ try{ await navigator.clipboard.writeText(tx); toast(ok||'Copiado'); }catch(_){ prompt('Copie:',tx); } }
+
+// ----- Trocas do ML -----
+async function trocas(){
+  await bombaModelos();
+  const d=await api('/trocas'); if(S.view!=='trocas')return;
+  const L=d.trocas, ui=S.ui; ui.trF=ui.trF||'abertas';
+  const aberta=t=>!['concluida','cancelada'].includes(t.status);
+  const atras=t=>t.status==='falta_enviar'&&dias(t.entregue_em||t.atualizado_em)>=7;
+  const F={abertas:['Em aberto',aberta],semzap:['Falta contato',t=>aberta(t)&&!t.whatsapp],aguardando_entrega:['Aguardando entrega',t=>t.status==='aguardando_entrega'],falta_enviar:['Falta enviar a antiga',t=>t.status==='falta_enviar'],atrasadas:['⚠️ Atrasadas (7+ dias)',atras],a_caminho:['Antiga a caminho',t=>t.status==='a_caminho'],concluida:['Concluídas',t=>t.status==='concluida'],todas:['Todas',()=>true]};
+  const lista=L.filter(F[ui.trF][1]);
+  $('#main').innerHTML=`<div class="top"><h2>Trocas de bombas (ML)</h2><button class="btn sm" id="trsync">🔄 Atualizar do ML</button>${S.user.papel==='admin'?'<button class="btn sm" id="trgoo">👤 Contatos Google</button>':''}<button class="btn sm p" id="trnova">+ Troca manual</button></div>
+   <p class="small mut" style="margin-top:-8px">Vendas de bomba de alta no Mercado Livre entram aqui sozinhas (a cada 30 min) e mudam para <b>Falta enviar a antiga</b> quando o ML marca como entregue.${d.sincronizado_em?' Última leitura: '+new Date(d.sincronizado_em).toLocaleString('pt-BR')+'.':''}${d.ml?'':' <b style="color:var(--red)">Mercado Livre não conectado.</b>'}</p>
+   <div class="filters">${Object.entries(F).map(([k,[t,f]])=>`<button class="chip ${ui.trF===k?'on':''}" data-trf="${k}">${t} (${L.filter(f).length})</button>`).join('')}</div>
+   ${lista.length?`<div class="pgrid">${lista.map(t=>`<div class="card" style="${atras(t)?'border-left:4px solid var(--red)':''}">
+     <div style="display:flex;gap:8px;align-items:flex-start;justify-content:space-between"><b>${esc(t.cliente||t.comprador_nome||t.comprador||'Cliente sem nome')}</b>${stTag(T_ST,t.status)}</div>
+     <div class="small mut" style="margin-top:4px">${t.ml_pedido?'Pedido '+esc(t.ml_pedido)+' · ':''}vendida ${dt(t.data_venda)}${t.entregue_em?' · entregue '+dt(t.entregue_em)+' ('+dias(t.entregue_em)+' dias)':''}</div>
+     <div class="small" style="margin-top:4px">${esc(t.titulo||'')}${t.valor?' · <b>'+brl(t.valor)+'</b>':''}</div>
+     ${t.envio_status?`<div class="small" style="margin-top:6px;padding:6px 8px;border-radius:8px;background:#f3f6ff">🚚 <b>${esc(envTx(t))}</b>${t.envio_status!=='delivered'&&t.previsao?' · previsão '+dt(t.previsao):''}${t.rastreio_ida?'<br>Rastreio: <b>'+esc(t.rastreio_ida)+'</b>':''}${t.envio_lido?'<br><span class="mut">conferido '+new Date(t.envio_lido).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</span>':''}</div>`:''}
+     ${t.comprador_nome||t.comprador_doc||t.endereco?`<details style="margin-top:6px" class="small"><summary style="cursor:pointer">👤 Dados do comprador</summary><div style="margin-top:4px;line-height:1.55">
+       ${t.comprador_nome?'Nome: <b>'+esc(t.comprador_nome)+'</b><br>':''}${t.comprador_doc?'CPF/CNPJ: <b>'+esc(cpfTx(t.comprador_doc))+'</b> <button class="btn sm" data-tcp="'+esc(t.comprador_doc)+'" style="padding:1px 7px">copiar</button><br>':''}
+       ${t.endereco?'Endereço: '+esc(t.endereco)+'<br>':''}${t.cidade||t.uf?esc([t.cidade,t.uf].filter(Boolean).join(' / '))+' ':''}${t.cep?'· CEP '+esc(cepTx(t.cep)):''}
+       ${t.fone_ml&&!t.whatsapp?'<br>Telefone no ML: <b>'+esc(foneTx(t.fone_ml))+'</b> <button class="btn sm" data-tfu="'+t.id+'" style="padding:1px 7px">usar como WhatsApp</button>':''}</div></details>`:''}
+     <div class="small" style="margin-top:6px">${t.whatsapp?'📱 '+esc(foneTx(t.whatsapp)):'<span style="color:var(--red)">📱 sem WhatsApp</span>'}${t.comprador?' · ML: '+esc(t.comprador):''}${t.lembretes?' · 🔔 '+t.lembretes+' lembrete(s), último '+dt(t.ultimo_lembrete):''}${t.aviso_troca?' · ✅ avisado da troca':''}${t.g_contato?' · 👤 na agenda':''}</div>
+     ${t.reversa_rastreio?`<div class="small" style="margin-top:4px">📦 Rastreio da antiga: <b>${esc(t.reversa_rastreio)}</b></div>`:''}${t.obs?`<div class="small mut" style="margin-top:4px">📝 ${esc(t.obs)}</div>`:''}
+     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+       ${!t.whatsapp?`<button class="btn sm p" data-tz="${t.id}">📱 Cadastrar WhatsApp</button>`:''}
+       ${aberta(t)&&t.whatsapp&&!t.aviso_troca?`<button class="btn sm" data-tav="${t.id}">💬 Aviso base de troca</button>`:''}
+       ${t.status==='falta_enviar'&&t.whatsapp?`<button class="btn sm" data-tlb="${t.id}">🔔 Lembrar</button>`:''}
+       ${['aguardando_entrega','falta_enviar'].includes(t.status)?`<button class="btn sm" data-tpo="${t.id}">📦 Cliente postou</button>`:''}
+       ${t.status==='a_caminho'?`<button class="btn sm g" data-trc="${t.id}">✅ Antiga recebida</button>`:''}
+       ${t.whatsapp&&!t.g_contato?`<button class="btn sm" data-tsv="${t.id}">👤 Salvar no celular</button>`:''}
+       <button class="btn sm" data-ted="${t.id}">✏️ Editar</button>
+       ${t.ml_pedido?`<button class="btn sm" data-tup="${t.id}" title="Atualizar do Mercado Livre">🔄</button><a class="btn sm" href="https://www.mercadolivre.com.br/vendas/${encodeURIComponent(t.ml_pedido)}/detalhe" target="_blank" rel="noopener">Ver no ML</a>`:''}
+     </div></div>`).join('')}</div>`:'<div class="empty">Nada nesta lista.</div>'}`;
+  const T=id=>L.find(x=>x.id===id), up=async(id,b,msg)=>{ await api('/trocas/'+id,{method:'PATCH',body:b}); if(msg)toast(msg); trocas(); };
+  document.querySelectorAll('[data-trf]').forEach(b=>b.onclick=()=>{ ui.trF=b.dataset.trf; trocas(); });
+  $('#trsync').onclick=async()=>{ $('#trsync').disabled=true; try{ const r=await api('/trocas/sincronizar',{method:'POST'}); toast(r.aviso||`✅ ${r.novas||0} venda(s) nova(s) · ${r.entregues||0} entregue(s) · ${r.lidas||0} conferida(s)`); }catch(e){ toast(e.message); } trocas(); };
+  $('#trnova').onclick=()=>editaTroca(null);
+  if($('#trgoo'))$('#trgoo').onclick=contatosGoogle;
+  document.querySelectorAll('[data-tz]').forEach(b=>b.onclick=()=>editaTroca(T(b.dataset.tz)));
+  document.querySelectorAll('[data-ted]').forEach(b=>b.onclick=()=>editaTroca(T(b.dataset.ted)));
+  document.querySelectorAll('[data-tav]').forEach(b=>b.onclick=()=>{ const t=T(b.dataset.tav); if(abreZap(t.whatsapp,MSG.aviso(t)))up(t.id,{aviso_troca:1}); });
+  document.querySelectorAll('[data-tlb]').forEach(b=>b.onclick=()=>{ const t=T(b.dataset.tlb); if(abreZap(t.whatsapp,MSG.lembrete(t)))up(t.id,{lembrete:1}); });
+  document.querySelectorAll('[data-tpo]').forEach(b=>b.onclick=()=>{ const r=prompt('Código de rastreio da bomba antiga (pode deixar vazio):',''); if(r===null)return; up(b.dataset.tpo,{status:'a_caminho',reversa_rastreio:r},'Marcado: antiga a caminho'); });
+  document.querySelectorAll('[data-tsv]').forEach(b=>b.onclick=()=>{ const t=T(b.dataset.tsv); salvaContato(nomeContatoT(t),t.whatsapp,(t.ml_pedido?'Pedido ML '+t.ml_pedido+' · ':'')+(t.titulo||'')); });
+  document.querySelectorAll('[data-tcp]').forEach(b=>b.onclick=()=>copia(b.dataset.tcp,'CPF copiado'));
+  document.querySelectorAll('[data-tfu]').forEach(b=>b.onclick=()=>{ const t=T(b.dataset.tfu); up(t.id,{whatsapp:t.fone_ml},'WhatsApp salvo'); });
+  document.querySelectorAll('[data-tup]').forEach(b=>b.onclick=async()=>{ b.disabled=true; try{ await api('/trocas/'+b.dataset.tup+'/atualizar',{method:'POST'}); toast('Atualizado do ML'); }catch(e){ toast(e.message); } trocas(); });
+  document.querySelectorAll('[data-trc]').forEach(b=>b.onclick=()=>{ if(confirm('Confirmar que a bomba antiga chegou?'))up(b.dataset.trc,{status:'concluida'},'✅ Troca concluída'); });
+}
+function editaTroca(t){
+  const n=!t; t=t||{};
+  modal(`<h3>${n?'Nova troca':'Editar troca'}</h3>
+   <label class="f">Nome do cliente<input id="et_cli" value="${esc(t.cliente||'')}" placeholder="${esc(t.comprador||'')}"></label>
+   <label class="f">WhatsApp (com DDD)<input id="et_zap" inputmode="tel" value="${esc(foneTx(t.whatsapp||''))}" placeholder="(48) 99999-9999"></label>
+   ${n?`<label class="f">Nº do pedido no ML (opcional)<input id="et_ped"></label><label class="f">Bomba vendida<input id="et_tit" placeholder="Ex.: Bomba de alta THP 308"></label>`:''}
+   <label class="f">Modelo<select id="et_mod"><option value="">—</option>${(BMOD||[]).map(m=>`<option value="${m.n}" ${Number(t.modelo)===m.n?'selected':''}>${esc(m.n+' · '+m.nome)}</option>`).join('')}</select></label>
+   <label class="f">Situação<select id="et_st">${Object.entries(T_ST).map(([k,[l]])=>`<option value="${k}" ${(t.status||'aguardando_entrega')===k?'selected':''}>${l}</option>`).join('')}</select></label>
+   <label class="f">Rastreio da bomba antiga<input id="et_ras" value="${esc(t.reversa_rastreio||'')}"></label>
+   <label class="f">Observação<textarea id="et_obs" rows="2">${esc(t.obs||'')}</textarea></label>
+   <div style="display:flex;gap:8px;margin-top:16px">${!n&&S.user.papel==='admin'?'<button class="btn red" id="et_del">Excluir</button>':''}<span style="flex:1"></span><button class="btn" onclick="fecha()">Cancelar</button><button class="btn p" id="et_ok">Salvar</button></div>`);
+  if($('#et_del'))$('#et_del').onclick=async()=>{ if(!confirm('Excluir esta troca?'))return; await api('/trocas/'+t.id,{method:'DELETE'}); fecha(); trocas(); };
+  $('#et_ok').onclick=async()=>{ const b={cliente:$('#et_cli').value,whatsapp:$('#et_zap').value,modelo:$('#et_mod').value,status:$('#et_st').value,reversa_rastreio:$('#et_ras').value,obs:$('#et_obs').value};
+    if(n){ b.ml_pedido=$('#et_ped').value; b.titulo=$('#et_tit').value; }
+    try{ const r=await api(n?'/trocas':'/trocas/'+t.id,{method:n?'POST':'PATCH',body:b}); fecha(); toast(gMsg(r)); trocas(); }catch(e){ toast(e.message); } };
+}
+
+const gMsg=r=>r&&r.google&&r.google.ok?'Salvo ✅ e contato gravado no Gmail: '+r.google.nome:r&&r.google&&r.google.erro?'Salvo, mas o contato não foi para o Gmail: '+r.google.erro:'Salvo';
+async function contatosGoogle(){
+  const st=await api('/google/status');
+  modal(`<h3>👤 Contatos do Google (Gmail)</h3>
+   <p class="small">Com isso, todo cliente que ganhar WhatsApp aqui é salvo sozinho na sua agenda do Gmail, e aparece no iPhone em segundos, com o nome <b>Troca ML · Nome</b> ou <b>Compra Bomba · Nome · Modelo</b>.</p>
+   ${st.conectado?`<div class="card" style="background:#e8f5e9">✅ Conectado${st.conta?' à conta <b>'+esc(st.conta)+'</b>':''}</div>
+     <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn p" id="gtodos">Salvar agora todos que têm WhatsApp</button><button class="btn red" id="gdesc">Desconectar</button></div>`
+   :`<details ${st.configurado?'':'open'} class="small" style="margin:10px 0"><summary style="cursor:pointer"><b>Passo a passo (só 1 vez, uns 10 minutos)</b></summary><ol style="padding-left:18px;line-height:1.6">
+     <li>Abra <b>console.cloud.google.com</b> com a sua conta Gmail e crie um projeto (ex.: "Rafa Contatos").</li>
+     <li>Em <b>APIs e serviços → Biblioteca</b>, ative a <b>People API</b>.</li>
+     <li>Em <b>Tela de consentimento OAuth</b>: tipo <b>Externo</b>, preencha o nome do app e o seu e-mail, e em <b>Usuários de teste</b> adicione o seu Gmail.</li>
+     <li>Em <b>Credenciais → Criar credenciais → ID do cliente OAuth</b>: tipo <b>Aplicativo da Web</b>. Em <b>URIs de redirecionamento autorizados</b> cole:<br><code style="user-select:all;word-break:break-all">${esc(st.redirect)}</code></li>
+     <li>Copie o <b>ID do cliente</b> e a <b>Chave secreta</b> e cole abaixo.</li></ol></details>
+     <label class="f">ID do cliente<input id="gid" placeholder="....apps.googleusercontent.com"></label>
+     <label class="f">Chave secreta do cliente<input id="gsec" type="password" placeholder="${st.configurado?'(já salva — preencha só para trocar)':''}"></label>
+     <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">${st.configurado?'<button class="btn p" id="gcon">Conectar ao Google</button>':''}<button class="btn ${st.configurado?'':'p'}" id="gsalva">Salvar credenciais</button></div>`}
+   ${st.erro?`<p class="small" style="color:var(--red);margin-top:10px">⚠️ ${esc(st.erro)}</p>`:''}`);
+  if($('#gsalva'))$('#gsalva').onclick=async()=>{ try{ await api('/google/credenciais',{method:'POST',body:{client_id:$('#gid').value,client_secret:$('#gsec').value}}); toast('Credenciais salvas'); contatosGoogle(); }catch(e){ toast(e.message); } };
+  if($('#gcon'))$('#gcon').onclick=async()=>{ try{ const {url}=await api('/google/connect'); location.href=url; }catch(e){ toast(e.message); } };
+  if($('#gdesc'))$('#gdesc').onclick=async()=>{ if(!confirm('Desconectar os contatos do Google?'))return; await api('/google/desconectar',{method:'POST'}); contatosGoogle(); };
+  if($('#gtodos'))$('#gtodos').onclick=async()=>{ $('#gtodos').disabled=true; try{ const r=await api('/google/sincronizar',{method:'POST'}); toast(r.erro?'⚠️ '+r.erro:(r.aviso||'✅ '+r.salvos+' contato(s) salvos no Gmail')); }catch(e){ toast(e.message); } fecha(); go(S.view); };
+}
+// ----- Compras de bombas -----
+async function compras(){
+  await bombaModelos();
+  const d=await api('/compras'); if(S.view!=='compras')return;
+  const L=d.compras, ui=S.ui; ui.cpF=ui.cpF||'abertas';
+  const aberta=c=>!['recebida','recusada'].includes(c.status);
+  const F={abertas:['Em andamento',aberta],...Object.fromEntries(Object.entries(C_ST).map(([k,[l]])=>[k,[l,c=>c.status===k]])),todas:['Todas',()=>true]};
+  const lista=L.filter(F[ui.cpF][1]);
+  const mes=L.filter(c=>c.status==='recebida'&&c.recebida_em>=Date.now()-30*864e5);
+  const ORIG={anuncio:'📣 Anúncio',organico:'🌱 Orgânico',indicacao:'🤝 Indicação'}, CAN={whatsapp:'WhatsApp',messenger:'Messenger',instagram:'Instagram',outro:'Outro'};
+  $('#main').innerHTML=`<div class="top"><h2>Compras de bombas</h2><button class="btn sm" id="cpmod">📋 Os 6 modelos</button><button class="btn sm p" id="cpnova">+ Novo contato</button></div>
+   <div class="kpis"><div class="card kpi"><div class="l">Em andamento</div><div class="v">${L.filter(aberta).length}</div></div><div class="card kpi"><div class="l">Recebidas (30 dias)</div><div class="v">${mes.length}</div></div><div class="card kpi"><div class="l">Pago (30 dias)</div><div class="v">${brl(L.filter(c=>c.pago_em>=Date.now()-30*864e5).reduce((a,c)=>a+(c.valor||0),0))}</div></div><div class="card kpi"><div class="l">Vieram do anúncio (30 dias)</div><div class="v">${L.filter(c=>c.origem==='anuncio'&&c.criado_em>=Date.now()-30*864e5).length}</div></div></div>
+   <div class="filters">${Object.entries(F).map(([k,[t,f]])=>`<button class="chip ${ui.cpF===k?'on':''}" data-cpf="${k}">${t} (${L.filter(f).length})</button>`).join('')}</div>
+   ${lista.length?`<div class="pgrid">${lista.map(c=>{ const prox={novo:['modelo','🔍 Confirmar modelo'],modelo_ok:['dados','📝 Dados p/ etiqueta'],dados_ok:['correios','📍 Está nos Correios'],nos_correios:['pago','💸 Pago + etiqueta'],etiqueta:['postou','📦 Postou'],a_caminho:['recebeu','✅ Recebida']}[c.status];
+     return `<div class="card"><div style="display:flex;gap:8px;align-items:flex-start;justify-content:space-between"><b>${esc(c.nome||'Sem nome')}</b>${stTag(C_ST,c.status)}</div>
+     <div class="small mut" style="margin-top:4px">${ORIG[c.origem]||''} · ${CAN[c.canal]||''} · ${dt(c.criado_em)}</div>
+     <div class="small" style="margin-top:6px">${c.whatsapp?'📱 '+esc(foneTx(c.whatsapp))+(c.g_contato?' 👤':''):''} ${c.modelo?'· 🔧 '+esc(modNome(c.modelo)):''} · <b>${brl(c.valor)}</b></div>
+     ${c.pix?`<div class="small" style="margin-top:4px">Pix: <b>${esc(c.pix)}</b> <button class="btn sm" data-cpx="${c.id}" style="padding:2px 8px">copiar</button></div>`:''}
+     ${c.etiqueta_codigo||c.rastreio?`<div class="small" style="margin-top:4px">📦 ${c.etiqueta_codigo?'Postagem: <b>'+esc(c.etiqueta_codigo)+'</b> ':''}${c.rastreio?'Rastreio: <b>'+esc(c.rastreio)+'</b>':''}</div>`:''}
+     ${c.obs?`<div class="small mut" style="margin-top:4px">📝 ${esc(c.obs)}</div>`:''}
+     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+       ${prox?`<button class="btn sm p" data-cpn="${c.id}" data-acao="${prox[0]}">${prox[1]}</button>`:''}
+       ${c.status==='novo'&&c.whatsapp?`<button class="btn sm" data-cpz="${c.id}">💬 Mandar os 6 modelos</button>`:''}
+       ${c.whatsapp&&c.status!=='novo'?`<button class="btn sm" data-cpw="${c.id}">💬 WhatsApp</button>`:''}
+       ${c.whatsapp&&!c.g_contato?`<button class="btn sm" data-cps="${c.id}">👤 Salvar no celular</button>`:''}
+       <button class="btn sm" data-cpe="${c.id}">✏️ Editar</button>
+       ${aberta(c)?`<button class="btn sm red" data-cpr="${c.id}">Recusar</button>`:''}
+     </div></div>`; }).join('')}</div>`:'<div class="empty">Nada nesta lista.</div>'}`;
+  const C=id=>L.find(x=>x.id===id), up=async(id,b,msg)=>{ try{ await api('/compras/'+id,{method:'PATCH',body:b}); if(msg)toast(msg); }catch(e){ toast(e.message); } compras(); };
+  document.querySelectorAll('[data-cpf]').forEach(b=>b.onclick=()=>{ ui.cpF=b.dataset.cpf; compras(); });
+  $('#cpnova').onclick=()=>editaCompra(null);
+  $('#cpmod').onclick=()=>modal(`<h3>Os 6 modelos que compramos — R$ 250 cada</h3>${BMOD.map(m=>`<div style="margin:10px 0"><b>${m.n} · ${esc(m.nome)}</b><div class="small mut">${esc(m.carros)}</div></div>`).join('')}<button class="btn" id="cpmsg">📋 Copiar mensagem para o cliente</button>`)||($('#cpmsg').onclick=()=>copia(MSG.compra(),'Mensagem copiada'));
+  document.querySelectorAll('[data-cps]').forEach(b=>b.onclick=()=>{ const c=C(b.dataset.cps); salvaContato(nomeContatoC(c),c.whatsapp,'Compra de bomba de alta'+(c.modelo?' · '+modNome(c.modelo):'')); });
+  document.querySelectorAll('[data-cpe]').forEach(b=>b.onclick=()=>editaCompra(C(b.dataset.cpe)));
+  document.querySelectorAll('[data-cpx]').forEach(b=>b.onclick=()=>copia(C(b.dataset.cpx).pix,'Pix copiado'));
+  document.querySelectorAll('[data-cpz]').forEach(b=>b.onclick=()=>abreZap(C(b.dataset.cpz).whatsapp,MSG.compra()));
+  document.querySelectorAll('[data-cpw]').forEach(b=>b.onclick=()=>abreZap(C(b.dataset.cpw).whatsapp,''));
+  document.querySelectorAll('[data-cpr]').forEach(b=>b.onclick=()=>{ const o=prompt('Motivo (opcional):',''); if(o===null)return; up(b.dataset.cpr,{status:'recusada',obs:o||C(b.dataset.cpr).obs},'Marcado como recusado'); });
+  document.querySelectorAll('[data-cpn]').forEach(b=>b.onclick=()=>{ const c=C(b.dataset.cpn), a=b.dataset.acao;
+    if(a==='modelo')return editaCompra(c,'modelo');
+    if(a==='dados')return editaCompra(c,'dados');
+    if(a==='correios'){ if(confirm('O cliente avisou que está na agência dos Correios com a bomba?\nHora da chamada de vídeo.'))up(c.id,{status:'nos_correios'}); return; }
+    if(a==='pago'){ if(!c.pix&&!confirm('Este contato está sem chave Pix cadastrada. Continuar mesmo assim?'))return;
+      modal(`<h3>Pago + etiqueta</h3><p class="small">Na chamada de vídeo: confira a bomba, faça o Pix de <b>${brl(c.valor)}</b>${c.pix?' para <b>'+esc(c.pix)+'</b> <button class="btn sm" id="pgpx">copiar Pix</button>':''}.</p>
+        <label class="f">Código de postagem / etiqueta gerada (Melhor Envio)<input id="pgcod" placeholder="vai ser automático na próxima etapa"></label>
+        <div style="display:flex;gap:8px;margin-top:16px"><span style="flex:1"></span><button class="btn" onclick="fecha()">Cancelar</button><button class="btn p" id="pgok">✅ Paguei e gerei a etiqueta</button></div>`);
+      if($('#pgpx'))$('#pgpx').onclick=()=>copia(c.pix,'Pix copiado');
+      $('#pgok').onclick=()=>{ fecha(); up(c.id,{status:'etiqueta',etiqueta_codigo:$('#pgcod')?$('#pgcod').value:''},'✅ Pago e etiqueta registrados'); }; return; }
+    if(a==='postou'){ const r=prompt('Código de rastreio (pode deixar vazio):',c.rastreio||''); if(r===null)return; up(c.id,{status:'a_caminho',rastreio:r},'Marcado: a caminho'); return; }
+    if(a==='recebeu'){ if(confirm('Confirmar que a bomba chegou?'))up(c.id,{status:'recebida'},'✅ Bomba recebida'); }
+  });
+}
+function editaCompra(c,foco){
+  const n=!c; c=c||{canal:'whatsapp',origem:'anuncio',valor:250};
+  modal(`<h3>${n?'Novo contato — compra de bomba':foco==='modelo'?'Confirmar modelo':foco==='dados'?'Dados para a etiqueta':'Editar compra'}</h3>
+   <div style="${foco==='dados'?'display:none':''}">
+   <label class="f">Nome<input id="ec_nome" value="${esc(c.nome||'')}"></label>
+   <label class="f">WhatsApp (com DDD)<input id="ec_zap" inputmode="tel" value="${esc(foneTx(c.whatsapp||''))}"></label>
+   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><label class="f">Chegou por<select id="ec_can">${[['whatsapp','WhatsApp'],['messenger','Messenger'],['instagram','Instagram'],['outro','Outro']].map(([k,l])=>`<option value="${k}" ${c.canal===k?'selected':''}>${l}</option>`).join('')}</select></label>
+   <label class="f">Origem<select id="ec_ori">${[['anuncio','Anúncio do Facebook'],['organico','Orgânico'],['indicacao','Indicação']].map(([k,l])=>`<option value="${k}" ${c.origem===k?'selected':''}>${l}</option>`).join('')}</select></label></div>
+   <label class="f">Modelo da bomba<select id="ec_mod"><option value="">— ainda não confirmado —</option>${BMOD.map(m=>`<option value="${m.n}" ${Number(c.modelo)===m.n?'selected':''}>${esc(m.n+' · '+m.nome)}</option>`).join('')}</select></label>
+   <label class="f">Valor (R$)<input id="ec_val" inputmode="decimal" value="${c.valor??250}"></label></div>
+   <div style="${foco==='modelo'?'display:none':''}">
+   <label class="f">CPF<input id="ec_cpf" inputmode="numeric" value="${esc(c.cpf||'')}"></label>
+   <div style="display:grid;grid-template-columns:1fr 2fr;gap:10px"><label class="f">CEP<input id="ec_cep" inputmode="numeric" value="${esc(c.cep||'')}"></label>
+   <label class="f">Endereço (rua, nº, bairro, cidade)<input id="ec_end" value="${esc(c.endereco||'')}"></label></div>
+   <label class="f">Chave Pix<input id="ec_pix" value="${esc(c.pix||'')}"></label></div>
+   <label class="f">Observação<textarea id="ec_obs" rows="2">${esc(c.obs||'')}</textarea></label>
+   <div style="display:flex;gap:8px;margin-top:16px">${!n&&S.user.papel==='admin'&&!foco?'<button class="btn red" id="ec_del">Excluir</button>':''}<span style="flex:1"></span><button class="btn" onclick="fecha()">Cancelar</button><button class="btn p" id="ec_ok">Salvar</button></div>`);
+  if($('#ec_del'))$('#ec_del').onclick=async()=>{ if(!confirm('Excluir este contato?'))return; await api('/compras/'+c.id,{method:'DELETE'}); fecha(); compras(); };
+  $('#ec_ok').onclick=async()=>{
+    const b={nome:$('#ec_nome').value,whatsapp:$('#ec_zap').value,canal:$('#ec_can').value,origem:$('#ec_ori').value,modelo:$('#ec_mod').value,valor:String($('#ec_val').value).replace(',','.'),cpf:$('#ec_cpf').value,cep:$('#ec_cep').value,endereco:$('#ec_end').value,pix:$('#ec_pix').value,obs:$('#ec_obs').value};
+    if(foco==='modelo'){ if(!b.modelo){ toast('Escolha o modelo'); return; } b.status='modelo_ok'; }
+    if(foco==='dados'){ if(!b.cpf||!b.cep||!b.endereco){ toast('Preencha CPF, CEP e endereço'); return; } b.status='dados_ok'; }
+    try{ const r=await api(n?'/compras':'/compras/'+c.id,{method:n?'POST':'PATCH',body:b}); fecha(); toast(gMsg(r)); compras(); }catch(e){ toast(e.message); } };
 }
 
 // ---------- Mover / Conferir com o leitor ----------
